@@ -8,6 +8,7 @@ const SCHEMA = `
     id TEXT PRIMARY KEY,
     type TEXT NOT NULL,
     name TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
     tags TEXT NOT NULL DEFAULT '[]',
     authority_level INTEGER NOT NULL DEFAULT 0,
     priority INTEGER NOT NULL DEFAULT 1,
@@ -77,6 +78,7 @@ export interface SavedNode {
   id: string;
   type: string;
   name: string;
+  description: string;
   tags: string;
   authority_level: number;
   priority: number;
@@ -101,8 +103,8 @@ export function saveNode(
   node: SavedNode,
 ): void {
   db.prepare(`
-    INSERT OR REPLACE INTO node_instances (id, type, name, tags, authority_level, priority, transport, config_overrides, position_x, position_y, created_at)
-    VALUES (@id, @type, @name, @tags, @authority_level, @priority, @transport, @config_overrides, @position_x, @position_y, @created_at)
+    INSERT OR REPLACE INTO node_instances (id, type, name, description, tags, authority_level, priority, transport, config_overrides, position_x, position_y, created_at)
+    VALUES (@id, @type, @name, @description, @tags, @authority_level, @priority, @transport, @config_overrides, @position_x, @position_y, @created_at)
   `).run(node);
 }
 

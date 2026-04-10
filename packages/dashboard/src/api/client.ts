@@ -123,11 +123,11 @@ export interface SeedInfo {
 }
 
 export function getSeeds(): Promise<SeedInfo[]> {
-  return request("/seeds");
+  return request("/network/seeds");
 }
 
 export function applySeed(name: string): Promise<{ seeded: number; seed: string }> {
-  return request(`/seeds/${name}/apply`, { method: "POST" });
+  return request(`/network/seeds/${name}/apply`, { method: "POST" });
 }
 
 // === History ===

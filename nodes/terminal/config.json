@@ -1,0 +1,9 @@
+{
+  "name": "terminal",
+  "description": "Executes shell commands received via messages and publishes stdout/stderr. Configure allowed_commands and cwd via config_overrides.",
+  "tags": ["utility", "shell", "terminal"],
+  "default_authority": 1,
+  "default_priority": 3,
+  "default_subscriptions": [],
+  "supports_transport": ["process"]
+}

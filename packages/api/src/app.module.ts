@@ -7,17 +7,25 @@ import { SeedsController } from "./rest/seeds.controller";
 import { DashboardGateway } from "./ws/dashboard.gateway";
 import * as path from "path";
 
+// Resolve paths relative to monorepo root, not the api package cwd
+const MONOREPO_ROOT = path.resolve(__dirname, "../../..");
+
+function resolveFromRoot(envVar: string | undefined, fallback: string): string {
+  const raw = envVar ?? fallback;
+  if (path.isAbsolute(raw)) return raw;
+  return path.resolve(MONOREPO_ROOT, raw);
+}
+
 const brainServiceProvider = {
   provide: BrainService,
   useFactory: (): BrainService => {
-    const dbPath = process.env.BRAIN_DB_PATH ?? undefined;
+    const dbPath = resolveFromRoot(process.env.BRAIN_DB_PATH, "data/brain.db");
     const brain = new BrainService(dbPath);
 
-    const nodesDir = path.resolve(__dirname, "../../../nodes");
+    const nodesDir = resolveFromRoot(process.env.BRAIN_NODES_DIR, "nodes");
     brain.bootstrap(nodesDir);
 
-    const seedsDir = process.env.BRAIN_SEEDS_DIR
-      ?? path.resolve(__dirname, "../../../seeds");
+    const seedsDir = resolveFromRoot(process.env.BRAIN_SEEDS_DIR, "seeds");
     brain.setSeedsDir(seedsDir);
 
     return brain;

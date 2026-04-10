@@ -1,0 +1,9 @@
+{
+  "name": "http-bridge",
+  "description": "Bridges the network to HTTP. Receives messages on subscribed topics and makes HTTP requests. Publishes responses back.",
+  "tags": ["utility", "http", "bridge"],
+  "default_authority": 0,
+  "default_priority": 3,
+  "default_subscriptions": [],
+  "supports_transport": ["process"]
+}

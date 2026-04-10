@@ -2,16 +2,24 @@ nodes:
   - type: clock
     name: fast-clock
     priority: 1
+    position:
+      x: 100
+      y: 100
 
   - type: clock
     name: slow-clock
     priority: 1
+    position:
+      x: 100
+      y: 300
 
   - type: echo
     name: echo-all
+    position:
+      x: 450
+      y: 200
     subscriptions:
       - topic: "time.*"
-      - topic: "echo.*"
         mailbox:
           max_size: 50
           retention: lowest_priority

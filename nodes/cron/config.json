@@ -1,0 +1,10 @@
+{
+  "name": "cron",
+  "description": "Publishes a configurable message at a configurable interval. Set topic, content, criticality, and interval via config_overrides.",
+  "tags": ["utility", "scheduler"],
+  "default_authority": 0,
+  "default_priority": 1,
+  "default_subscriptions": [],
+  "interval": "10s",
+  "supports_transport": ["process"]
+}

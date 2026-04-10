@@ -8,7 +8,7 @@ import {
 } from "@nestjs/common";
 import { BrainService, type SeedInfo } from "@brain/core";
 
-@Controller("seeds")
+@Controller("network/seeds")
 export class SeedsController {
   constructor(private readonly brain: BrainService) {}
 

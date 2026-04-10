@@ -2,7 +2,7 @@
   "name": "brain-monorepo",
   "private": true,
   "scripts": {
-    "start": "concurrently -n api,dashboard -c blue,magenta \"pnpm --filter @brain/api dev\" \"pnpm --filter @brain/dashboard dev\"",
+    "start": "concurrently -n api,dashboard -c blue,magenta \"pnpm --filter @brain/api dev\" \"wait-on http-get://localhost:${API_PORT:-3000}/network -t 30000 && pnpm --filter @brain/dashboard dev\"",
     "dev:api": "pnpm --filter @brain/api dev",
     "dev:dashboard": "pnpm --filter @brain/dashboard dev",
     "build": "pnpm -r build",
@@ -20,6 +20,7 @@
     "concurrently": "^9.2.1",
     "eslint": "^10.2.0",
     "eslint-config-prettier": "^10.1.8",
-    "eslint-plugin-react-hooks": "^7.0.1"
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "wait-on": "^9.0.5"
   }
 }

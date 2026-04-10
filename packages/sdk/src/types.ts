@@ -88,6 +88,7 @@ export interface NodeInfo {
   id: string;
   type: string;
   name: string;
+  description: string;
   tags: string[];
   authority_level: AuthorityLevel;
   state: NodeState;
@@ -95,6 +96,7 @@ export interface NodeInfo {
   subscriptions: SubscriptionConfig[];
   transport: TransportMode;
   position: { x: number; y: number };
+  config_overrides?: Record<string, unknown>;
   spawned_by?: string;
   ttl?: number;
   created_at: number;
