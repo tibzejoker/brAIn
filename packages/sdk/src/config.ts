@@ -24,6 +24,7 @@ export interface NodeTypeConfig {
 export interface NodeInstanceConfig {
   type: string;
   name: string;
+  description?: string;
   tags?: string[];
   subscriptions?: Array<{
     topic: string;

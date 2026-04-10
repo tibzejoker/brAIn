@@ -13,6 +13,7 @@ interface SeedSubscription {
 interface SeedNode {
   type: string;
   name: string;
+  description?: string;
   tags?: string[];
   subscriptions?: SeedSubscription[];
   priority?: number;
@@ -143,6 +144,7 @@ export function loadSeedFile(filePath: string): NodeInstanceConfig[] {
   return config.nodes.map((node): NodeInstanceConfig => ({
     type: node.type,
     name: node.name,
+    description: node.description,
     tags: node.tags,
     subscriptions: node.subscriptions?.map((s) => ({
       topic: s.topic,

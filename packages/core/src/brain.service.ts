@@ -149,6 +149,7 @@ export class BrainService extends EventEmitter {
       id: uuid(),
       type: config.type,
       name: config.name,
+      description: config.description ?? typeConfig.description,
       tags: config.tags ?? typeConfig.tags,
       authority_level:
         config.authority_level ?? typeConfig.default_authority,
@@ -157,6 +158,7 @@ export class BrainService extends EventEmitter {
       subscriptions: config.subscriptions ?? typeConfig.default_subscriptions,
       transport: config.transport ?? "process",
       position: config.position ?? { x: 0, y: 0 },
+      config_overrides: config.config_overrides,
       spawned_by: callerNodeId,
       ttl: config.ttl ? this.sleepService.parseInterval(config.ttl) : undefined,
       created_at: Date.now(),
@@ -167,6 +169,7 @@ export class BrainService extends EventEmitter {
       id: nodeInfo.id,
       type: nodeInfo.type,
       name: nodeInfo.name,
+      description: nodeInfo.description,
       tags: JSON.stringify(nodeInfo.tags),
       authority_level: nodeInfo.authority_level,
       priority: nodeInfo.priority,
@@ -429,6 +432,7 @@ export class BrainService extends EventEmitter {
         id: saved.id,
         type: saved.type,
         name: saved.name,
+        description: saved.description || typeConfig?.description || saved.type,
         tags,
         authority_level: saved.authority_level,
         state: NodeState.ACTIVE,
@@ -436,6 +440,7 @@ export class BrainService extends EventEmitter {
         subscriptions,
         transport: saved.transport as "process" | "container",
         position: { x: saved.position_x, y: saved.position_y },
+        config_overrides: JSON.parse(saved.config_overrides) as Record<string, unknown>,
         created_at: saved.created_at,
       };
 

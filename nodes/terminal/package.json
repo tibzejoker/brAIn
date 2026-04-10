@@ -1,0 +1,17 @@
+{
+  "name": "@brain/node-terminal",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/handler.js",
+  "types": "dist/handler.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@brain/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

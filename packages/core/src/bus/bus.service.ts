@@ -37,8 +37,9 @@ export class BusService extends EventEmitter {
       this.messageHistory.shift();
     }
 
-    // Route to matching subscriptions
+    // Route to matching subscriptions (skip sender to prevent self-loops)
     for (const [nodeId, nodeSubs] of this.subscriptions) {
+      if (nodeId === message.from) continue;
       for (const [, sub] of nodeSubs) {
         if (!matchTopic(sub.pattern, message.topic)) continue;
         if (
