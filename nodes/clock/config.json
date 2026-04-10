@@ -1,0 +1,10 @@
+{
+  "name": "clock",
+  "description": "Publishes current time on time.tick every second",
+  "tags": ["utility", "time"],
+  "default_authority": 0,
+  "default_priority": 1,
+  "default_subscriptions": [],
+  "interval": "1s",
+  "supports_transport": ["process"]
+}

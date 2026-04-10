@@ -1,0 +1,18 @@
+{
+  "name": "@brain/node-echo",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/handler.js",
+  "types": "dist/handler.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@brain/sdk": "workspace:*",
+    "pino": "^10.3.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.4.0"
+  }
+}

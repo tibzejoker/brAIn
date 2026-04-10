@@ -1,0 +1,9 @@
+{
+  "name": "echo",
+  "description": "Logs received messages and republishes them on echo.output",
+  "tags": ["utility", "debug"],
+  "default_authority": 0,
+  "default_priority": 1,
+  "default_subscriptions": [],
+  "supports_transport": ["process"]
+}

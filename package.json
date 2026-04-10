@@ -1,0 +1,25 @@
+{
+  "name": "brain-monorepo",
+  "private": true,
+  "scripts": {
+    "start": "concurrently -n api,dashboard -c blue,magenta \"pnpm --filter @brain/api dev\" \"pnpm --filter @brain/dashboard dev\"",
+    "dev:api": "pnpm --filter @brain/api dev",
+    "dev:dashboard": "pnpm --filter @brain/dashboard dev",
+    "build": "pnpm -r build",
+    "clean": "pnpm -r exec rm -rf dist",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@typescript-eslint/eslint-plugin": "^8.58.1",
+    "@typescript-eslint/parser": "^8.58.1",
+    "concurrently": "^9.2.1",
+    "eslint": "^10.2.0",
+    "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.0.1"
+  }
+}
