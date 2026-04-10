@@ -42,6 +42,15 @@ export class AppModule implements OnModuleInit {
   constructor(private readonly brain: BrainService) {}
 
   async onModuleInit(): Promise<void> {
+    // Initialize LLM + CLI providers (non-blocking checks)
+    await this.brain.initializeProviders();
+    const statuses = this.brain.getProviderStatuses();
+    const llmAvail = statuses.llm.filter((s) => s.available).map((s) => s.name);
+    const cliAvail = statuses.cli.filter((s) => s.available).map((s) => s.name);
+    this.log.log(`LLM providers: ${llmAvail.length > 0 ? llmAvail.join(", ") : "none"}`);
+    this.log.log(`CLI agents: ${cliAvail.length > 0 ? cliAvail.join(", ") : "none"}`);
+
+    // Restore persisted nodes from DB
     const restored = await this.brain.restore();
     if (restored > 0) {
       this.log.log(`Restored ${restored} nodes from database`);

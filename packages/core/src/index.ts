@@ -8,3 +8,5 @@ export { getDb, closeDb } from "./db";
 export type { HistoryEntry, HistoryAction } from "./db";
 export { loadSeedFile, scanSeedsDirectory } from "./seed";
 export type { SeedInfo, ValidationError } from "./seed";
+export { LLMRegistry, CLIRegistry, generateText } from "./llm";
+export type { ProviderStatus, CLIStatus } from "./llm";

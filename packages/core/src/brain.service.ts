@@ -27,6 +27,8 @@ import {
   type HistoryAction,
 } from "./db";
 import { loadSeedFile, scanSeedsDirectory, type SeedInfo } from "./seed";
+import { LLMRegistry, type ProviderStatus } from "./llm/llm-registry";
+import { CLIRegistry, type CLIStatus } from "./llm/cli-registry";
 
 export class BrainService extends EventEmitter {
   readonly bus: BusService;
@@ -38,6 +40,8 @@ export class BrainService extends EventEmitter {
   private readonly runners = new Map<string, NodeRunner>();
   private readonly db: Database.Database;
   private seedsDir?: string;
+  readonly llm = LLMRegistry.getInstance();
+  readonly cli = CLIRegistry.getInstance();
 
   constructor(dbPath?: string) {
     super();
@@ -561,6 +565,20 @@ export class BrainService extends EventEmitter {
     if (!this.seedsDir) return [];
     const knownTypes = new Set(this.typeRegistry.list().map((t) => t.name));
     return scanSeedsDirectory(this.seedsDir, knownTypes);
+  }
+
+  async initializeProviders(): Promise<void> {
+    await Promise.allSettled([
+      this.llm.initialize(),
+      this.cli.initialize(),
+    ]);
+  }
+
+  getProviderStatuses(): { llm: ProviderStatus[]; cli: CLIStatus[] } {
+    return {
+      llm: this.llm.getStatuses(),
+      cli: this.cli.getStatuses(),
+    };
   }
 
   private async loadHandler(typeName: string, typePath: string): Promise<NodeHandler> {

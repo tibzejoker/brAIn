@@ -1,0 +1,9 @@
+{
+  "name": "llm-cli",
+  "description": "Executes prompts via CLI agents (Claude Code, Codex, Gemini CLI). These agents have full filesystem/git access. Configure which CLI to use via config_overrides.",
+  "tags": ["llm", "ai", "cli", "agent"],
+  "default_authority": 1,
+  "default_priority": 5,
+  "default_subscriptions": [],
+  "supports_transport": ["process"]
+}
