@@ -46,6 +46,7 @@ export const handler: NodeHandler = async (ctx) => {
   }));
 
   try {
+    await registry.initialize();
     const model = registry.getModel(config.model);
 
     const result = await generateText({

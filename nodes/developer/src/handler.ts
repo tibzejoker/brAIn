@@ -123,6 +123,8 @@ Respond with ONE tool call at a time as JSON. After seeing the result, make the 
     let registeredPath: string | undefined;
 
     try {
+      // Ensure registry is initialized (may be a fresh process)
+      await registry.initialize();
       const model = registry.getModel(config.model);
 
       for (let step = 0; step < config.max_steps; step++) {
