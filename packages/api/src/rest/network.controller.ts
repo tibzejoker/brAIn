@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Body, Query, HttpException, HttpStatus } from "@nestjs/common";
-import { BrainService, type HistoryEntry } from "@brain/core";
+import { BrainService, type HistoryEntry, type ProviderStatus, type CLIStatus } from "@brain/core";
 import { type Message, type NodeInfo, type NodeState } from "@brain/sdk";
 
 interface NodeSnapshot extends Omit<NodeInfo, "subscriptions"> {
@@ -83,5 +83,10 @@ export class NetworkController {
     const killed = this.brain.killAll();
     this.brain.resetDb();
     return { killed };
+  }
+
+  @Get("providers")
+  providers(): { llm: ProviderStatus[]; cli: CLIStatus[] } {
+    return this.brain.getProviderStatuses();
   }
 }
