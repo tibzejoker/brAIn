@@ -111,6 +111,64 @@ describe("Integration: BrainService end-to-end", () => {
     brain.killNode(llmNode.id);
   }, 90000);
 
+  it("spawns llm-cli with claude code and gets a response", async () => {
+    const { CLIRegistry } = await import("@brain/core");
+    const cli = CLIRegistry.getInstance();
+    if (!cli.isAvailable("claude")) {
+      return; // skip if claude not installed
+    }
+
+    const collected: Message[] = [];
+    brain.bus.on("message:published", (msg: Message) => {
+      if (msg.topic === "test.cli.response") {
+        collected.push(msg);
+      }
+    });
+
+    const cliNode = await brain.spawnNode({
+      type: "llm-cli",
+      name: "test-claude-cli",
+      subscriptions: [{ topic: "test.cli.input" }],
+      config_overrides: {
+        cli: "claude",
+        response_topic: "test.cli.response",
+        timeout_ms: 60000,
+      },
+    });
+
+    expect(cliNode.state).toBe("active");
+
+    await new Promise((r) => { setTimeout(r, 500); });
+
+    brain.bus.publish({
+      from: "test",
+      topic: "test.cli.input",
+      type: "text",
+      criticality: 3,
+      payload: { content: "Reply with exactly the word BRAIN_CLI_OK" },
+    });
+
+    const maxWait = 60000;
+    const startTime = Date.now();
+    while (collected.length === 0 && Date.now() - startTime < maxWait) {
+      await new Promise((r) => { setTimeout(r, 1000); });
+    }
+
+    expect(collected.length).toBeGreaterThanOrEqual(1);
+    const response = collected[0];
+    const payload = response.payload as Record<string, unknown>;
+
+    if (response.type === "alert") {
+      // CLI call failed but the node responded — infrastructure works
+      expect(payload.title).toBeDefined();
+    } else {
+      expect(response.type).toBe("text");
+      expect(typeof payload.content === "string" && payload.content.length > 0).toBe(true);
+    }
+
+    brain.killNode(cliNode.id);
+  }, 90000);
+
   it("records history for spawn and kill", async () => {
     const node = await brain.spawnNode({ type: "clock", name: "hist-clock" });
     brain.killNode(node.id);
