@@ -1,0 +1,12 @@
+{
+  "name": "brain",
+  "description": "Central consciousness node. Inspects the network, manages node lifecycle, rewires subscriptions, reflects, and orchestrates the entire brAIn network. Has root authority.",
+  "tags": ["consciousness", "orchestrator", "llm", "root"],
+  "default_authority": 2,
+  "default_priority": 10,
+  "default_subscriptions": [
+    { "topic": "brain.*" },
+    { "topic": "alerts.*" }
+  ],
+  "supports_transport": ["process"]
+}
