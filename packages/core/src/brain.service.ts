@@ -31,6 +31,8 @@ import { LLMRegistry, type ProviderStatus } from "./llm/llm-registry";
 import { CLIRegistry, type CLIStatus } from "./llm/cli-registry";
 
 export class BrainService extends EventEmitter {
+  static current: BrainService | null = null;
+
   readonly bus: BusService;
   readonly typeRegistry: TypeRegistry;
   readonly instanceRegistry: InstanceRegistry;
@@ -45,6 +47,7 @@ export class BrainService extends EventEmitter {
 
   constructor(dbPath?: string) {
     super();
+    BrainService.current = this;
     this.db = getDb(dbPath);
     this.bus = new BusService();
     this.typeRegistry = new TypeRegistry();
