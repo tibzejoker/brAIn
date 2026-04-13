@@ -8,6 +8,8 @@ type NodeBlockData = Node<{
   tags: string[];
   hasUi: boolean;
   onOpenUi?: () => void;
+  subscribes: string[];
+  publishes: string[];
 }>;
 
 const STATE_COLORS: Record<string, string> = {
@@ -24,6 +26,16 @@ const STATE_DOTS: Record<string, string> = {
   terminated: "bg-node-terminated",
 };
 
+/** Deterministic color from a string — same topic always gets the same hue */
+function topicColor(topic: string): string {
+  let hash = 0;
+  for (let i = 0; i < topic.length; i++) {
+    hash = topic.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue}, 70%, 65%)`;
+}
+
 export function NodeBlock({ data, selected }: NodeProps<NodeBlockData>): React.ReactElement {
   const borderColor = STATE_COLORS[data.state] ?? "border-border";
   const dotColor = STATE_DOTS[data.state] ?? "bg-node-terminated";
@@ -31,28 +43,35 @@ export function NodeBlock({ data, selected }: NodeProps<NodeBlockData>): React.R
   return (
     <div
       className={`
-        px-4 py-3 rounded-lg border-2 bg-surface-raised
+        relative px-4 py-3 rounded-lg border-2 bg-surface-raised
         ${borderColor}
         ${selected ? "ring-2 ring-accent ring-offset-1 ring-offset-surface" : ""}
         min-w-[200px] cursor-pointer transition-shadow hover:shadow-lg
       `}
     >
-      <Handle type="target" position={Position.Left} className="opacity-0" />
+      {/* Left handles — one per subscription */}
+      {data.subscribes.map((topic, i) => (
+        <Handle
+          key={`in-${topic}`}
+          type="target"
+          position={Position.Left}
+          id={`in-${topic}`}
+          style={{ top: `${20 + i * 16}px`, background: topicColor(topic) }}
+          className="!w-2 !h-2 !border-0"
+        />
+      ))}
+      {data.subscribes.length === 0 && (
+        <Handle type="target" position={Position.Left} id="in-default" className="opacity-0" />
+      )}
 
+      {/* Header */}
       <div className="flex items-center gap-2 mb-1">
         <span className={`w-2.5 h-2.5 rounded-full ${dotColor} shrink-0`} />
-        <span className="font-semibold text-sm text-text truncate">
-          {data.label}
-        </span>
+        <span className="font-semibold text-sm text-text truncate">{data.label}</span>
       </div>
 
       <div className="flex items-center gap-2 text-xs text-text-muted">
-        <span className="px-1.5 py-0.5 rounded bg-surface-overlay">
-          {data.nodeType}
-        </span>
-        <span className="px-1.5 py-0.5 rounded bg-surface-overlay">
-          {data.transport}
-        </span>
+        <span className="px-1.5 py-0.5 rounded bg-surface-overlay">{data.nodeType}</span>
         {data.hasUi && (
           <button
             onClick={(e) => { e.stopPropagation(); (data.onOpenUi as (() => void) | undefined)?.(); }}
@@ -63,20 +82,44 @@ export function NodeBlock({ data, selected }: NodeProps<NodeBlockData>): React.R
         )}
       </div>
 
-      {data.tags.length > 0 && (
-        <div className="flex flex-wrap gap-1 mt-1.5">
-          {data.tags.slice(0, 3).map((tag: string) => (
-            <span
-              key={tag}
-              className="px-1 py-0.5 text-[10px] rounded bg-surface-overlay text-text-muted"
-            >
-              {tag}
-            </span>
+      {/* Subscriptions (left side labels) */}
+      {data.subscribes.length > 0 && (
+        <div className="mt-1.5 space-y-0.5">
+          {data.subscribes.map((topic) => (
+            <div key={topic} className="flex items-center gap-1">
+              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: topicColor(topic) }} />
+              <span className="text-[9px] text-text-muted truncate">{topic}</span>
+            </div>
           ))}
         </div>
       )}
 
-      <Handle type="source" position={Position.Right} className="opacity-0" />
+      {/* Publishes (right side labels) */}
+      {data.publishes.length > 0 && (
+        <div className="mt-1 space-y-0.5">
+          {data.publishes.map((topic) => (
+            <div key={topic} className="flex items-center justify-end gap-1">
+              <span className="text-[9px] text-text-muted truncate">{topic}</span>
+              <span className="w-1.5 h-1.5 rounded-full shrink-0" style={{ background: topicColor(topic) }} />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Right handles — one per publish topic */}
+      {data.publishes.map((topic, i) => (
+        <Handle
+          key={`out-${topic}`}
+          type="source"
+          position={Position.Right}
+          id={`out-${topic}`}
+          style={{ top: `${20 + i * 16}px`, background: topicColor(topic) }}
+          className="!w-2 !h-2 !border-0"
+        />
+      ))}
+      {data.publishes.length === 0 && (
+        <Handle type="source" position={Position.Right} id="out-default" className="opacity-0" />
+      )}
     </div>
   );
 }

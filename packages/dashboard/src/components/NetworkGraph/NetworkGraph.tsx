@@ -53,6 +53,17 @@ function snapshotToFlowNode(
   onOpenUi: (id: string) => void,
 ): Node {
   const typeConfig = typeMap.get(n.type);
+  const co = n.config_overrides ?? {} as Record<string, unknown>;
+
+  // Resolve publish topics: instance override > type default
+  const publishes: string[] = [];
+  if (typeof co.response_topic === "string") publishes.push(co.response_topic);
+  else if (typeof co.topic === "string") publishes.push(co.topic);
+  else if (typeConfig?.default_publishes) publishes.push(...typeConfig.default_publishes);
+
+  // Subscriptions from the node
+  const subscribes = n.subscriptions.map((s) => s.pattern);
+
   return {
     id: n.id,
     type: "brainNode",
@@ -65,8 +76,18 @@ function snapshotToFlowNode(
       tags: n.tags,
       hasUi: typeConfig?.has_ui ?? false,
       onOpenUi: () => { onOpenUi(n.id); },
+      subscribes,
+      publishes,
     },
   };
+}
+
+function topicColor(topic: string): string {
+  let hash = 0;
+  for (let i = 0; i < topic.length; i++) {
+    hash = topic.charCodeAt(i) + ((hash << 5) - hash);
+  }
+  return `hsl(${Math.abs(hash) % 360}, 70%, 65%)`;
 }
 
 function matchWildcard(pattern: string, topic: string): boolean {
@@ -112,71 +133,54 @@ function inferPublishTopics(n: NodeSnapshot, typeMap: Map<string, NodeTypeConfig
 
 function buildEdges(snapshots: NodeSnapshot[], flows: Flow[], types: NodeTypeConfig[]): Edge[] {
   const typeMap = new Map(types.map((t) => [t.name, t]));
-  const edgeMap = new Map<string, { topics: Set<string>; active: boolean }>();
+  const edges: Edge[] = [];
+  const seen = new Set<string>();
 
-  // Active flows from real messages
-  const activeFlows = new Map<string, Set<string>>();
+  // Active flow pairs for animation
+  const activeFlows = new Set<string>();
   for (const flow of flows) {
-    const key = `${flow.sourceId}->${flow.targetId}`;
-    const existing = activeFlows.get(key);
-    if (existing) {
-      existing.add(flow.topic);
-    } else {
-      activeFlows.set(key, new Set([flow.topic]));
-    }
+    activeFlows.add(`${flow.sourceId}->${flow.targetId}`);
   }
 
-  // Match inferred publish topics against subscriptions
+  // For each publisher, match its publish topics to subscriber patterns
   for (const publisher of snapshots) {
     const pubTopics = inferPublishTopics(publisher, typeMap);
-    if (pubTopics.length === 0) continue;
 
-    for (const subscriber of snapshots) {
-      if (subscriber.id === publisher.id) continue;
+    for (const pubTopic of pubTopics) {
+      for (const subscriber of snapshots) {
+        if (subscriber.id === publisher.id) continue;
 
-      const matchedPatterns = new Set<string>();
-      for (const sub of subscriber.subscriptions) {
-        for (const pubTopic of pubTopics) {
-          if (matchWildcard(sub.pattern, pubTopic)) {
-            matchedPatterns.add(sub.pattern);
-          }
+        for (const sub of subscriber.subscriptions) {
+          if (!matchWildcard(sub.pattern, pubTopic)) continue;
+
+          const edgeId = `${publisher.id}:${pubTopic}->${subscriber.id}:${sub.pattern}`;
+          if (seen.has(edgeId)) continue;
+          seen.add(edgeId);
+
+          const active = activeFlows.has(`${publisher.id}->${subscriber.id}`);
+          const color = topicColor(pubTopic);
+
+          edges.push({
+            id: edgeId,
+            source: publisher.id,
+            target: subscriber.id,
+            sourceHandle: `out-${pubTopic}`,
+            targetHandle: `in-${sub.pattern}`,
+            type: "smoothstep" as const,
+            animated: active,
+            style: {
+              stroke: color,
+              strokeWidth: active ? 2 : 1,
+              strokeDasharray: active ? undefined : "5 5",
+              opacity: active ? 1 : 0.5,
+            },
+          });
         }
       }
-
-      if (matchedPatterns.size > 0) {
-        const key = `${publisher.id}->${subscriber.id}`;
-        const flowTopics = activeFlows.get(key);
-        edgeMap.set(key, {
-          topics: matchedPatterns,
-          active: flowTopics !== undefined && flowTopics.size > 0,
-        });
-      }
     }
   }
 
-  // Add any flow-based edges not captured by inference
-  for (const [key, topics] of activeFlows) {
-    if (!edgeMap.has(key)) {
-      edgeMap.set(key, { topics, active: true });
-    }
-  }
-
-  return Array.from(edgeMap.entries()).map(([key, { topics, active }]) => {
-    const [source, target] = key.split("->");
-    return {
-      id: key,
-      source,
-      target,
-      label: Array.from(topics).join(", "),
-      animated: active,
-      style: {
-        stroke: active ? "var(--color-accent)" : "var(--color-border-bright)",
-        strokeWidth: active ? 2 : 1,
-        strokeDasharray: active ? undefined : "5 5",
-      },
-      labelStyle: { fill: "var(--color-text-muted)", fontSize: 10 },
-    };
-  });
+  return edges;
 }
 
 export function NetworkGraph({
