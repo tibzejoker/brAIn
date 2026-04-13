@@ -51,7 +51,7 @@ interface BrainConfig {
 
 function getConfig(overrides: Record<string, unknown>): BrainConfig {
   return {
-    model: (overrides.model as string | undefined) ?? "ollama/gemma4:e2b",
+    model: (overrides.model as string | undefined) ?? "ollama/gemma4:e4b",
     max_steps: (overrides.max_steps as number | undefined) ?? 10,
     idle_sleep: (overrides.idle_sleep as string | undefined) ?? "30s",
     response_topic: (overrides.response_topic as string | undefined) ?? "brain.output",

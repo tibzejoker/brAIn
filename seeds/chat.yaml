@@ -22,7 +22,7 @@ nodes:
     subscriptions:
       - topic: "chat.input"
     config_overrides:
-      model: "ollama/gemma4:e2b"
+      model: "ollama/gemma4:e4b"
       response_topic: "chat.response"
       idle_sleep: "1m"
       max_steps: 5
