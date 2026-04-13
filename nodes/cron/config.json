@@ -5,6 +5,7 @@
   "default_authority": 0,
   "default_priority": 1,
   "default_subscriptions": [],
+  "default_publishes": ["cron.tick"],
   "interval": "10s",
   "supports_transport": ["process"]
 }

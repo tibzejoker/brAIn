@@ -1,8 +1,9 @@
 import { useCallback, useState, useEffect, useRef } from "react";
 import type { NodeSnapshot } from "../api/types";
-import { killNode, stopNode, startNode, wakeNode, tickNode, getNodeLogs, type NodeLogEntry } from "../api/client";
+import { killNode, stopNode, startNode, wakeNode, tickNode, getNodeLogs, getNodeMailboxes, type NodeLogEntry, type MailboxInfo } from "../api/client";
 
-type PanelTab = "info" | "logs";
+function noop(): void { /* best-effort */ }
+type PanelTab = "info" | "logs" | "mailbox";
 
 interface NodePanelProps {
   node: NodeSnapshot;
@@ -48,19 +49,23 @@ export function NodePanel({
     [onAction],
   );
 
-  // Poll logs when on logs tab
+  const [mailboxes, setMailboxes] = useState<MailboxInfo[]>([]);
+
+  // Poll logs or mailboxes depending on active tab
   useEffect(() => {
-    if (tab !== "logs") return;
-
-    const fetchLogs = (): void => {
-      getNodeLogs(node.id, 100)
-        .then((data) => { setLogs(data); })
-        .catch(() => { /* silent */ });
-    };
-
-    fetchLogs();
-    const interval = setInterval(fetchLogs, 2000);
-    return (): void => { clearInterval(interval); };
+    if (tab === "logs") {
+      const poll = (): void => { getNodeLogs(node.id, 100).then(setLogs).catch(noop); };
+      poll();
+      const iv = setInterval(poll, 2000);
+      return (): void => { clearInterval(iv); };
+    }
+    if (tab === "mailbox") {
+      const poll = (): void => { getNodeMailboxes(node.id).then(setMailboxes).catch(noop); };
+      poll();
+      const iv = setInterval(poll, 3000);
+      return (): void => { clearInterval(iv); };
+    }
+    return undefined;
   }, [tab, node.id]);
 
   // Auto-scroll logs
@@ -84,6 +89,7 @@ export function NodePanel({
       {/* Tabs */}
       <div className="flex border-b border-border">
         <TabButton label="Info" active={tab === "info"} onClick={() => setTab("info")} />
+        <TabButton label="Mailbox" active={tab === "mailbox"} onClick={() => setTab("mailbox")} />
         <TabButton label="Logs" active={tab === "logs"} onClick={() => setTab("logs")} />
       </div>
 
@@ -145,6 +151,35 @@ export function NodePanel({
                   {JSON.stringify(entry.data)}
                 </div>
               )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {tab === "mailbox" && (
+        <div className="flex-1 overflow-y-auto px-3 py-2">
+          {mailboxes.length === 0 && (
+            <div className="text-text-muted text-xs py-8 text-center">No mailboxes</div>
+          )}
+          {mailboxes.map((mb) => (
+            <div key={mb.pattern} className="mb-3">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs font-mono text-accent">{mb.pattern}</span>
+                <span className="text-[10px] text-text-muted">{mb.unread} unread / {mb.total} total</span>
+              </div>
+              {mb.messages.length === 0 && (
+                <div className="text-text-muted text-[10px] pl-2">Empty</div>
+              )}
+              {mb.messages.map((m) => (
+                <div key={m.id} className="pl-2 py-1 border-l-2 border-border/50 ml-1 mb-0.5">
+                  <div className="flex items-center gap-1.5 text-[10px]">
+                    <span className="text-text-muted font-mono">{new Date(m.timestamp).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</span>
+                    <span className={`font-bold ${m.criticality >= 7 ? "text-crit-high" : m.criticality >= 4 ? "text-crit-mid" : "text-crit-low"}`}>{m.criticality}</span>
+                    <span className="text-text-muted truncate">{m.topic}</span>
+                  </div>
+                  <div className="text-[10px] text-text font-mono truncate mt-0.5">{m.preview}</div>
+                </div>
+              ))}
             </div>
           ))}
         </div>

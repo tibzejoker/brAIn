@@ -14,6 +14,7 @@ export interface NodeTypeConfig {
     topic: string;
     mailbox?: Partial<MailboxConfig>;
   }>;
+  default_publishes?: string[];
   interval?: string;
   supports_transport: TransportMode[];
   origin?: "static" | "dynamic";

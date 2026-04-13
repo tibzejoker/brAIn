@@ -212,11 +212,14 @@ export class SleepService {
   }
 
   private checkWakeConditions(msg: Message): void {
-    // Copy keys to avoid mutation during iteration
     const entries = Array.from(this.sleepingNodes.entries());
     for (const [, sleeping] of entries) {
+      // First check if this message would actually reach the node's mailboxes
+      // (i.e. matches at least one of its bus subscriptions)
+      const nodeReaches = this.bus.wouldDeliver(sleeping.nodeId, msg);
+
       for (const cond of sleeping.conditions) {
-        if (cond.type === "any") {
+        if (cond.type === "any" && nodeReaches) {
           this.wake(sleeping.nodeId, msg);
           break;
         }

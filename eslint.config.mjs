@@ -103,6 +103,9 @@ export default [
       // === React hooks rules ===
       "react-hooks/rules-of-hooks": "error",
       "react-hooks/exhaustive-deps": "error",
+
+      // === File length limit ===
+      "max-lines": ["error", { max: 300, skipBlankLines: true, skipComments: true }],
     },
   },
   prettier,

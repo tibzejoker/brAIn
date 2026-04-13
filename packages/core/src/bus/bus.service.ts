@@ -195,6 +195,45 @@ export class BusService extends EventEmitter {
     return max;
   }
 
+  wouldDeliver(nodeId: string, msg: Message): boolean {
+    if (nodeId === msg.from) return false;
+    const nodeSubs = this.subscriptions.get(nodeId);
+    if (!nodeSubs) return false;
+    for (const [, sub] of nodeSubs) {
+      if (!matchTopic(sub.pattern, msg.topic)) continue;
+      if (sub.min_criticality !== undefined && msg.criticality < sub.min_criticality) continue;
+      return true;
+    }
+    return false;
+  }
+
+  getMailboxes(nodeId: string): Array<{
+    pattern: string;
+    total: number;
+    unread: number;
+    messages: Array<{ id: string; topic: string; criticality: number; from: string; timestamp: number; preview: string }>;
+  }> {
+    const nodeSubs = this.subscriptions.get(nodeId);
+    if (!nodeSubs) return [];
+    return Array.from(nodeSubs.values()).map((sub) => {
+      const all = sub.mailbox.readAll();
+      const unread = sub.mailbox.read({ mode: "unread", peek: true });
+      return {
+        pattern: sub.pattern,
+        total: all.length,
+        unread: unread.length,
+        messages: all.slice(-20).map((m) => ({
+          id: m.id,
+          topic: m.topic,
+          criticality: m.criticality,
+          from: m.from,
+          timestamp: m.timestamp,
+          preview: ((m.payload as { content?: string }).content ?? JSON.stringify(m.payload)).slice(0, 100),
+        })),
+      };
+    });
+  }
+
   getSubscriptions(nodeId: string): Array<{ id: string; pattern: string }> {
     const nodeSubs = this.subscriptions.get(nodeId);
     if (!nodeSubs) return [];

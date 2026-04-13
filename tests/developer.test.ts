@@ -49,7 +49,7 @@ describe("Developer node: creates a new node type", () => {
       },
     });
 
-    expect(devNode.state).toBe("active");
+    expect(["active", "sleeping"]).toContain(devNode.state);
 
     // Wait for the node to be ready
     await new Promise((r) => { setTimeout(r, 1000); });
