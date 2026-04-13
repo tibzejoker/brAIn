@@ -13,7 +13,7 @@ interface BrainConfig {
 
 function getConfig(overrides: Record<string, unknown>): BrainConfig {
   return {
-    model: (overrides.model as string | undefined) ?? "anthropic/claude-sonnet-4-6",
+    model: (overrides.model as string | undefined) ?? "ollama/gemma4:e2b",
     max_steps: (overrides.max_steps as number | undefined) ?? 10,
     idle_sleep: (overrides.idle_sleep as string | undefined) ?? "30s",
     response_topic: (overrides.response_topic as string | undefined) ?? "brain.output",
@@ -124,9 +124,12 @@ While sleeping, you'll only wake up if a message arrives on your subscribed topi
 
   try {
     await registry.initialize();
+    ctx.log("info", `LLM call → ${config.model} (${ctx.messages.length} messages)`);
     const model = registry.getModel(config.model);
 
     for (let step = 0; step < config.max_steps; step++) {
+      ctx.log("debug", `LLM step ${step + 1}/${config.max_steps}`);
+
       const result = await generateText({
         model,
         system: systemPrompt,
@@ -135,6 +138,7 @@ While sleeping, you'll only wake up if a message arrives on your subscribed topi
       });
 
       const text = result.text || (result as unknown as { reasoning?: string }).reasoning || "";
+      ctx.log("info", `LLM response (${text.length} chars): ${text.slice(0, 120)}`);
       conversation.push({ role: "assistant", content: text });
 
       // Check for sleep request
@@ -173,8 +177,9 @@ While sleeping, you'll only wake up if a message arrives on your subscribed topi
       }
 
       // Execute tool
-      log.info({ step, tool: toolCall.tool }, "Brain executing tool");
+      ctx.log("info", `Tool call: ${toolCall.tool}(${JSON.stringify(toolCall.args).slice(0, 100)})`);
       const toolResult = await executeBrainTool(toolCall.tool, toolCall.args, ctx.node.id);
+      ctx.log("info", `Tool result: ${JSON.stringify(toolResult).slice(0, 150)}`);
 
       conversation.push({
         role: "user",

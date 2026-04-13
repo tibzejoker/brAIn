@@ -11,7 +11,7 @@ interface LLMConfig {
 
 function getConfig(overrides: Record<string, unknown>): LLMConfig {
   return {
-    model: (overrides.model as string | undefined) ?? "anthropic/claude-haiku-4-5-20251001",
+    model: (overrides.model as string | undefined) ?? "ollama/gemma4:e2b",
     system_prompt: (overrides.system_prompt as string | undefined) ?? "You are a helpful assistant. Respond concisely.",
     response_topic: (overrides.response_topic as string | undefined) ?? "llm.response",
     max_tokens: (overrides.max_tokens as number | undefined) ?? 1024,
@@ -47,8 +47,8 @@ export const handler: NodeHandler = async (ctx) => {
 
   try {
     await registry.initialize();
+    ctx.log("info", `LLM call → ${config.model} (${userMessages.length} messages)`);
     const model = registry.getModel(config.model);
-
     const result = await generateText({
       model,
       system: config.system_prompt,
@@ -60,6 +60,7 @@ export const handler: NodeHandler = async (ctx) => {
     // Some models (e.g. gemma4:e2b) may put output in reasoning instead of text
     const reasoning = (result as unknown as { reasoning?: string }).reasoning;
     const content = result.text || reasoning || "";
+    ctx.log("info", `LLM response (${content.length} chars): ${content.slice(0, 120)}`);
 
     ctx.publish(config.response_topic, {
       type: "text",

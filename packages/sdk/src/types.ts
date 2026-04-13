@@ -200,6 +200,9 @@ export interface NodeContext {
   // Persistent local state between iterations
   state: Record<string, unknown>;
 
+  // Logging — writes to per-node log buffer (visible in dashboard)
+  log(level: "info" | "warn" | "error" | "debug", message: string, data?: Record<string, unknown>): void;
+
   // Metadata
   node: NodeInfo;
   iteration: number;

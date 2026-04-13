@@ -161,6 +161,19 @@ export function resetNetwork(): Promise<{ killed: number }> {
   return request("/network/reset", { method: "POST" });
 }
 
+// === Node logs ===
+
+export interface NodeLogEntry {
+  timestamp: number;
+  level: "info" | "warn" | "error" | "debug";
+  message: string;
+  data?: Record<string, unknown>;
+}
+
+export function getNodeLogs(id: string, last = 50): Promise<NodeLogEntry[]> {
+  return request(`/nodes/${id}/logs?last=${last}`);
+}
+
 // === Dev mode ===
 
 export function getDevMode(): Promise<{ enabled: boolean }> {

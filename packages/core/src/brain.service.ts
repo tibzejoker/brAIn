@@ -582,6 +582,12 @@ export class BrainService extends EventEmitter {
     return true;
   }
 
+  getNodeLogs(nodeId: string, last?: number): Array<{ timestamp: number; level: string; message: string; data?: Record<string, unknown> }> {
+    const runner = this.runners.get(nodeId);
+    if (!runner) return [];
+    return runner.getLogs(last);
+  }
+
   tickAll(): number {
     let ticked = 0;
     for (const [, runner] of this.runners) {
