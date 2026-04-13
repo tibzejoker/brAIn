@@ -66,14 +66,24 @@ export const handler: NodeHandler = async (ctx) => {
       model,
       system: config.system_prompt,
       messages: conversation,
-      maxOutputTokens: config.max_tokens,
       temperature: config.temperature,
     });
 
-    const resultText = typeof result.text === "string" ? result.text : "";
-    const reasoning = (result as unknown as { reasoning?: string }).reasoning;
-    const resultReasoning = typeof reasoning === "string" ? reasoning : "";
-    const content = resultText || resultReasoning || "";
+    // AI SDK v6: text may be in result.text or in result.steps[0].text
+    const r = result as unknown as Record<string, unknown>;
+    let content = "";
+    if (typeof result.text === "string" && result.text) {
+      content = result.text;
+    } else if (Array.isArray(r.steps) && r.steps.length > 0) {
+      const step = r.steps[0] as Record<string, unknown>;
+      if (typeof step.text === "string" && step.text) content = step.text;
+      if (!content && typeof step.reasoning === "string") content = step.reasoning;
+    }
+    if (!content && typeof r.reasoning === "string") content = r.reasoning;
+
+    if (!content) {
+      ctx.log("warn", `Empty LLM response (${result.usage?.outputTokens ?? 0} tokens generated but no text extracted)`);
+    }
     ctx.log("info", `LLM response (${content.length} chars): ${content.slice(0, 120)}`);
 
     // Store assistant response in conversation history
@@ -87,7 +97,7 @@ export const handler: NodeHandler = async (ctx) => {
         model: config.model,
         usage: result.usage,
         input_messages: ctx.messages.length,
-        has_reasoning: Boolean(reasoning),
+        content_length: content.length,
       },
     });
   } catch (err) {
