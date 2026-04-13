@@ -189,7 +189,10 @@ While sleeping, you'll only wake up if a message arrives on your subscribed topi
         maxOutputTokens: 2048,
       });
 
-      const text = result.text || (result as unknown as { reasoning?: string }).reasoning || "";
+      const resultText = typeof result.text === "string" ? result.text : "";
+      const reasoning = (result as unknown as { reasoning?: string }).reasoning;
+      const resultReasoning = typeof reasoning === "string" ? reasoning : "";
+      const text = resultText || resultReasoning || "";
       ctx.log("info", `LLM response (${text.length} chars): ${text.slice(0, 120)}`);
       conversation.push({ role: "assistant", content: text });
 
