@@ -37,6 +37,7 @@ interface NetworkGraphProps {
   types: NodeTypeConfig[];
   onNodeSelect: (id: string | null) => void;
   onEdgeSelect: (edge: EdgeSelection | null) => void;
+  onOpenNodeUi: (nodeId: string) => void;
   selectedNodeId: string | null;
 }
 
@@ -46,7 +47,12 @@ const nodeTypes: NodeTypes = {
   brainNode: NodeBlock,
 };
 
-function snapshotToFlowNode(n: NodeSnapshot): Node {
+function snapshotToFlowNode(
+  n: NodeSnapshot,
+  typeMap: Map<string, NodeTypeConfig>,
+  onOpenUi: (id: string) => void,
+): Node {
+  const typeConfig = typeMap.get(n.type);
   return {
     id: n.id,
     type: "brainNode",
@@ -57,6 +63,8 @@ function snapshotToFlowNode(n: NodeSnapshot): Node {
       state: n.state,
       transport: n.transport,
       tags: n.tags,
+      hasUi: typeConfig?.has_ui ?? false,
+      onOpenUi: () => { onOpenUi(n.id); },
     },
   };
 }
@@ -177,8 +185,10 @@ export function NetworkGraph({
   types,
   onNodeSelect,
   onEdgeSelect,
+  onOpenNodeUi,
   selectedNodeId,
 }: NetworkGraphProps): React.ReactElement {
+  const typeMap = useMemo(() => new Map(types.map((t) => [t.name, t])), [types]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([] as Node[]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([] as Edge[]);
 
@@ -186,7 +196,7 @@ export function NetworkGraph({
     setNodes((prev) => {
       const posMap = new Map(prev.map((n) => [n.id, n.position]));
       const newNodes = snapshots.map((snap) => {
-        const flowNode = snapshotToFlowNode(snap);
+        const flowNode = snapshotToFlowNode(snap, typeMap, onOpenNodeUi);
         const existing = posMap.get(snap.id);
         if (existing && (existing.x !== 0 || existing.y !== 0)) {
           flowNode.position = existing;
@@ -195,7 +205,7 @@ export function NetworkGraph({
       });
       return layoutGraph(newNodes, []).nodes;
     });
-  }, [snapshots, setNodes]);
+  }, [snapshots, typeMap, onOpenNodeUi, setNodes]);
 
   useEffect(() => {
     setEdges(buildEdges(snapshots, flows, types));

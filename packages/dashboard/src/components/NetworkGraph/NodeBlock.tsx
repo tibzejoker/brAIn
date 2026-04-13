@@ -6,6 +6,8 @@ type NodeBlockData = Node<{
   state: string;
   transport: string;
   tags: string[];
+  hasUi: boolean;
+  onOpenUi?: () => void;
 }>;
 
 const STATE_COLORS: Record<string, string> = {
@@ -51,6 +53,14 @@ export function NodeBlock({ data, selected }: NodeProps<NodeBlockData>): React.R
         <span className="px-1.5 py-0.5 rounded bg-surface-overlay">
           {data.transport}
         </span>
+        {data.hasUi && (
+          <button
+            onClick={(e) => { e.stopPropagation(); (data.onOpenUi as (() => void) | undefined)?.(); }}
+            className="px-1.5 py-0.5 rounded bg-accent/20 text-accent hover:bg-accent/30 transition-colors"
+          >
+            UI
+          </button>
+        )}
       </div>
 
       {data.tags.length > 0 && (

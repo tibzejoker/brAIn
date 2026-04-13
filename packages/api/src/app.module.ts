@@ -4,6 +4,7 @@ import { NodesController } from "./rest/nodes.controller";
 import { TypesController } from "./rest/types.controller";
 import { NetworkController } from "./rest/network.controller";
 import { SeedsController } from "./rest/seeds.controller";
+import { NodeUiController } from "./rest/node-ui.controller";
 import { DashboardGateway } from "./ws/dashboard.gateway";
 import * as path from "path";
 
@@ -33,7 +34,7 @@ const brainServiceProvider = {
 };
 
 @Module({
-  controllers: [NodesController, TypesController, NetworkController, SeedsController],
+  controllers: [NodesController, TypesController, NetworkController, SeedsController, NodeUiController],
   providers: [brainServiceProvider, DashboardGateway],
 })
 export class AppModule implements OnModuleInit {
