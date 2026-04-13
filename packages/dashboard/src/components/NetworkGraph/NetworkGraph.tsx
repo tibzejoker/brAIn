@@ -23,6 +23,7 @@ interface Flow {
   targetId: string;
   topic: string;
   count: number;
+  lastSeen: number;
 }
 
 export interface EdgeSelection {
@@ -137,10 +138,14 @@ function buildEdges(snapshots: NodeSnapshot[], flows: Flow[], types: NodeTypeCon
   const edges: Edge[] = [];
   const seen = new Set<string>();
 
-  // Active flow pairs for animation
+  // Active flow pairs — only if last message was within 3 seconds
+  const now = Date.now();
+  const ACTIVE_THRESHOLD_MS = 3000;
   const activeFlows = new Set<string>();
   for (const flow of flows) {
-    activeFlows.add(`${flow.sourceId}->${flow.targetId}`);
+    if (now - flow.lastSeen < ACTIVE_THRESHOLD_MS) {
+      activeFlows.add(`${flow.sourceId}->${flow.targetId}`);
+    }
   }
 
   // For each publisher, match its publish topics to subscriber patterns
