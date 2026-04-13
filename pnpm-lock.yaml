@@ -160,6 +160,16 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
+  nodes/reminder:
+    dependencies:
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+    devDependencies:
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+
   nodes/terminal:
     dependencies:
       '@brain/sdk':

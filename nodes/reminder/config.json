@@ -1,0 +1,13 @@
+{
+  "name": "reminder",
+  "description": "Schedules reminders. Send a message with delay and text, it will publish the reminder when the time comes. Survives restarts via persistent state.",
+  "tags": ["utility", "scheduler", "reminder"],
+  "default_authority": 0,
+  "default_priority": 3,
+  "default_subscriptions": [
+    { "topic": "reminder.set" }
+  ],
+  "default_publishes": ["reminder.fire"],
+  "interval": "5s",
+  "supports_transport": ["process"]
+}

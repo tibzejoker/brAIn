@@ -239,9 +239,12 @@ export function NetworkGraph({
 
   const handleEdgeClick: EdgeMouseHandler = useCallback(
     (_event, edge) => {
-      const [source, target] = edge.id.split("->");
-      const topics = typeof edge.label === "string" ? edge.label.split(", ") : [];
-      onEdgeSelect({ sourceId: source, targetId: target, topics });
+      // Edge ID format: "publisherId:topic->subscriberId:pattern"
+      const [sourcePart, targetPart] = edge.id.split("->");
+      const sourceId = sourcePart.split(":")[0];
+      const targetId = targetPart.split(":")[0];
+      const topic = sourcePart.split(":").slice(1).join(":");
+      onEdgeSelect({ sourceId, targetId, topics: [topic] });
     },
     [onEdgeSelect],
   );
