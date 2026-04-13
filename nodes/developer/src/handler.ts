@@ -2,7 +2,7 @@ import { spawn } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import type { NodeHandler, TextPayload } from "@brain/sdk";
-import { CLIRegistry } from "@brain/core";
+import { CLIRegistry, BrainService } from "@brain/core";
 import { NODE_TEMPLATE_DOCS } from "./template";
 import { v4 as uuid } from "uuid";
 
@@ -122,12 +122,10 @@ Do NOT explain, just create the files and build. Work entirely in ${workspacePat
     }
 
     try {
-      const escaped = prompt.replace(/'/g, "'\\''");
-
       ctx.log("info", `Running ${config.cli} with streaming...`);
       const result = await runCommandStreamed(
         "claude",
-        ["-p", prompt, "--max-turns", "10", "--dangerously-skip-permissions"],
+        ["-p", prompt, "--max-turns", "30", "--dangerously-skip-permissions"],
         monorepoRoot,
         config.timeout_ms,
         (line) => {
@@ -142,8 +140,32 @@ Do NOT explain, just create the files and build. Work entirely in ${workspacePat
       const handlerPath = path.join(workspacePath, "dist", "handler.js");
 
       if (fs.existsSync(configPath) && fs.existsSync(handlerPath)) {
-        const nodeConfig = JSON.parse(fs.readFileSync(configPath, "utf-8")) as { name: string };
-        ctx.log("info", `Node type '${nodeConfig.name}' created successfully`);
+        const nodeConfig = JSON.parse(fs.readFileSync(configPath, "utf-8")) as {
+          name: string;
+          default_subscriptions?: Array<{ topic: string }>;
+        };
+        ctx.log("info", `Node type '${nodeConfig.name}' created, registering...`);
+
+        // Register the new type in the framework
+        const brain = BrainService.current;
+        let spawned = false;
+        if (brain) {
+          try {
+            brain.typeRegistry.register(workspacePath);
+            ctx.log("info", `Type '${nodeConfig.name}' registered`);
+
+            // Auto-spawn an instance
+            await brain.spawnNode({
+              type: nodeConfig.name,
+              name: nodeConfig.name,
+              subscriptions: nodeConfig.default_subscriptions,
+            });
+            spawned = true;
+            ctx.log("info", `Instance '${nodeConfig.name}' spawned and running`);
+          } catch (regErr) {
+            ctx.log("error", `Registration/spawn failed: ${regErr instanceof Error ? regErr.message : String(regErr)}`);
+          }
+        }
 
         ctx.publish(config.response_topic, {
           type: "text",
@@ -153,7 +175,9 @@ Do NOT explain, just create the files and build. Work entirely in ${workspacePat
               status: "success",
               type_name: nodeConfig.name,
               type_path: workspacePath,
-              message: `Node type '${nodeConfig.name}' created. Register it to start using.`,
+              registered: Boolean(brain),
+              spawned,
+              message: `Node type '${nodeConfig.name}' created${spawned ? " and running" : ""}.`,
             }),
           },
           metadata: { workspace: workspacePath },
