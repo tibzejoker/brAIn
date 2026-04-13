@@ -14,7 +14,7 @@ nodes:
       - topic: "dev.result"
       - topic: "cmd.output"
       - topic: "http.response"
-      - topic: "reminder.fire"
+      - topic: "reminder.*"
 
   # === Central brain — orchestrates everything ===
   - type: brain
@@ -31,7 +31,7 @@ nodes:
       - topic: "dev.result"
       - topic: "cmd.output"
       - topic: "http.response"
-      - topic: "reminder.fire"
+      - topic: "reminder.*"
     config_overrides:
       model: "ollama/gemma4:e4b"
       response_topic: "chat.response"
