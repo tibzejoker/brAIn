@@ -52,7 +52,6 @@ nodes:
       model: "ollama/gemma4:e4b"
       system_prompt: "You are an analyst. Answer questions precisely and concisely. Focus on facts."
       response_topic: "report.analysis"
-      max_tokens: 512
 
   # === Developer — creates new node types ===
   - type: developer
