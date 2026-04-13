@@ -103,6 +103,19 @@
     const nodeId = window.location.pathname.split('/nodes/')[1]?.split('/ui')[0];
     const apiBase = window.location.origin;
     let myMessages = new Set();
+    const nodeNames = {};
+
+    async function loadNodeNames() {
+      try {
+        const res = await fetch(`${apiBase}/network`);
+        const data = await res.json();
+        for (const n of data.nodes) { nodeNames[n.id] = n.name; }
+      } catch(e) {}
+    }
+
+    function nodeName(id) {
+      return nodeNames[id] || id.slice(0, 8);
+    }
 
     const $messages = document.getElementById('messages');
     const $empty = document.getElementById('empty');
@@ -177,7 +190,8 @@
         const payload = msg.payload || {};
         const rawContent = payload.content || payload.title || JSON.stringify(payload);
         const { thinking, reply } = parseThinking(rawContent);
-        let html = `<div class="meta">${time} · from:${msg.from.slice(0,8)}</div>`;
+        const sender = msg.from === nodeId ? 'you' : nodeName(msg.from);
+        let html = `<div class="meta">${time} · ${sender}</div>`;
         if (thinking) html += `<div class="think"><div class="think-label">thinking</div>${escapeHtml(thinking)}</div>`;
         if (reply) html += `<div>${escapeHtml(reply)}</div>`;
         html += `<div class="topic">${msg.topic}</div>`;
@@ -216,7 +230,7 @@
         const p = msg.payload || {};
         const preview = (p.content || p.title || '').slice(0, 60);
         el.innerHTML = `
-          <div><span class="ev-time">${t}</span> <span class="ev-topic" style="color:hsl(${hue},70%,65%)">${msg.topic}</span> <span class="ev-time">crit:${msg.criticality}</span></div>
+          <div><span class="ev-time">${t}</span> <span class="ev-topic" style="color:hsl(${hue},70%,65%)">${msg.topic}</span> <span class="ev-time">${nodeName(msg.from)}</span></div>
           <div class="ev-content">${escapeHtml(preview)}</div>
         `;
         $busEvents.appendChild(el);
@@ -287,6 +301,8 @@
     }
 
     // Start polling
+    loadNodeNames();
+    setInterval(loadNodeNames, 10000);
     loadTopics();
     setInterval(pollMessages, 1000);
     setInterval(pollBus, 1500);

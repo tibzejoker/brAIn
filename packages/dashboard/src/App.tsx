@@ -166,6 +166,7 @@ export function App(): React.ReactElement {
       {activeView === "graph" && (
         <MessageLog
           messages={messages}
+          nodeNames={new Map(nodes.map((n) => [n.id, n.name]))}
           topicFilter={topicFilter}
           onTopicFilterChange={setTopicFilter}
           minCriticality={minCriticality}
