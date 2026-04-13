@@ -70,9 +70,10 @@ export const handler: NodeHandler = async (ctx) => {
       temperature: config.temperature,
     });
 
-    // Some models (e.g. gemma4:e2b) may put output in reasoning instead of text
+    const resultText = typeof result.text === "string" ? result.text : "";
     const reasoning = (result as unknown as { reasoning?: string }).reasoning;
-    const content = result.text || reasoning || "";
+    const resultReasoning = typeof reasoning === "string" ? reasoning : "";
+    const content = resultText || resultReasoning || "";
     ctx.log("info", `LLM response (${content.length} chars): ${content.slice(0, 120)}`);
 
     // Store assistant response in conversation history
