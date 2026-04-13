@@ -3,6 +3,7 @@ import type { Message } from "../api/types";
 
 interface MessageLogProps {
   messages: Message[];
+  nodeNames: Map<string, string>;
   topicFilter: string;
   onTopicFilterChange: (v: string) => void;
   minCriticality: number;
@@ -39,6 +40,7 @@ function payloadText(payload: unknown): string {
 
 export function MessageLog({
   messages,
+  nodeNames,
   topicFilter,
   onTopicFilterChange,
   minCriticality,
@@ -106,7 +108,7 @@ export function MessageLog({
               {msg.topic}
             </span>
             <span className="text-text-muted shrink-0">
-              from:{msg.from.slice(0, 8)}
+              {nodeNames.get(msg.from) ?? msg.from.slice(0, 8)}
             </span>
             <span className="text-text truncate">
               {truncate(payloadText(msg.payload), 80)}
