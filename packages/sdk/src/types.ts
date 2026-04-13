@@ -14,6 +14,7 @@ export enum AuthorityLevel {
 }
 
 export type TransportMode = "process" | "container";
+export type RunMode = "auto" | "manual";
 
 // === Messages ===
 

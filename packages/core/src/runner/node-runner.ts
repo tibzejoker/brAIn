@@ -13,13 +13,14 @@ import {
   type FileContent,
   type FileFilter,
   type FileInfo,
+  type RunMode,
   NodeState,
 } from "@brain/sdk";
 import type { BusService } from "../bus/bus.service";
-import { logger } from "../logger";
 import type { InstanceRegistry } from "../registry/instance-registry";
 import type { SleepService } from "./sleep.service";
 import { IdleThrottle } from "./idle-throttle";
+import { logger } from "../logger";
 
 export class NodeRunner {
   private running = false;
@@ -30,6 +31,8 @@ export class NodeRunner {
   private sleepRequested = false;
   private sleepConditions: WakeCondition[] = [];
   private wakeResolve?: () => void;
+  private manualTickResolve?: () => void;
+  private runMode: RunMode;
 
   constructor(
     private readonly nodeInfo: NodeInfo,
@@ -38,10 +41,12 @@ export class NodeRunner {
     private readonly registry: InstanceRegistry,
     private readonly sleepService: SleepService,
     intervalStr?: string,
+    runMode?: RunMode,
   ) {
     if (intervalStr) {
       this.intervalMs = this.sleepService.parseInterval(intervalStr);
     }
+    this.runMode = runMode ?? "auto";
   }
 
   async start(): Promise<void> {
@@ -51,29 +56,42 @@ export class NodeRunner {
     // Listen for new messages to interrupt idle throttle
     this.bus.on(`message:${this.nodeInfo.id}`, () => {
       this.throttle.reset();
-      // If we're waiting in a delay, resolve immediately
       if (this.wakeResolve) {
         this.wakeResolve();
         this.wakeResolve = undefined;
       }
     });
 
-    while (this.isRunning()) {
-      await this.runIteration();
+    if (this.runMode === "manual") {
+      // Manual mode: wait for explicit tick signals
+      while (this.isRunning()) {
+        await this.waitForTick();
+        if (!this.isRunning()) break;
+        await this.runIteration();
 
-      if (this.sleepRequested) {
-        this.sleepRequested = false;
-        await this.enterSleep(this.sleepConditions);
-        continue; // After waking, continue the loop
+        if (this.sleepRequested) {
+          this.sleepRequested = false;
+          await this.enterSleep(this.sleepConditions);
+        }
       }
+    } else {
+      // Auto mode: normal loop
+      while (this.isRunning()) {
+        await this.runIteration();
 
-      // Apply throttle or interval delay
-      const delay = this.intervalMs ?? this.throttle.onIteration(
-        this.bus.hasUnreadMessages(this.nodeInfo.id),
-      );
+        if (this.sleepRequested) {
+          this.sleepRequested = false;
+          await this.enterSleep(this.sleepConditions);
+          continue;
+        }
 
-      if (delay > 0) {
-        await this.delay(delay);
+        const delay = this.intervalMs ?? this.throttle.onIteration(
+          this.bus.hasUnreadMessages(this.nodeInfo.id),
+        );
+
+        if (delay > 0) {
+          await this.delay(delay);
+        }
       }
     }
   }
@@ -81,19 +99,52 @@ export class NodeRunner {
   stop(): void {
     this.running = false;
     this.sleepService.unregisterSleep(this.nodeInfo.id);
+    // Unblock manual tick wait if pending
+    if (this.manualTickResolve) {
+      this.manualTickResolve();
+      this.manualTickResolve = undefined;
+    }
+  }
+
+  /**
+   * Trigger a single iteration in manual mode.
+   * No-op in auto mode (the loop handles itself).
+   */
+  tick(): void {
+    if (this.manualTickResolve) {
+      this.manualTickResolve();
+      this.manualTickResolve = undefined;
+    }
+  }
+
+  getRunMode(): RunMode {
+    return this.runMode;
+  }
+
+  setRunMode(mode: RunMode): void {
+    const prev = this.runMode;
+    this.runMode = mode;
+    if (prev === "manual" && mode === "auto") {
+      // Unblock the tick wait so the loop can restart in auto mode
+      this.tick();
+    }
+    logger.info({ nodeId: this.nodeInfo.id, from: prev, to: mode }, "Run mode changed");
   }
 
   private isRunning(): boolean {
     return this.running;
   }
 
+  private waitForTick(): Promise<void> {
+    return new Promise<void>((resolve) => {
+      this.manualTickResolve = resolve;
+    });
+  }
+
   private async runIteration(): Promise<void> {
     this.iteration++;
 
-    // Collect messages
     const messages = this.bus.getUnreadMessages(this.nodeInfo.id);
-
-    // Build context
     const ctx = this.buildContext(messages);
 
     try {
@@ -105,7 +156,6 @@ export class NodeRunner {
       );
     }
 
-    // Update throttle
     if (!this.intervalMs) {
       this.throttle.onIteration(messages.length > 0);
     }

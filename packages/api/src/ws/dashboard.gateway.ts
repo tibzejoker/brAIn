@@ -33,6 +33,10 @@ export class DashboardGateway implements OnGatewayInit {
       this.server.emit("message:published", msg);
     });
 
+    this.brain.on("devmode:changed", (data) => {
+      this.server.emit("devmode:changed", data);
+    });
+
     this.log.log("WebSocket gateway initialized");
   }
 }

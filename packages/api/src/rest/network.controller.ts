@@ -89,4 +89,20 @@ export class NetworkController {
   providers(): { llm: ProviderStatus[]; cli: CLIStatus[] } {
     return this.brain.getProviderStatuses();
   }
+
+  @Get("devmode")
+  getDevMode(): { enabled: boolean } {
+    return { enabled: this.brain.isDevMode() };
+  }
+
+  @Post("devmode")
+  setDevMode(@Body("enabled") enabled: boolean): { enabled: boolean } {
+    this.brain.setDevMode(enabled);
+    return { enabled: this.brain.isDevMode() };
+  }
+
+  @Post("tick")
+  tickAll(): { ticked: number } {
+    return { ticked: this.brain.tickAll() };
+  }
 }

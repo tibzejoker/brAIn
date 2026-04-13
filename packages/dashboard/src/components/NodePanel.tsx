@@ -1,15 +1,17 @@
 import { useCallback, useState } from "react";
 import type { NodeSnapshot } from "../api/types";
-import { killNode, stopNode, startNode, wakeNode } from "../api/client";
+import { killNode, stopNode, startNode, wakeNode, tickNode } from "../api/client";
 
 interface NodePanelProps {
   node: NodeSnapshot;
+  devMode: boolean;
   onClose: () => void;
   onAction: () => void;
 }
 
 export function NodePanel({
   node,
+  devMode,
   onClose,
   onAction,
 }: NodePanelProps): React.ReactElement {
@@ -132,6 +134,14 @@ export function NodePanel({
           loading={actionLoading}
           onClick={() => handleAction(() => killNode(node.id))}
         />
+        {devMode && node.state === "active" && (
+          <ActionButton
+            label="Step"
+            variant="success"
+            loading={actionLoading}
+            onClick={() => handleAction(() => tickNode(node.id))}
+          />
+        )}
       </div>
     </div>
   );
