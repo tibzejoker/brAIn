@@ -14,6 +14,7 @@ nodes:
       - topic: "dev.result"
       - topic: "cmd.output"
       - topic: "http.response"
+      - topic: "reminder.fire"
 
   # === Central brain — orchestrates everything ===
   - type: brain
@@ -30,6 +31,7 @@ nodes:
       - topic: "dev.result"
       - topic: "cmd.output"
       - topic: "http.response"
+      - topic: "reminder.fire"
     config_overrides:
       model: "ollama/gemma4:e2b"
       response_topic: "chat.response"
@@ -94,3 +96,14 @@ nodes:
       - topic: "http.request"
     config_overrides:
       response_topic: "http.response"
+
+  # === Reminder — schedules timed alerts ===
+  - type: reminder
+    name: reminder
+    description: "Schedules reminders. Send '30m Do the thing' on reminder.set, it fires on reminder.fire when time is up."
+    priority: 3
+    position:
+      x: 100
+      y: 470
+    subscriptions:
+      - topic: "reminder.set"
