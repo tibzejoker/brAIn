@@ -1,8 +1,46 @@
 import type { NodeHandler, TextPayload, AlertPayload } from "@brain/sdk";
-import { LLMRegistry, generateText, logger } from "@brain/core";
+import { LLMRegistry, BrainService, generateText, logger } from "@brain/core";
 import { executeBrainTool, BRAIN_TOOL_DESCRIPTIONS } from "./tools";
 
 const log = logger.child({ node: "brain" });
+
+function buildServiceMap(selfId: string): string {
+  const brain = BrainService.current;
+  if (!brain) return "No network info available.";
+
+  const nodes = brain.getNetworkSnapshot({ state: "all" });
+  const services: string[] = [];
+
+  for (const node of nodes) {
+    if (node.id === selfId) continue;
+    const subs = brain.bus.getSubscriptions(node.id).map((s) => s.pattern);
+    if (subs.length === 0) continue;
+
+    services.push(
+      `- **${node.name}** (${node.type}): ${node.description}\n` +
+      `  Listens on: ${subs.join(", ")}\n` +
+      `  → To use: publish_message(topic="<one of its topics>", content="<your request>")`,
+    );
+  }
+
+  if (services.length === 0) return "No services available.";
+
+  return `## Available services on the network
+You delegate work to other nodes by publishing messages on their input topics using the publish_message tool.
+Each service listens on specific topics and responds on its own response topic (which you are subscribed to).
+
+${services.join("\n\n")}
+
+Example — to run a shell command:
+{"tool": "publish_message", "args": {"topic": "cmd.exec", "content": "ls -la /tmp"}}
+
+Example — to analyze something:
+{"tool": "publish_message", "args": {"topic": "task.analyze", "content": "What are the pros and cons of microservices?"}}
+
+Example — to fetch a URL:
+{"tool": "publish_message", "args": {"topic": "http.request", "content": "https://api.example.com/data"}}
+`;
+}
 
 interface BrainConfig {
   model: string;
@@ -91,14 +129,18 @@ export const handler: NodeHandler = async (ctx) => {
   const iterationState = ctx.state.conversation_count as number | undefined ?? 0;
   ctx.state.conversation_count = iterationState + 1;
 
+  const serviceMap = buildServiceMap(ctx.node.id);
+
   const systemPrompt = `You are the central consciousness of the brAIn network — a system of interconnected autonomous nodes.
 
 Your role:
+- Respond to human messages from the chat
+- Delegate tasks to specialized nodes via publish_message
 - Monitor the network and react to alerts
 - Spawn, kill, stop, start, and rewire nodes as needed
-- Reflect on what's happening and make strategic decisions
-- Delegate tasks to other nodes when appropriate
-- Sleep when there's nothing to do (use the sleep tool with a duration)
+- Sleep when there's nothing to do
+
+${serviceMap}
 
 ${BRAIN_TOOL_DESCRIPTIONS}
 
@@ -110,9 +152,9 @@ While sleeping, you'll only wake up if a message arrives on your subscribed topi
 
 ## Important
 - You are root authority — you can manage any node
-- Be concise in your reasoning
-- Use the think tool to organize thoughts before acting
-- Don't spam — if idle, sleep rather than looping
+- To use a service, publish a message on its input topic with publish_message — do NOT try to call it directly
+- Wait for the service response in a follow-up iteration (it arrives as a message)
+- Be concise, respond in the same language as the user
 - Current iteration: ${iterationState + 1}`;
 
   // Persist conversation history across iterations
