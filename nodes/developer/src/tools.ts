@@ -26,6 +26,14 @@ export function executeDevTool(
       return buildAndValidate(workspacePath);
     case "register_type":
       return registerType(workspacePath, args.name as string);
+    case "replace_lines":
+      return replaceLines(workspacePath, args.filepath as string, args.start as number, args.end as number, args.content as string);
+    case "insert_lines":
+      return insertLines(workspacePath, args.filepath as string, args.after as number, args.content as string);
+    case "delete_lines":
+      return deleteLines(workspacePath, args.filepath as string, args.start as number, args.end as number);
+    case "search_file":
+      return searchFile(workspacePath, args.filepath as string, args.pattern as string);
     case "list_existing_types":
       return listExistingTypes(monorepoRoot);
     default:
@@ -35,17 +43,24 @@ export function executeDevTool(
 
 export const TOOL_DESCRIPTIONS = `
 Available tools:
-- write_file(filepath, content): Write a file to the workspace. Use relative paths like "src/handler.ts".
-- read_file(filepath): Read a file from the workspace.
+
+## File creation
+- write_file(filepath, content): Write/overwrite a file. Use for new files.
+- read_file(filepath): Read a file. Output shows line numbers (e.g. "  1| code here").
+
+## File editing (line-based)
+- replace_lines(filepath, start, end, content): Replace lines start..end (inclusive, 1-based) with new content.
+- insert_lines(filepath, after, content): Insert content after line number (0 = beginning of file).
+- delete_lines(filepath, start, end): Delete lines start..end (inclusive, 1-based).
+- search_file(filepath, pattern): Search for a regex pattern. Returns matching lines with line numbers.
+
+## Build
 - build_and_validate(): Install deps and compile. Returns errors if any.
 - register_type(name): Register the node type after successful build.
 - list_existing_types(): List existing node types to avoid conflicts.
 
-Call tools by responding with JSON in this format:
-{"tool": "write_file", "args": {"filepath": "config.json", "content": "..."}}
-
-After each tool call, you'll see the result and can continue.
-When done, call register_type with the node name.
+Call tools with JSON: {"tool": "tool_name", "args": {"key": "value"}}
+After each tool call, you'll see the result. When build succeeds, call register_type.
 `;
 
 function writeFile(workspace: string, filepath: string, content: string): Promise<ToolResult> {
@@ -64,7 +79,88 @@ function readFile(workspace: string, filepath: string): Promise<ToolResult> {
   if (!fs.existsSync(fullPath)) {
     return Promise.resolve({ error: `File not found: ${filepath}` });
   }
-  return Promise.resolve({ content: fs.readFileSync(fullPath, "utf-8") });
+  const raw = fs.readFileSync(fullPath, "utf-8");
+  const numbered = raw
+    .split("\n")
+    .map((line, i) => `${String(i + 1).padStart(4)}| ${line}`)
+    .join("\n");
+  return Promise.resolve({ content: numbered, total_lines: raw.split("\n").length });
+}
+
+interface FileLines {
+  lines: string[];
+  fullPath: string;
+}
+
+function getLines(workspace: string, filepath: string): FileLines | null {
+  const fullPath = path.join(workspace, filepath);
+  if (!fs.existsSync(fullPath)) {
+    return null;
+  }
+  return { lines: fs.readFileSync(fullPath, "utf-8").split("\n"), fullPath };
+}
+
+function replaceLines(workspace: string, filepath: string, start: number, end: number, content: string): Promise<ToolResult> {
+  const result = getLines(workspace, filepath);
+  if (!result) return Promise.resolve({ error: `File not found: ${filepath}` });
+  const { lines, fullPath } = result;
+
+  if (start < 1 || end > lines.length || start > end) {
+    return Promise.resolve({ error: `Invalid range ${start}-${end}. File has ${lines.length} lines.` });
+  }
+
+  const newLines = content.split("\n");
+  lines.splice(start - 1, end - start + 1, ...newLines);
+  fs.writeFileSync(fullPath, lines.join("\n"), "utf-8");
+  log.info({ filepath, start, end, inserted: newLines.length }, "Replaced lines");
+  return Promise.resolve({ success: true, lines_removed: end - start + 1, lines_inserted: newLines.length, total_lines: lines.length });
+}
+
+function insertLines(workspace: string, filepath: string, after: number, content: string): Promise<ToolResult> {
+  const result = getLines(workspace, filepath);
+  if (!result) return Promise.resolve({ error: `File not found: ${filepath}` });
+  const { lines, fullPath } = result;
+
+  if (after < 0 || after > lines.length) {
+    return Promise.resolve({ error: `Invalid position ${after}. File has ${lines.length} lines. Use 0 for beginning.` });
+  }
+
+  const newLines = content.split("\n");
+  lines.splice(after, 0, ...newLines);
+  fs.writeFileSync(fullPath, lines.join("\n"), "utf-8");
+  log.info({ filepath, after, inserted: newLines.length }, "Inserted lines");
+  return Promise.resolve({ success: true, lines_inserted: newLines.length, total_lines: lines.length });
+}
+
+function deleteLines(workspace: string, filepath: string, start: number, end: number): Promise<ToolResult> {
+  const result = getLines(workspace, filepath);
+  if (!result) return Promise.resolve({ error: `File not found: ${filepath}` });
+  const { lines, fullPath } = result;
+
+  if (start < 1 || end > lines.length || start > end) {
+    return Promise.resolve({ error: `Invalid range ${start}-${end}. File has ${lines.length} lines.` });
+  }
+
+  lines.splice(start - 1, end - start + 1);
+  fs.writeFileSync(fullPath, lines.join("\n"), "utf-8");
+  log.info({ filepath, start, end }, "Deleted lines");
+  return Promise.resolve({ success: true, lines_removed: end - start + 1, total_lines: lines.length });
+}
+
+function searchFile(workspace: string, filepath: string, pattern: string): Promise<ToolResult> {
+  const result = getLines(workspace, filepath);
+  if (!result) return Promise.resolve({ error: `File not found: ${filepath}` });
+  const { lines } = result;
+
+  const regex = new RegExp(pattern, "gi");
+  const matches = lines
+    .map((line, i) => ({ line: i + 1, content: line }))
+    .filter((entry) => regex.test(entry.content));
+
+  return Promise.resolve({
+    matches: matches.map((m) => `${String(m.line).padStart(4)}| ${m.content}`),
+    count: matches.length,
+  });
 }
 
 async function buildAndValidate(workspace: string): Promise<ToolResult> {
