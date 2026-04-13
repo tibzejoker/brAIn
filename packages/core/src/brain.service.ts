@@ -42,6 +42,7 @@ export class BrainService extends EventEmitter {
   private readonly runners = new Map<string, NodeRunner>();
   private readonly db: Database.Database;
   private seedsDir?: string;
+  private globalRunMode: "auto" | "manual" = "auto";
   readonly llm = LLMRegistry.getInstance();
   readonly cli = CLIRegistry.getInstance();
 
@@ -216,6 +217,7 @@ export class BrainService extends EventEmitter {
       this.instanceRegistry,
       this.sleepService,
       typeConfig.interval,
+      this.globalRunMode,
     );
     this.runners.set(nodeInfo.id, runner);
 
@@ -334,6 +336,7 @@ export class BrainService extends EventEmitter {
       this.instanceRegistry,
       this.sleepService,
       typeConfig?.interval,
+      this.globalRunMode,
     );
     this.runners.set(nodeId, runner);
 
@@ -468,6 +471,7 @@ export class BrainService extends EventEmitter {
         this.instanceRegistry,
         this.sleepService,
         typeConfig?.interval,
+        this.globalRunMode,
       );
       this.runners.set(nodeInfo.id, runner);
 
@@ -567,6 +571,41 @@ export class BrainService extends EventEmitter {
     node.position.y = y;
     updateNodePosition(this.db, nodeId, x, y);
     return true;
+  }
+
+  // === Dev mode ===
+
+  tickNode(nodeId: string): boolean {
+    const runner = this.runners.get(nodeId);
+    if (!runner) return false;
+    runner.tick();
+    return true;
+  }
+
+  tickAll(): number {
+    let ticked = 0;
+    for (const [, runner] of this.runners) {
+      runner.tick();
+      ticked++;
+    }
+    return ticked;
+  }
+
+  setDevMode(enabled: boolean): void {
+    const mode = enabled ? "manual" : "auto";
+    this.globalRunMode = mode;
+
+    // Switch all existing runners
+    for (const [, runner] of this.runners) {
+      runner.setRunMode(mode);
+    }
+
+    logger.info({ devMode: enabled, runners: this.runners.size }, "Dev mode toggled");
+    this.emit("devmode:changed", { enabled });
+  }
+
+  isDevMode(): boolean {
+    return this.globalRunMode === "manual";
   }
 
   setSeedsDir(dir: string): void {

@@ -160,3 +160,24 @@ export function getNetworkHistory(opts?: {
 export function resetNetwork(): Promise<{ killed: number }> {
   return request("/network/reset", { method: "POST" });
 }
+
+// === Dev mode ===
+
+export function getDevMode(): Promise<{ enabled: boolean }> {
+  return request("/network/devmode");
+}
+
+export function setDevMode(enabled: boolean): Promise<{ enabled: boolean }> {
+  return request("/network/devmode", {
+    method: "POST",
+    body: JSON.stringify({ enabled }),
+  });
+}
+
+export function tickNode(id: string): Promise<{ ticked: boolean }> {
+  return request(`/nodes/${id}/tick`, { method: "POST" });
+}
+
+export function tickAll(): Promise<{ ticked: number }> {
+  return request("/network/tick", { method: "POST" });
+}

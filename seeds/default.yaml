@@ -1,18 +1,103 @@
 nodes:
-  - type: clock
-    name: main-clock
+  # === Consciousness — the central orchestrator ===
+  - type: brain
+    name: consciousness
+    description: "Central intelligence. Monitors the network, reacts to alerts, spawns agents, rewires topology."
+    priority: 10
+    position:
+      x: 500
+      y: 300
+    subscriptions:
+      - topic: "brain.*"
+      - topic: "alerts.*"
+      - topic: "report.*"
+    config_overrides:
+      model: "ollama/gemma4:e2b"
+      idle_sleep: "30s"
+      max_steps: 8
+
+  # === Developer — can create new node types on demand ===
+  - type: developer
+    name: dev-agent
+    description: "Creates new node types at runtime when asked by the consciousness."
+    priority: 8
+    position:
+      x: 500
+      y: 50
+    subscriptions:
+      - topic: "dev.request"
+    config_overrides:
+      model: "ollama/gemma4:e2b"
+      response_topic: "dev.result"
+      max_steps: 12
+
+  # === Heartbeat — network pulse ===
+  - type: cron
+    name: heartbeat
+    description: "Emits a periodic heartbeat so the consciousness knows the network is alive."
     priority: 1
     position:
       x: 100
-      y: 200
+      y: 300
+    config_overrides:
+      topic: "system.heartbeat"
+      content: "pulse"
+      criticality: 0
 
+  # === Alert watcher — monitors and relays high-priority events ===
   - type: echo
-    name: time-echo
+    name: alert-relay
+    description: "Listens to all alerts and relays them to the consciousness channel."
+    priority: 7
     position:
-      x: 450
-      y: 200
+      x: 100
+      y: 100
     subscriptions:
-      - topic: "time.*"
+      - topic: "alerts.*"
         mailbox:
-          max_size: 10
-          retention: latest
+          max_size: 50
+          retention: lowest_priority
+
+  # === General purpose LLM — available for tasks ===
+  - type: llm-basic
+    name: analyst
+    description: "General purpose reasoning agent. Receives questions, analyzes them, returns answers."
+    priority: 5
+    position:
+      x: 850
+      y: 150
+    subscriptions:
+      - topic: "task.analyze"
+    config_overrides:
+      model: "ollama/gemma4:e2b"
+      system_prompt: "You are an analyst. Answer questions concisely and precisely. Focus on facts."
+      response_topic: "report.analysis"
+      max_tokens: 512
+
+  # === HTTP bridge — connects the network to external APIs ===
+  - type: http-bridge
+    name: web-fetcher
+    description: "Fetches URLs or calls APIs when asked. Publishes responses for other nodes to consume."
+    priority: 3
+    position:
+      x: 850
+      y: 450
+    subscriptions:
+      - topic: "http.request"
+    config_overrides:
+      response_topic: "http.response"
+
+  # === Terminal — executes shell commands ===
+  - type: terminal
+    name: shell
+    description: "Executes whitelisted shell commands. Used for system checks, file operations, git."
+    priority: 3
+    position:
+      x: 100
+      y: 500
+    subscriptions:
+      - topic: "cmd.exec"
+    config_overrides:
+      response_topic: "cmd.output"
+      timeout_ms: 15000
+      allowed_commands: ["ls", "cat", "head", "tail", "wc", "date", "whoami", "df", "free", "uptime", "git"]

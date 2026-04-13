@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Header } from "./components/Header";
 import { Menu, type MenuView } from "./components/Menu";
 import { NetworkGraph, type EdgeSelection } from "./components/NetworkGraph/NetworkGraph";
@@ -13,6 +13,8 @@ import { useMessages } from "./hooks/useMessages";
 import { useNodeTypes } from "./hooks/useNodeTypes";
 import { useSelectedNode } from "./hooks/useSelectedNode";
 import { useMessageFlows } from "./hooks/useMessageFlows";
+import { getDevMode, setDevMode, tickAll } from "./api/client";
+import { getSocket } from "./api/socket";
 
 export function App(): React.ReactElement {
   const { nodes, refresh: refreshNetwork } = useNetwork();
@@ -29,6 +31,32 @@ export function App(): React.ReactElement {
   const [creatorOpen, setCreatorOpen] = useState(false);
   const [selectedEdge, setSelectedEdge] = useState<EdgeSelection | null>(null);
   const [activeView, setActiveView] = useState<MenuView>("graph");
+  const [devMode, setDevModeState] = useState(false);
+
+  // Load initial dev mode state
+  useEffect(() => {
+    getDevMode()
+      .then((r) => { setDevModeState(r.enabled); })
+      .catch(() => { /* silent */ });
+
+    const socket = getSocket();
+    const handler = (data: { enabled: boolean }): void => {
+      setDevModeState(data.enabled);
+    };
+    socket.on("devmode:changed", handler);
+    return (): void => { socket.off("devmode:changed", handler); };
+  }, []);
+
+  const handleDevModeToggle = useCallback((): void => {
+    const next = !devMode;
+    setDevMode(next)
+      .then((r) => { setDevModeState(r.enabled); })
+      .catch(() => { /* silent */ });
+  }, [devMode]);
+
+  const handleTickAll = useCallback((): void => {
+    tickAll().catch(() => { /* silent */ });
+  }, []);
 
   const handleSpawnClick = useCallback((): void => {
     setCreatorOpen(true);
@@ -74,12 +102,17 @@ export function App(): React.ReactElement {
 
   return (
     <div className="h-screen flex flex-col">
-      <Header nodes={nodes} onSpawnClick={handleSpawnClick} />
+      <Header
+        nodes={nodes}
+        devMode={devMode}
+        onSpawnClick={handleSpawnClick}
+        onDevModeToggle={handleDevModeToggle}
+        onTickAll={handleTickAll}
+      />
 
       <div className="flex-1 flex overflow-hidden">
         <Menu active={activeView} onChange={setActiveView} />
 
-        {/* Main content area */}
         {activeView === "graph" && (
           <>
             <div className="flex-1">
@@ -95,6 +128,7 @@ export function App(): React.ReactElement {
             {selectedNode && (
               <NodePanel
                 node={selectedNode}
+                devMode={devMode}
                 onClose={handleNodeClose}
                 onAction={handleNodeAction}
               />

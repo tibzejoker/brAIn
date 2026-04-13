@@ -117,4 +117,13 @@ export class NodesController {
     }
     return { updated: true, node_id: id };
   }
+
+  @Post(":id/tick")
+  tick(@Param("id") id: string): { ticked: boolean; node_id: string } {
+    const ticked = this.brain.tickNode(id);
+    if (!ticked) {
+      throw new HttpException("Node not found", HttpStatus.NOT_FOUND);
+    }
+    return { ticked: true, node_id: id };
+  }
 }
