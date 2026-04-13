@@ -11,7 +11,7 @@ interface LLMConfig {
 
 function getConfig(overrides: Record<string, unknown>): LLMConfig {
   return {
-    model: (overrides.model as string | undefined) ?? "ollama/gemma4:e2b",
+    model: (overrides.model as string | undefined) ?? "ollama/gemma4:e4b",
     system_prompt: (overrides.system_prompt as string | undefined) ?? "You are a helpful assistant. Respond concisely.",
     response_topic: (overrides.response_topic as string | undefined) ?? "llm.response",
     max_tokens: (overrides.max_tokens as number | undefined) ?? 1024,
