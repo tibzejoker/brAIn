@@ -1,0 +1,28 @@
+nodes:
+  # === Human chat interface ===
+  - type: chat
+    name: human
+    description: "Chat interface for humans to talk to the network."
+    priority: 5
+    position:
+      x: 100
+      y: 250
+    subscriptions:
+      - topic: "chat.response"
+      - topic: "brain.output"
+
+  # === Central brain — receives chat messages and responds ===
+  - type: brain
+    name: consciousness
+    description: "Central intelligence. Reads human chat messages and responds."
+    priority: 10
+    position:
+      x: 500
+      y: 250
+    subscriptions:
+      - topic: "chat.input"
+    config_overrides:
+      model: "ollama/gemma4:e2b"
+      response_topic: "chat.response"
+      idle_sleep: "1m"
+      max_steps: 5

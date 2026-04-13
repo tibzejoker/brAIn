@@ -1,4 +1,17 @@
 nodes:
+  # === Human interface — chat UI ===
+  - type: chat
+    name: human-chat
+    description: "Human chat interface. Users type messages here, they get published to the network."
+    priority: 5
+    position:
+      x: 850
+      y: 300
+    subscriptions:
+      - topic: "chat.response.*"
+      - topic: "brain.output"
+      - topic: "report.*"
+
   # === Consciousness — the central orchestrator ===
   - type: brain
     name: consciousness
@@ -11,6 +24,7 @@ nodes:
       - topic: "brain.*"
       - topic: "alerts.*"
       - topic: "report.*"
+      - topic: "chat.input"
     config_overrides:
       model: "ollama/gemma4:e2b"
       idle_sleep: "30s"

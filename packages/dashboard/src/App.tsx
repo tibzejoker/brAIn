@@ -8,6 +8,7 @@ import { MessageLog } from "./components/MessageLog";
 import { NodeCreator } from "./components/NodeCreator";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { SeedManager } from "./components/SeedManager";
+import { NodeUiModal } from "./components/NodeUiModal";
 import { useNetwork } from "./hooks/useNetwork";
 import { useMessages } from "./hooks/useMessages";
 import { useNodeTypes } from "./hooks/useNodeTypes";
@@ -32,6 +33,15 @@ export function App(): React.ReactElement {
   const [selectedEdge, setSelectedEdge] = useState<EdgeSelection | null>(null);
   const [activeView, setActiveView] = useState<MenuView>("graph");
   const [devMode, setDevModeState] = useState(false);
+  const [uiNodeId, setUiNodeId] = useState<string | null>(null);
+
+  const handleOpenNodeUi = useCallback((nodeId: string): void => {
+    setUiNodeId(nodeId);
+  }, []);
+
+  const handleCloseNodeUi = useCallback((): void => {
+    setUiNodeId(null);
+  }, []);
 
   // Load initial dev mode state
   useEffect(() => {
@@ -122,6 +132,7 @@ export function App(): React.ReactElement {
                 types={types}
                 onNodeSelect={handleNodeSelect}
                 onEdgeSelect={handleEdgeSelect}
+                onOpenNodeUi={handleOpenNodeUi}
                 selectedNodeId={selectedNode?.id ?? null}
               />
             </div>
@@ -169,6 +180,14 @@ export function App(): React.ReactElement {
         onClose={handleCreatorClose}
         onSpawned={handleSpawned}
       />
+
+      {uiNodeId && (
+        <NodeUiModal
+          nodeId={uiNodeId}
+          nodeName={nodes.find((n) => n.id === uiNodeId)?.name ?? "Node"}
+          onClose={handleCloseNodeUi}
+        />
+      )}
     </div>
   );
 }

@@ -1,0 +1,13 @@
+{
+  "name": "chat",
+  "description": "Human chat interface. Provides a web UI where users can type messages that get published to the network, and see responses from other nodes.",
+  "tags": ["ui", "chat", "human-interface"],
+  "default_authority": 0,
+  "default_priority": 5,
+  "default_subscriptions": [
+    { "topic": "chat.response.*" }
+  ],
+  "default_publishes": ["chat.input"],
+  "has_ui": true,
+  "supports_transport": ["process"]
+}
