@@ -1,5 +1,6 @@
 import { useEffect, useState, useRef } from "react";
 import type { Message, NodeSnapshot } from "../api/types";
+import { getMessages } from "../api/client";
 import { onMessagePublished } from "../api/socket";
 
 interface EdgePanelProps {
@@ -52,13 +53,24 @@ export function EdgePanel({
   const sourceName = nodes.find((n) => n.id === sourceId)?.name ?? sourceId.slice(0, 8);
   const targetName = nodes.find((n) => n.id === targetId)?.name ?? targetId.slice(0, 8);
 
+  // Seed from history on mount
+  useEffect(() => {
+    getMessages({ last: 100 })
+      .then((all) => {
+        const relevant = all.filter((m) =>
+          m.from === sourceId && topics.some((t) => matchWildcard(t, m.topic)),
+        );
+        setMessages(relevant.slice(-MAX_EDGE_MESSAGES));
+      })
+      .catch(() => { /* silent */ });
+  }, [sourceId, topics]);
+
+  // Live updates via socket
   useEffect(() => {
     return onMessagePublished((msg) => {
       if (msg.from !== sourceId) return;
-
       const matches = topics.some((t) => matchWildcard(t, msg.topic));
       if (!matches) return;
-
       setMessages((prev) => [...prev.slice(-(MAX_EDGE_MESSAGES - 1)), msg]);
     });
   }, [sourceId, topics]);
