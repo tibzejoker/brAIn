@@ -15,6 +15,7 @@ nodes:
       - topic: "cmd.output"
       - topic: "http.response"
       - topic: "reminder.*"
+      - topic: "memory.result"
 
   # === Central brain — orchestrates everything ===
   - type: brain
@@ -32,6 +33,7 @@ nodes:
       - topic: "cmd.output"
       - topic: "http.response"
       - topic: "reminder.*"
+      - topic: "memory.result"
     config_overrides:
       model: "ollama/gemma4:e4b"
       response_topic: "chat.response"
@@ -106,3 +108,19 @@ nodes:
       y: 470
     subscriptions:
       - topic: "reminder.set"
+
+  # === Memory — persistent knowledge store ===
+  - type: memory
+    name: memory
+    description: "Persistent memory. Store, recall, search, update, delete knowledge. The brain's long-term storage."
+    priority: 3
+    position:
+      x: 250
+      y: 470
+    subscriptions:
+      - topic: "memory.store"
+      - topic: "memory.recall"
+      - topic: "memory.search"
+      - topic: "memory.update"
+      - topic: "memory.delete"
+      - topic: "memory.list"

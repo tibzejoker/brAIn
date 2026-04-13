@@ -1,0 +1,17 @@
+{
+  "name": "memory",
+  "description": "Persistent key-value memory store with tags and search. Supports store, recall, search, update, delete operations via JSON messages.",
+  "tags": ["memory", "storage", "knowledge"],
+  "default_authority": 0,
+  "default_priority": 3,
+  "default_subscriptions": [
+    { "topic": "memory.store" },
+    { "topic": "memory.recall" },
+    { "topic": "memory.search" },
+    { "topic": "memory.update" },
+    { "topic": "memory.delete" },
+    { "topic": "memory.list" }
+  ],
+  "default_publishes": ["memory.result"],
+  "supports_transport": ["process"]
+}
