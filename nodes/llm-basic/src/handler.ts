@@ -82,7 +82,7 @@ export const handler: NodeHandler = async (ctx) => {
     if (!content && typeof r.reasoning === "string") content = r.reasoning;
 
     if (!content) {
-      ctx.log("warn", `Empty LLM response (${result.usage?.outputTokens ?? 0} tokens generated but no text extracted)`);
+      ctx.log("warn", `Empty LLM response (${result.usage.outputTokens} tokens generated but no text extracted)`);
     }
     ctx.log("info", `LLM response (${content.length} chars): ${content.slice(0, 120)}`);
 
