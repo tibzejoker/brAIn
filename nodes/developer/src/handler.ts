@@ -1,4 +1,4 @@
-import { exec } from "child_process";
+import { spawn } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import type { NodeHandler, TextPayload } from "@brain/sdk";
@@ -29,10 +29,39 @@ function resolveMonorepoRoot(): string {
   return process.cwd();
 }
 
-function runCommand(cmd: string, cwd: string, timeoutMs: number): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+function runCommandStreamed(
+  cmd: string,
+  args: string[],
+  cwd: string,
+  timeoutMs: number,
+  onLine: (line: string) => void,
+): Promise<{ stdout: string; exitCode: number }> {
   return new Promise((resolve) => {
-    exec(cmd, { cwd, timeout: timeoutMs, maxBuffer: 5 * 1024 * 1024 }, (err, stdout, stderr) => {
-      resolve({ stdout, stderr, exitCode: err ? (err.code ?? 1) : 0 });
+    const proc = spawn(cmd, args, { cwd, timeout: timeoutMs });
+    let stdout = "";
+
+    proc.stdout.on("data", (chunk: Buffer) => {
+      const text = chunk.toString();
+      stdout += text;
+      for (const line of text.split("\n").filter(Boolean)) {
+        onLine(line);
+      }
+    });
+
+    proc.stderr.on("data", (chunk: Buffer) => {
+      const text = chunk.toString();
+      for (const line of text.split("\n").filter(Boolean)) {
+        onLine(`[stderr] ${line}`);
+      }
+    });
+
+    proc.on("close", (code) => {
+      resolve({ stdout, exitCode: code ?? 1 });
+    });
+
+    proc.on("error", (err) => {
+      onLine(`[error] ${err.message}`);
+      resolve({ stdout, exitCode: 1 });
     });
   });
 }
@@ -93,20 +122,20 @@ Do NOT explain, just create the files and build. Work entirely in ${workspacePat
     }
 
     try {
-      // Use Claude Code to generate the node
       const escaped = prompt.replace(/'/g, "'\\''");
-      const cmd = `claude -p '${escaped}' --max-turns 10`;
 
-      ctx.log("info", `Running ${config.cli} (this may take a while)...`);
-      const result = await runCommand(cmd, monorepoRoot, config.timeout_ms);
+      ctx.log("info", `Running ${config.cli} with streaming...`);
+      const result = await runCommandStreamed(
+        "claude",
+        ["-p", prompt, "--max-turns", "10", "--dangerously-skip-permissions"],
+        monorepoRoot,
+        config.timeout_ms,
+        (line) => {
+          // Stream each line into the node log
+          ctx.log("debug", line.slice(0, 200));
+        },
+      );
       ctx.log("info", `CLI exit code: ${result.exitCode}`);
-
-      if (result.stdout) {
-        ctx.log("debug", `stdout: ${result.stdout.slice(0, 300)}`);
-      }
-      if (result.stderr) {
-        ctx.log("warn", `stderr: ${result.stderr.slice(0, 300)}`);
-      }
 
       // Check if the build succeeded
       const configPath = path.join(workspacePath, "config.json");
@@ -141,7 +170,7 @@ Do NOT explain, just create the files and build. Work entirely in ${workspacePat
           criticality: 4,
           payload: {
             title: "Node creation incomplete",
-            description: `Build did not produce dist/handler.js. Files: ${files}. CLI output: ${(result.stdout || result.stderr).slice(0, 200)}`,
+            description: `Build did not produce dist/handler.js. Files: ${files}. CLI output: ${result.stdout.slice(0, 200)}`,
           },
           metadata: { workspace: workspacePath },
         });

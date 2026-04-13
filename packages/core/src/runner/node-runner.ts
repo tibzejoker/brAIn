@@ -269,6 +269,12 @@ export class NodeRunner {
           resolve();
         },
       );
+
+      // Check if messages arrived between ctx.sleep() call and registerSleep
+      // (race condition: message routed to mailbox but sleep not yet registered)
+      if (this.bus.hasUnreadMessages(this.nodeInfo.id)) {
+        this.sleepService.wake(this.nodeInfo.id);
+      }
     });
   }
 
