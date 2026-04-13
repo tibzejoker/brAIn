@@ -119,11 +119,11 @@ export const handler: NodeHandler = (ctx) => {
     });
 
     ctx.log("info", `Reminder set: "${parsed.message}" fires at ${fireTime}`);
-    ctx.publish("reminder.fire", {
+    ctx.publish("reminder.ack", {
       type: "text",
       criticality: 1,
       payload: {
-        content: `Reminder set for ${fireTime}: "${parsed.message}"`,
+        content: `Reminder recorded for ${fireTime}: "${parsed.message}"`,
       },
     });
   }
@@ -137,11 +137,10 @@ export const handler: NodeHandler = (ctx) => {
   for (const reminder of due) {
     ctx.log("info", `Firing reminder: "${reminder.message}"`);
     ctx.publish(reminder.topic, {
-      type: "alert",
+      type: "text",
       criticality: reminder.criticality,
       payload: {
-        title: "Reminder",
-        description: reminder.message,
+        content: `⏰ Reminder: ${reminder.message}`,
       },
       metadata: {
         reminder_id: reminder.id,

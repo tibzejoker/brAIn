@@ -7,7 +7,7 @@
   "default_subscriptions": [
     { "topic": "reminder.set" }
   ],
-  "default_publishes": ["reminder.fire"],
+  "default_publishes": ["reminder.fire", "reminder.ack"],
   "interval": "5s",
   "supports_transport": ["process"]
 }
