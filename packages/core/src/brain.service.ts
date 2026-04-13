@@ -54,6 +54,7 @@ export class BrainService extends EventEmitter {
     this.instanceRegistry = new InstanceRegistry();
     this.authority = new AuthorityService();
     this.sleepService = new SleepService(this.bus, this.instanceRegistry);
+    this.sleepService.setDb(this.db);
 
     // Forward events
     this.instanceRegistry.on("node:added", (node: NodeInfo) =>
@@ -480,6 +481,14 @@ export class BrainService extends EventEmitter {
     if (restored > 0) {
       logger.info({ count: restored }, "Restored nodes from database");
     }
+
+    // Restore sleep states — wake nodes whose timer expired during downtime
+    this.sleepService.restoreSleepStates((nodeId) => {
+      const runner = this.runners.get(nodeId);
+      if (runner) {
+        logger.info({ nodeId }, "Restarting runner after sleep restore");
+      }
+    });
 
     return restored;
   }

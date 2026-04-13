@@ -45,6 +45,15 @@ const SCHEMA = `
   CREATE INDEX IF NOT EXISTS idx_history_timestamp ON network_history(timestamp);
   CREATE INDEX IF NOT EXISTS idx_history_action ON network_history(action);
   CREATE INDEX IF NOT EXISTS idx_history_node ON network_history(node_id);
+
+  CREATE TABLE IF NOT EXISTS sleep_state (
+    node_id TEXT PRIMARY KEY,
+    wake_at INTEGER,
+    wake_topics TEXT NOT NULL DEFAULT '[]',
+    wake_on_any INTEGER NOT NULL DEFAULT 0,
+    created_at INTEGER NOT NULL,
+    FOREIGN KEY (node_id) REFERENCES node_instances(id) ON DELETE CASCADE
+  );
 `;
 
 let db: Database.Database | null = null;
@@ -140,7 +149,35 @@ export function loadSubscriptions(db: Database.Database, nodeId: string): SavedS
 }
 
 export function clearAll(db: Database.Database): void {
-  db.exec("DELETE FROM subscriptions; DELETE FROM node_instances;");
+  db.exec("DELETE FROM sleep_state; DELETE FROM subscriptions; DELETE FROM node_instances;");
+}
+
+// === Sleep state ===
+
+export interface SavedSleepState {
+  node_id: string;
+  wake_at: number | null;
+  wake_topics: string;
+  wake_on_any: number;
+  created_at: number;
+}
+
+export function saveSleepState(
+  db: Database.Database,
+  state: SavedSleepState,
+): void {
+  db.prepare(`
+    INSERT OR REPLACE INTO sleep_state (node_id, wake_at, wake_topics, wake_on_any, created_at)
+    VALUES (@node_id, @wake_at, @wake_topics, @wake_on_any, @created_at)
+  `).run(state);
+}
+
+export function deleteSleepState(db: Database.Database, nodeId: string): void {
+  db.prepare("DELETE FROM sleep_state WHERE node_id = ?").run(nodeId);
+}
+
+export function loadAllSleepStates(db: Database.Database): SavedSleepState[] {
+  return db.prepare("SELECT * FROM sleep_state").all() as SavedSleepState[];
 }
 
 // === History ===
