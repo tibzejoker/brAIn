@@ -29,15 +29,23 @@ function resolveMonorepoRoot(): string {
   return process.cwd();
 }
 
-function runCommandStreamed(
-  cmd: string,
-  args: string[],
+function runClaude(
+  prompt: string,
   cwd: string,
   timeoutMs: number,
   onLine: (line: string) => void,
 ): Promise<{ stdout: string; exitCode: number }> {
   return new Promise((resolve) => {
-    const proc = spawn(cmd, args, { cwd, timeout: timeoutMs });
+    // Write prompt to temp file to avoid shell escaping issues
+    const tmpFile = path.join(cwd, ".prompt.tmp");
+    fs.writeFileSync(tmpFile, prompt, "utf-8");
+
+    const proc = spawn(
+      "sh",
+      ["-c", `cat "${tmpFile}" | claude -p - --max-turns 30 --dangerously-skip-permissions`],
+      { cwd, timeout: timeoutMs },
+    );
+
     let stdout = "";
 
     proc.stdout.on("data", (chunk: Buffer) => {
@@ -49,18 +57,20 @@ function runCommandStreamed(
     });
 
     proc.stderr.on("data", (chunk: Buffer) => {
-      const text = chunk.toString();
-      for (const line of text.split("\n").filter(Boolean)) {
+      for (const line of chunk.toString().split("\n").filter(Boolean)) {
         onLine(`[stderr] ${line}`);
       }
     });
 
     proc.on("close", (code) => {
+      // Cleanup temp file
+      try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
       resolve({ stdout, exitCode: code ?? 1 });
     });
 
     proc.on("error", (err) => {
       onLine(`[error] ${err.message}`);
+      try { fs.unlinkSync(tmpFile); } catch { /* ignore */ }
       resolve({ stdout, exitCode: 1 });
     });
   });
@@ -123,13 +133,11 @@ Do NOT explain, just create the files and build. Work entirely in ${workspacePat
 
     try {
       ctx.log("info", `Running ${config.cli} with streaming...`);
-      const result = await runCommandStreamed(
-        "claude",
-        ["-p", prompt, "--max-turns", "30", "--dangerously-skip-permissions"],
+      const result = await runClaude(
+        prompt,
         monorepoRoot,
         config.timeout_ms,
         (line) => {
-          // Stream each line into the node log
           ctx.log("debug", line.slice(0, 200));
         },
       );
