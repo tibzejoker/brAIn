@@ -126,4 +126,12 @@ export class NodesController {
     }
     return { ticked: true, node_id: id };
   }
+
+  @Get(":id/logs")
+  logs(
+    @Param("id") id: string,
+    @Query("last") last?: string,
+  ): Array<{ timestamp: number; level: string; message: string; data?: Record<string, unknown> }> {
+    return this.brain.getNodeLogs(id, last ? parseInt(last, 10) : undefined);
+  }
 }

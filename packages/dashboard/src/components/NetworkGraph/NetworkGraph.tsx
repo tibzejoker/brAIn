@@ -58,35 +58,90 @@ function snapshotToFlowNode(n: NodeSnapshot): Node {
   };
 }
 
+function matchWildcard(pattern: string, topic: string): boolean {
+  if (pattern === topic) return true;
+  if (pattern === "*") return true;
+  if (pattern.endsWith(".*")) {
+    return topic.startsWith(pattern.slice(0, -1));
+  }
+  return false;
+}
+
 function buildEdges(snapshots: NodeSnapshot[], flows: Flow[]): Edge[] {
-  const edgeMap = new Map<string, { topics: Set<string>; animated: boolean }>();
-  const nodeIds = new Set(snapshots.map((n) => n.id));
+  const edgeMap = new Map<string, { topics: Set<string>; active: boolean }>();
 
+  // Track which flows are active (messages actually passing)
+  const activeFlows = new Set<string>();
   for (const flow of flows) {
-    if (!nodeIds.has(flow.sourceId) || !nodeIds.has(flow.targetId)) continue;
+    activeFlows.add(`${flow.sourceId}->${flow.targetId}`);
+  }
 
+  // Build edges from subscriptions — match subscriber patterns against
+  // other nodes' published topics (inferred from their type name or known outputs)
+  for (const subscriber of snapshots) {
+    for (const sub of subscriber.subscriptions) {
+      for (const publisher of snapshots) {
+        if (publisher.id === subscriber.id) continue;
+
+        // Heuristic: a node likely publishes on topics matching its type or name
+        const likelyTopics = [
+          `${publisher.type}.*`,
+          `${publisher.name}.*`,
+          publisher.type,
+          publisher.name,
+        ];
+
+        // Also check if the subscription pattern could match any topic from this publisher
+        // by checking if the patterns overlap
+        const connected =
+          likelyTopics.some((t) => matchWildcard(sub.pattern, t)) ||
+          matchWildcard(sub.pattern, `${publisher.type}.output`) ||
+          matchWildcard(sub.pattern, `${publisher.type}.tick`);
+
+        // Also connect if we've seen actual messages flow between them
+        const flowKey = `${publisher.id}->${subscriber.id}`;
+        const hasFlow = activeFlows.has(flowKey);
+
+        if (connected || hasFlow) {
+          const existing = edgeMap.get(flowKey);
+          if (existing) {
+            existing.topics.add(sub.pattern);
+            if (hasFlow) existing.active = true;
+          } else {
+            edgeMap.set(flowKey, {
+              topics: new Set([sub.pattern]),
+              active: hasFlow,
+            });
+          }
+        }
+      }
+    }
+  }
+
+  // Also add any flow-based edges not captured by subscription heuristics
+  for (const flow of flows) {
     const key = `${flow.sourceId}->${flow.targetId}`;
-    const existing = edgeMap.get(key);
-    if (existing) {
-      existing.topics.add(flow.topic);
-    } else {
-      const targetNode = snapshots.find((n) => n.id === flow.targetId);
+    if (!edgeMap.has(key)) {
       edgeMap.set(key, {
         topics: new Set([flow.topic]),
-        animated: targetNode?.state === "active",
+        active: true,
       });
     }
   }
 
-  return Array.from(edgeMap.entries()).map(([key, { topics, animated }]) => {
+  return Array.from(edgeMap.entries()).map(([key, { topics, active }]) => {
     const [source, target] = key.split("->");
     return {
       id: key,
       source,
       target,
       label: Array.from(topics).join(", "),
-      animated,
-      style: { stroke: "var(--color-border-bright)", strokeWidth: 2 },
+      animated: active,
+      style: {
+        stroke: active ? "var(--color-accent)" : "var(--color-border-bright)",
+        strokeWidth: active ? 2 : 1,
+        strokeDasharray: active ? undefined : "5 5",
+      },
       labelStyle: { fill: "var(--color-text-muted)", fontSize: 10 },
     };
   });

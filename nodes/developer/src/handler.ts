@@ -16,7 +16,7 @@ interface DevConfig {
 
 function getConfig(overrides: Record<string, unknown>): DevConfig {
   return {
-    model: (overrides.model as string | undefined) ?? "anthropic/claude-sonnet-4-6",
+    model: (overrides.model as string | undefined) ?? "ollama/gemma4:e2b",
     response_topic: (overrides.response_topic as string | undefined) ?? "dev.result",
     max_steps: (overrides.max_steps as number | undefined) ?? 15,
   };

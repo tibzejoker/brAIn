@@ -97,7 +97,7 @@ export class LLMRegistry {
       name: "ollama",
       factory: (model) => ollama(model),
       envKey: "OLLAMA_BASE_URL",
-      testModel: process.env.OLLAMA_TEST_MODEL ?? "llama3.2",
+      testModel: process.env.OLLAMA_TEST_MODEL ?? "gemma4:e2b",
       models: [],
     });
   }

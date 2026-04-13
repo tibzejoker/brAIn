@@ -20,6 +20,7 @@ import type { BusService } from "../bus/bus.service";
 import type { InstanceRegistry } from "../registry/instance-registry";
 import type { SleepService } from "./sleep.service";
 import { IdleThrottle } from "./idle-throttle";
+import { NodeLog, type LogEntry } from "./node-log";
 import { logger } from "../logger";
 
 export class NodeRunner {
@@ -33,6 +34,7 @@ export class NodeRunner {
   private wakeResolve?: () => void;
   private manualTickResolve?: () => void;
   private runMode: RunMode;
+  readonly log = new NodeLog();
 
   constructor(
     private readonly nodeInfo: NodeInfo,
@@ -49,9 +51,14 @@ export class NodeRunner {
     this.runMode = runMode ?? "auto";
   }
 
+  getLogs(last?: number): LogEntry[] {
+    return last ? this.log.getLast(last) : this.log.getAll();
+  }
+
   async start(): Promise<void> {
     this.running = true;
     this.registry.updateState(this.nodeInfo.id, NodeState.ACTIVE);
+    this.log.info(`Started (mode: ${this.runMode})`);
 
     // Listen for new messages to interrupt idle throttle
     this.bus.on(`message:${this.nodeInfo.id}`, () => {
@@ -145,11 +152,22 @@ export class NodeRunner {
     this.iteration++;
 
     const messages = this.bus.getUnreadMessages(this.nodeInfo.id);
+
+    if (messages.length > 0) {
+      this.log.info(`Iteration ${this.iteration}: ${messages.length} message(s)`, {
+        topics: [...new Set(messages.map((m) => m.topic))],
+      });
+    } else {
+      this.log.debug(`Iteration ${this.iteration}: idle`);
+    }
+
     const ctx = this.buildContext(messages);
 
     try {
       await this.handler(ctx);
     } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      this.log.error(`Handler error: ${errMsg}`);
       logger.error(
         { err, node: this.nodeInfo.name, iteration: this.iteration },
         "Handler error",
@@ -177,6 +195,7 @@ export class NodeRunner {
         topic: string,
         msg: Omit<Message, "id" | "from" | "timestamp" | "topic">,
       ): void {
+        self.log.info(`→ publish ${topic} (crit:${msg.criticality})`);
         bus.publish({
           ...msg,
           from: nodeId,
@@ -185,6 +204,7 @@ export class NodeRunner {
       },
 
       subscribe(topic: string, mailbox?: Partial<MailboxConfig>): void {
+        self.log.info(`+ subscribe ${topic}`);
         bus.subscribe(nodeId, topic, { mailbox });
       },
 
@@ -193,6 +213,8 @@ export class NodeRunner {
       },
 
       sleep(conditions: WakeCondition[]): void {
+        const desc = conditions.map((c) => c.type === "timer" ? `timer:${c.value}` : c.type === "topic" ? `topic:${c.value}` : "any").join(", ");
+        self.log.info(`💤 sleep [${desc}]`);
         self.sleepRequested = true;
         self.sleepConditions = conditions;
       },
@@ -226,6 +248,11 @@ export class NodeRunner {
       },
 
       state: self.state,
+
+      log(level: "info" | "warn" | "error" | "debug", message: string, data?: Record<string, unknown>): void {
+        self.log.add(level, message, data);
+      },
+
       node: { ...self.nodeInfo },
       iteration: self.iteration,
       wasPreempted: false,

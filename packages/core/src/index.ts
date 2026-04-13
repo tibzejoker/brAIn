@@ -3,6 +3,7 @@ export { BusService, Mailbox, matchTopic } from "./bus";
 export { TypeRegistry, InstanceRegistry } from "./registry";
 export { AuthorityService } from "./authority";
 export { NodeRunner, SleepService, IdleThrottle } from "./runner";
+export type { LogEntry } from "./runner";
 export { logger, createNodeLogger } from "./logger";
 export { getDb, closeDb } from "./db";
 export type { HistoryEntry, HistoryAction } from "./db";
