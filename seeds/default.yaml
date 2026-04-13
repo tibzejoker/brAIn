@@ -63,9 +63,9 @@ nodes:
     subscriptions:
       - topic: "dev.request"
     config_overrides:
-      model: "ollama/gemma4:e2b"
+      cli: "claude"
       response_topic: "dev.result"
-      max_steps: 12
+      timeout_ms: 300000
 
   # === Shell — runs system commands ===
   - type: terminal

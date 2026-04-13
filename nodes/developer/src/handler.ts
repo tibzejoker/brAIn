@@ -1,76 +1,40 @@
+import { exec } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import type { NodeHandler, TextPayload } from "@brain/sdk";
-import { LLMRegistry, generateText, logger } from "@brain/core";
+import { CLIRegistry } from "@brain/core";
 import { NODE_TEMPLATE_DOCS } from "./template";
-import { executeDevTool, TOOL_DESCRIPTIONS } from "./tools";
 import { v4 as uuid } from "uuid";
 
-const log = logger.child({ node: "developer" });
-
 interface DevConfig {
-  model: string;
+  cli: string;
   response_topic: string;
-  max_steps: number;
+  timeout_ms: number;
 }
 
 function getConfig(overrides: Record<string, unknown>): DevConfig {
   return {
-    model: (overrides.model as string | undefined) ?? "ollama/gemma4:e2b",
+    cli: (overrides.cli as string | undefined) ?? "claude",
     response_topic: (overrides.response_topic as string | undefined) ?? "dev.result",
-    max_steps: (overrides.max_steps as number | undefined) ?? 15,
+    timeout_ms: (overrides.timeout_ms as number | undefined) ?? 300000,
   };
 }
 
 function resolveMonorepoRoot(): string {
   let dir = __dirname;
   for (let i = 0; i < 10; i++) {
-    if (fs.existsSync(path.join(dir, "pnpm-workspace.yaml"))) {
-      return dir;
-    }
+    if (fs.existsSync(path.join(dir, "pnpm-workspace.yaml"))) return dir;
     dir = path.dirname(dir);
   }
   return process.cwd();
 }
 
-interface ToolCall {
-  tool: string;
-  args: Record<string, unknown>;
-}
-
-function parseToolCall(text: string): ToolCall | null {
-  // Find JSON tool call in the LLM response
-  const patterns = [
-    /\{[\s]*"tool"[\s]*:[\s]*"([^"]+)"[\s]*,[\s]*"args"[\s]*:[\s]*(\{[^}]*(?:\{[^}]*\}[^}]*)?\})\s*\}/s,
-    /```json\s*(\{[\s\S]*?\})\s*```/,
-    /(\{"tool"[\s\S]*?\})\s*$/,
-  ];
-
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    if (match) {
-      try {
-        // Try the full match first
-        const parsed = JSON.parse(match[0]) as Record<string, unknown>;
-        if (typeof parsed.tool === "string") {
-          return { tool: parsed.tool, args: (parsed.args as Record<string, unknown> | undefined) ?? {} };
-        }
-      } catch {
-        // Try the captured group
-        if (match[1]) {
-          try {
-            const parsed = JSON.parse(match[1]) as Record<string, unknown>;
-            if (typeof parsed.tool === "string") {
-              return { tool: parsed.tool, args: (parsed.args as Record<string, unknown> | undefined) ?? {} };
-            }
-          } catch {
-            continue;
-          }
-        }
-      }
-    }
-  }
-  return null;
+function runCommand(cmd: string, cwd: string, timeoutMs: number): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+  return new Promise((resolve) => {
+    exec(cmd, { cwd, timeout: timeoutMs, maxBuffer: 5 * 1024 * 1024 }, (err, stdout, stderr) => {
+      resolve({ stdout, stderr, exitCode: err ? (err.code ?? 1) : 0 });
+    });
+  });
 }
 
 export const handler: NodeHandler = async (ctx) => {
@@ -80,7 +44,9 @@ export const handler: NodeHandler = async (ctx) => {
   }
 
   const config = getConfig(ctx.node.config_overrides ?? {} as Record<string, unknown>);
-  const registry = LLMRegistry.getInstance();
+  const cliRegistry = CLIRegistry.getInstance();
+  await cliRegistry.initialize();
+
   const monorepoRoot = resolveMonorepoRoot();
 
   for (const msg of ctx.messages) {
@@ -88,111 +54,100 @@ export const handler: NodeHandler = async (ctx) => {
     const request = payload.content;
     if (!request) continue;
 
+    // Create workspace
     const workspaceId = uuid().slice(0, 8);
     const dynamicDir = path.join(monorepoRoot, "nodes", "_dynamic");
-    if (!fs.existsSync(dynamicDir)) {
-      fs.mkdirSync(dynamicDir, { recursive: true });
-    }
+    if (!fs.existsSync(dynamicDir)) fs.mkdirSync(dynamicDir, { recursive: true });
     const workspacePath = path.join(dynamicDir, `dev-${workspaceId}`);
     fs.mkdirSync(workspacePath, { recursive: true });
 
-    log.info({ workspaceId, request: request.slice(0, 100) }, "Starting node creation");
+    ctx.log("info", `Creating node in ${workspacePath}`);
 
-    const systemPrompt = `You are a developer agent for the brAIn framework. Create new node types based on requests.
+    // Build the prompt for Claude Code
+    const prompt = `You are creating a new brAIn node package in the directory: ${workspacePath}
 
 ${NODE_TEMPLATE_DOCS}
 
-${TOOL_DESCRIPTIONS}
+## Your task
+${request}
 
-The workspace is at: ${workspacePath}
+## Instructions
+1. Create ALL required files in ${workspacePath}: config.json, package.json, tsconfig.json, src/handler.ts
+2. Run: cd ${workspacePath} && pnpm install --no-frozen-lockfile && npx tsc
+3. If there are compile errors, fix them and rebuild
+4. Verify dist/handler.js exists
 
-## Your workflow
-1. Call list_existing_types to see what exists
-2. Write all files: config.json, package.json, tsconfig.json, src/handler.ts
-3. Call build_and_validate
-4. If errors, fix and retry
-5. Call register_type when build succeeds
+Do NOT explain, just create the files and build. Work entirely in ${workspacePath}.`;
 
-Respond with ONE tool call at a time as JSON. After seeing the result, make the next call.`;
-
-    const conversation: Array<{ role: "user" | "assistant"; content: string }> = [
-      { role: "user", content: `Create a new brAIn node type:\n\n${request}` },
-    ];
-
-    let registeredName: string | undefined;
-    let registeredPath: string | undefined;
+    if (!cliRegistry.isAvailable(config.cli)) {
+      ctx.log("error", `CLI ${config.cli} not available`);
+      ctx.publish(config.response_topic, {
+        type: "alert",
+        criticality: 5,
+        payload: {
+          title: "Developer: CLI unavailable",
+          description: `${config.cli} is not installed. Available: ${cliRegistry.getAvailableCLIs().join(", ") || "none"}`,
+        },
+      });
+      continue;
+    }
 
     try {
-      // Ensure registry is initialized (may be a fresh process)
-      await registry.initialize();
-      const model = registry.getModel(config.model);
+      // Use Claude Code to generate the node
+      const escaped = prompt.replace(/'/g, "'\\''");
+      const cmd = `claude -p '${escaped}' --max-turns 10`;
 
-      for (let step = 0; step < config.max_steps; step++) {
-        const result = await generateText({
-          model,
-          system: systemPrompt,
-          messages: conversation,
-          maxOutputTokens: 4096,
-        });
+      ctx.log("info", `Running ${config.cli} (this may take a while)...`);
+      const result = await runCommand(cmd, monorepoRoot, config.timeout_ms);
+      ctx.log("info", `CLI exit code: ${result.exitCode}`);
 
-        const text = result.text || (result as unknown as { reasoning?: string }).reasoning || "";
-        conversation.push({ role: "assistant", content: text });
-
-        const toolCall = parseToolCall(text);
-        if (!toolCall) {
-          // No tool call — the LLM is done talking
-          log.info({ step }, "LLM finished without tool call");
-          break;
-        }
-
-        log.info({ step, tool: toolCall.tool }, "Executing tool");
-        const toolResult = await executeDevTool(toolCall.tool, toolCall.args, workspacePath, monorepoRoot);
-
-        // Check for registration
-        if (toolCall.tool === "register_type" && toolResult.success) {
-          registeredName = toolResult.name as string;
-          registeredPath = toolResult.path as string;
-        }
-
-        conversation.push({
-          role: "user",
-          content: `Tool result for ${toolCall.tool}:\n${JSON.stringify(toolResult, null, 2)}`,
-        });
-
-        if (registeredName) break;
+      if (result.stdout) {
+        ctx.log("debug", `stdout: ${result.stdout.slice(0, 300)}`);
+      }
+      if (result.stderr) {
+        ctx.log("warn", `stderr: ${result.stderr.slice(0, 300)}`);
       }
 
-      if (registeredName && registeredPath) {
+      // Check if the build succeeded
+      const configPath = path.join(workspacePath, "config.json");
+      const handlerPath = path.join(workspacePath, "dist", "handler.js");
+
+      if (fs.existsSync(configPath) && fs.existsSync(handlerPath)) {
+        const nodeConfig = JSON.parse(fs.readFileSync(configPath, "utf-8")) as { name: string };
+        ctx.log("info", `Node type '${nodeConfig.name}' created successfully`);
+
         ctx.publish(config.response_topic, {
           type: "text",
           criticality: 5,
           payload: {
             content: JSON.stringify({
               status: "success",
-              type_name: registeredName,
-              type_path: registeredPath,
-              message: `New node type '${registeredName}' created successfully.`,
+              type_name: nodeConfig.name,
+              type_path: workspacePath,
+              message: `Node type '${nodeConfig.name}' created. Register it to start using.`,
             }),
           },
-          metadata: {
-            original_request: request,
-            workspace: workspacePath,
-          },
+          metadata: { workspace: workspacePath },
         });
-        log.info({ name: registeredName }, "Node type created successfully");
       } else {
+        // List what was created for debugging
+        const files = fs.existsSync(workspacePath)
+          ? fs.readdirSync(workspacePath, { recursive: true }).map(String).join(", ")
+          : "empty";
+
+        ctx.log("warn", `Build incomplete. Files: ${files}`);
         ctx.publish(config.response_topic, {
           type: "alert",
           criticality: 4,
           payload: {
             title: "Node creation incomplete",
-            description: "The developer did not complete registration. Check the workspace for partial work.",
+            description: `Build did not produce dist/handler.js. Files: ${files}. CLI output: ${(result.stdout || result.stderr).slice(0, 200)}`,
           },
-          metadata: { original_request: request, workspace: workspacePath },
+          metadata: { workspace: workspacePath },
         });
-        log.warn({ workspace: workspacePath }, "Node creation incomplete");
       }
     } catch (err) {
+      ctx.log("error", `Failed: ${err instanceof Error ? err.message : String(err)}`);
       ctx.publish(config.response_topic, {
         type: "alert",
         criticality: 5,
@@ -200,9 +155,8 @@ Respond with ONE tool call at a time as JSON. After seeing the result, make the 
           title: "Developer node failed",
           description: err instanceof Error ? err.message : String(err),
         },
-        metadata: { original_request: request, workspace: workspacePath },
+        metadata: { workspace: workspacePath },
       });
-      log.error({ err, workspace: workspacePath }, "Developer node failed");
     }
   }
 };
