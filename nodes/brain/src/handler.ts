@@ -115,12 +115,22 @@ While sleeping, you'll only wake up if a message arrives on your subscribed topi
 - Don't spam — if idle, sleep rather than looping
 - Current iteration: ${iterationState + 1}`;
 
-  const conversation: Array<{ role: "user" | "assistant"; content: string }> = [
-    {
-      role: "user",
-      content: `Network iteration ${iterationState + 1}.\n\nIncoming messages:\n${messagesSummary}`,
-    },
-  ];
+  // Persist conversation history across iterations
+  if (!ctx.state.conversation) {
+    ctx.state.conversation = [];
+  }
+  const conversation = ctx.state.conversation as Array<{ role: "user" | "assistant"; content: string }>;
+
+  // Add new incoming messages
+  conversation.push({
+    role: "user",
+    content: `Network iteration ${iterationState + 1}.\n\nIncoming messages:\n${messagesSummary}`,
+  });
+
+  // Trim to avoid context overflow (keep last 40 turns)
+  while (conversation.length > 40) {
+    conversation.shift();
+  }
 
   try {
     await registry.initialize();

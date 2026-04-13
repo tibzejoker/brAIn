@@ -39,20 +39,33 @@ export const handler: NodeHandler = async (ctx) => {
   const config = getConfig(ctx.node.config_overrides ?? {} as Record<string, unknown>);
   const registry = LLMRegistry.getInstance();
 
-  // Build conversation from incoming messages
-  const userMessages = ctx.messages.map((msg) => ({
-    role: "user" as const,
-    content: `[from:${msg.from} topic:${msg.topic} crit:${msg.criticality}] ${extractContent(msg.payload as TextPayload)}`,
-  }));
+  // Persist conversation across iterations
+  if (!ctx.state.conversation) {
+    ctx.state.conversation = [];
+  }
+  const conversation = ctx.state.conversation as Array<{ role: "user" | "assistant"; content: string }>;
+
+  // Add new incoming messages to history
+  for (const msg of ctx.messages) {
+    conversation.push({
+      role: "user",
+      content: `[from:${msg.from} topic:${msg.topic} crit:${msg.criticality}] ${extractContent(msg.payload as TextPayload)}`,
+    });
+  }
+
+  // Trim to avoid context overflow
+  while (conversation.length > 40) {
+    conversation.shift();
+  }
 
   try {
     await registry.initialize();
-    ctx.log("info", `LLM call → ${config.model} (${userMessages.length} messages)`);
+    ctx.log("info", `LLM call → ${config.model} (${conversation.length} turns)`);
     const model = registry.getModel(config.model);
     const result = await generateText({
       model,
       system: config.system_prompt,
-      messages: userMessages,
+      messages: conversation,
       maxOutputTokens: config.max_tokens,
       temperature: config.temperature,
     });
@@ -61,6 +74,9 @@ export const handler: NodeHandler = async (ctx) => {
     const reasoning = (result as unknown as { reasoning?: string }).reasoning;
     const content = result.text || reasoning || "";
     ctx.log("info", `LLM response (${content.length} chars): ${content.slice(0, 120)}`);
+
+    // Store assistant response in conversation history
+    conversation.push({ role: "assistant", content });
 
     ctx.publish(config.response_topic, {
       type: "text",
