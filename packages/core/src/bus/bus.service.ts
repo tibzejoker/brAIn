@@ -171,6 +171,16 @@ export class BusService extends EventEmitter {
     return allMessages;
   }
 
+  getUnreadCount(nodeId: string): number {
+    const nodeSubs = this.subscriptions.get(nodeId);
+    if (!nodeSubs) return 0;
+    let count = 0;
+    for (const [, sub] of nodeSubs) {
+      count += sub.mailbox.read({ mode: "unread", peek: true }).length;
+    }
+    return count;
+  }
+
   hasUnreadMessages(nodeId: string): boolean {
     const nodeSubs = this.subscriptions.get(nodeId);
     if (!nodeSubs) return false;

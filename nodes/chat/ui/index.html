@@ -13,11 +13,18 @@
     }
     body { background: var(--bg); color: var(--text); font-family: "Inter", system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; }
 
-    .header { padding: 12px 16px; border-bottom: 1px solid var(--border); background: var(--surface); display: flex; align-items: center; gap: 8px; }
+    .header { padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--surface); display: flex; align-items: center; gap: 8px; }
     .header h1 { font-size: 14px; font-weight: 600; }
     .header .badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(99,102,241,0.2); color: var(--accent); }
+    .header .toggle { margin-left: auto; font-size: 11px; color: var(--muted); cursor: pointer; padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border); background: none; }
+    .header .toggle:hover { color: var(--text); border-color: var(--accent); }
+    .header .toggle.active { background: rgba(99,102,241,0.15); color: var(--accent); border-color: var(--accent); }
 
-    .messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; gap: 8px; align-items: center; }
+    .main { flex: 1; display: flex; overflow: hidden; }
+
+    /* Chat panel */
+    .chat { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+    .messages { flex: 1; overflow-y: auto; padding: 16px; display: flex; flex-direction: column; align-items: center; }
     .messages-inner { width: 100%; max-width: 680px; display: flex; flex-direction: column; gap: 8px; }
     .msg { max-width: 85%; padding: 10px 14px; border-radius: 12px; font-size: 13px; line-height: 1.5; word-break: break-word; }
     .msg.self { align-self: flex-end; background: var(--accent); color: white; border-bottom-right-radius: 4px; }
@@ -28,7 +35,6 @@
     .msg.self .topic { color: rgba(255,255,255,0.5); }
     .msg .think { font-size: 11px; color: var(--muted); background: rgba(255,255,255,0.03); border-left: 2px solid var(--amber); padding: 6px 10px; margin: 6px 0; border-radius: 4px; font-style: italic; white-space: pre-wrap; }
     .msg .think-label { font-size: 9px; color: var(--amber); text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 2px; }
-
     .empty { flex: 1; display: flex; align-items: center; justify-content: center; color: var(--muted); font-size: 13px; }
 
     .input-bar { padding: 12px 16px; border-top: 1px solid var(--border); background: var(--surface); display: flex; gap: 8px; max-width: 720px; margin: 0 auto; width: 100%; }
@@ -39,32 +45,57 @@
     .input-bar button:hover { opacity: 0.9; }
     .input-bar button:disabled { opacity: 0.4; cursor: default; }
 
-    .config { padding: 8px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: center; font-size: 11px; color: var(--muted); max-width: 720px; margin: 0 auto; width: 100%; }
-    .config input { padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 11px; width: 160px; outline: none; }
+    .config { padding: 6px 16px; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: center; font-size: 11px; color: var(--muted); max-width: 720px; margin: 0 auto; width: 100%; }
+    .config input { padding: 4px 8px; border-radius: 4px; border: 1px solid var(--border); background: var(--bg); color: var(--text); font-size: 11px; width: 140px; outline: none; }
+
+    /* Bus monitor panel */
+    .bus-panel { width: 320px; border-left: 1px solid var(--border); background: var(--surface); display: flex; flex-direction: column; overflow: hidden; }
+    .bus-panel.hidden { display: none; }
+    .bus-header { padding: 8px 12px; border-bottom: 1px solid var(--border); font-size: 11px; color: var(--muted); display: flex; justify-content: space-between; align-items: center; }
+    .bus-header span { font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
+    .bus-events { flex: 1; overflow-y: auto; padding: 4px 0; }
+    .bus-event { padding: 4px 12px; font-size: 10px; font-family: monospace; border-bottom: 1px solid rgba(255,255,255,0.03); display: flex; flex-direction: column; gap: 1px; }
+    .bus-event:hover { background: rgba(255,255,255,0.02); }
+    .bus-event .ev-time { color: var(--muted); }
+    .bus-event .ev-topic { font-weight: 600; }
+    .bus-event .ev-content { color: var(--text); opacity: 0.7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   </style>
 </head>
 <body>
   <div class="header">
     <h1>brAIn Chat</h1>
     <span class="badge" id="status">connecting...</span>
+    <button class="toggle active" id="bus-toggle">Bus Monitor</button>
   </div>
 
-  <div class="messages" id="messages-scroll">
-    <div class="messages-inner" id="messages">
-      <div class="empty" id="empty">No messages yet. Type something below.</div>
+  <div class="main">
+    <div class="chat">
+      <div class="messages" id="messages-scroll">
+        <div class="messages-inner" id="messages">
+          <div class="empty" id="empty">No messages yet. Type something below.</div>
+        </div>
+      </div>
+
+      <div class="config">
+        <label>Topic:</label>
+        <input type="text" id="topic" value="chat.input" placeholder="chat.input">
+        <label>Crit:</label>
+        <input type="number" id="criticality" value="3" min="0" max="10" style="width:40px">
+      </div>
+
+      <div class="input-bar">
+        <input type="text" id="input" placeholder="Type a message..." autocomplete="off">
+        <button id="send">Send</button>
+      </div>
     </div>
-  </div>
 
-  <div class="config">
-    <label>Topic:</label>
-    <input type="text" id="topic" value="chat.input" placeholder="chat.input">
-    <label>Criticality:</label>
-    <input type="number" id="criticality" value="3" min="0" max="10" style="width:40px">
-  </div>
-
-  <div class="input-bar">
-    <input type="text" id="input" placeholder="Type a message..." autocomplete="off">
-    <button id="send">Send</button>
+    <div class="bus-panel" id="bus-panel">
+      <div class="bus-header">
+        <span>Bus Events</span>
+        <span id="bus-count">0</span>
+      </div>
+      <div class="bus-events" id="bus-events"></div>
+    </div>
   </div>
 
   <script>
@@ -79,31 +110,33 @@
     const $topic = document.getElementById('topic');
     const $crit = document.getElementById('criticality');
     const $status = document.getElementById('status');
+    const $busPanel = document.getElementById('bus-panel');
+    const $busEvents = document.getElementById('bus-events');
+    const $busCount = document.getElementById('bus-count');
+    const $busToggle = document.getElementById('bus-toggle');
+
+    // Toggle bus panel
+    $busToggle.addEventListener('click', () => {
+      $busPanel.classList.toggle('hidden');
+      $busToggle.classList.toggle('active');
+    });
 
     // Send message
     async function sendMessage() {
       const content = $input.value.trim();
       if (!content) return;
-
       $send.disabled = true;
       try {
         const res = await fetch(`${apiBase}/nodes/${nodeId}/ui/send`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            topic: $topic.value || 'chat.input',
-            content,
-            criticality: parseInt($crit.value) || 3,
-          }),
+          body: JSON.stringify({ topic: $topic.value || 'chat.input', content, criticality: parseInt($crit.value) || 3 }),
         });
         const data = await res.json();
         myMessages.add(data.message_id);
         $input.value = '';
-        // Force immediate poll to show the sent message
         pollMessages();
-      } catch (e) {
-        console.error('Send failed:', e);
-      }
+      } catch (e) { /* send failed */ }
       $send.disabled = false;
       $input.focus();
     }
@@ -111,19 +144,14 @@
     $send.addEventListener('click', sendMessage);
     $input.addEventListener('keydown', (e) => { if (e.key === 'Enter') sendMessage(); });
 
-    // Poll messages
+    // Poll chat messages
     let lastCount = 0;
     async function pollMessages() {
       try {
         const res = await fetch(`${apiBase}/nodes/${nodeId}/ui/messages`);
         const messages = await res.json();
-
-        if (messages.length !== lastCount) {
-          lastCount = messages.length;
-          renderMessages(messages);
-        }
-
-        $status.textContent = `${messages.length} messages`;
+        if (messages.length !== lastCount) { lastCount = messages.length; renderMessages(messages); }
+        $status.textContent = `${messages.length} msgs`;
         $status.style.background = 'rgba(34,197,94,0.2)';
         $status.style.color = '#22c55e';
       } catch (e) {
@@ -134,72 +162,83 @@
     }
 
     function renderMessages(messages) {
-      if (messages.length === 0) {
-        $empty.style.display = 'flex';
-        return;
-      }
+      if (messages.length === 0) { $empty.style.display = 'flex'; return; }
       $empty.style.display = 'none';
-
-      // Keep only message elements
       const existing = $messages.querySelectorAll('.msg');
       const existingIds = new Set(Array.from(existing).map(el => el.dataset.id));
-
       for (const msg of messages) {
         if (existingIds.has(msg.id)) continue;
-
         const isSelf = msg.from === nodeId || myMessages.has(msg.id);
         const el = document.createElement('div');
         el.className = `msg ${isSelf ? 'self' : 'other'}`;
         el.dataset.id = msg.id;
-
         const time = new Date(msg.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
         const payload = msg.payload || {};
         const rawContent = payload.content || payload.title || JSON.stringify(payload);
-
         const { thinking, reply } = parseThinking(rawContent);
-
         let html = `<div class="meta">${time} · from:${msg.from.slice(0,8)}</div>`;
-        if (thinking) {
-          html += `<div class="think"><div class="think-label">thinking</div>${escapeHtml(thinking)}</div>`;
-        }
-        if (reply) {
-          html += `<div>${escapeHtml(reply)}</div>`;
-        }
+        if (thinking) html += `<div class="think"><div class="think-label">thinking</div>${escapeHtml(thinking)}</div>`;
+        if (reply) html += `<div>${escapeHtml(reply)}</div>`;
         html += `<div class="topic">${msg.topic}</div>`;
-
         el.innerHTML = html;
         $messages.appendChild(el);
       }
-
       const scrollEl = document.getElementById('messages-scroll');
       if (scrollEl) scrollEl.scrollTop = scrollEl.scrollHeight;
     }
 
+    // Poll ALL bus messages for the monitor
+    let lastBusCount = 0;
+    async function pollBus() {
+      if ($busPanel.classList.contains('hidden')) return;
+      try {
+        const res = await fetch(`${apiBase}/network/messages?last=50`);
+        const msgs = await res.json();
+        if (msgs.length !== lastBusCount) { lastBusCount = msgs.length; renderBusEvents(msgs); }
+      } catch (e) { /* silent */ }
+    }
+
+    function topicHue(topic) {
+      let h = 0;
+      for (let i = 0; i < topic.length; i++) h = topic.charCodeAt(i) + ((h << 5) - h);
+      return Math.abs(h) % 360;
+    }
+
+    function renderBusEvents(msgs) {
+      $busEvents.innerHTML = '';
+      $busCount.textContent = String(msgs.length);
+      for (const msg of msgs) {
+        const el = document.createElement('div');
+        el.className = 'bus-event';
+        const t = new Date(msg.timestamp).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const hue = topicHue(msg.topic);
+        const p = msg.payload || {};
+        const preview = (p.content || p.title || '').slice(0, 60);
+        el.innerHTML = `
+          <div><span class="ev-time">${t}</span> <span class="ev-topic" style="color:hsl(${hue},70%,65%)">${msg.topic}</span> <span class="ev-time">crit:${msg.criticality}</span></div>
+          <div class="ev-content">${escapeHtml(preview)}</div>
+        `;
+        $busEvents.appendChild(el);
+      }
+      $busEvents.scrollTop = $busEvents.scrollHeight;
+    }
+
     function parseThinking(text) {
-      // Match {"tool": "think", "args": "..."} or {"tool": "think", "args": {...}}
       const thinkPattern = /\{"tool"\s*:\s*"think"\s*,\s*"args"\s*:\s*(\{[^}]*\}|"[^"]*")\}/g;
       let thinking = '';
       let remaining = text;
-
       let match;
       while ((match = thinkPattern.exec(text)) !== null) {
         let thought = match[1];
-        // Remove wrapping quotes if it's a string
         if (thought.startsWith('"') && thought.endsWith('"')) {
           thought = thought.slice(1, -1);
         } else {
-          // It's a JSON object like {"thought": "..."}
-          try {
-            const parsed = JSON.parse(thought);
-            thought = parsed.thought || parsed.content || JSON.stringify(parsed);
-          } catch(e) { /* use as-is */ }
+          try { const p = JSON.parse(thought); thought = p.thought || p.content || JSON.stringify(p); } catch(e) {}
         }
         thinking += (thinking ? '\n' : '') + thought.replace(/\\n/g, '\n').replace(/\\"/g, '"');
         remaining = remaining.replace(match[0], '');
       }
-
-      const reply = remaining.trim();
-      return { thinking: thinking || null, reply: reply || null };
+      return { thinking: thinking || null, reply: remaining.trim() || null };
     }
 
     function escapeHtml(str) {
@@ -210,10 +249,11 @@
 
     // Start polling
     setInterval(pollMessages, 1000);
+    setInterval(pollBus, 1500);
     pollMessages();
+    pollBus();
     $input.focus();
 
-    // Notify parent (dashboard) that UI is ready
     if (window.parent !== window) {
       window.parent.postMessage({ type: 'brain-node-ui-ready', nodeId }, '*');
     }

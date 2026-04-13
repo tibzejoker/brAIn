@@ -78,6 +78,7 @@ function snapshotToFlowNode(
       onOpenUi: () => { onOpenUi(n.id); },
       subscribes,
       publishes,
+      unreadCount: n.unread_count ?? 0,
     },
   };
 }

@@ -10,6 +10,7 @@ type NodeBlockData = Node<{
   onOpenUi?: () => void;
   subscribes: string[];
   publishes: string[];
+  unreadCount: number;
 }>;
 
 const STATE_COLORS: Record<string, string> = {
@@ -62,6 +63,13 @@ export function NodeBlock({ data, selected }: NodeProps<NodeBlockData>): React.R
       ))}
       {data.subscribes.length === 0 && (
         <Handle type="target" position={Position.Left} id="in-default" className="opacity-0" />
+      )}
+
+      {/* Unread badge */}
+      {data.unreadCount > 0 && (
+        <div className="absolute -top-2 -right-2 min-w-[20px] h-5 px-1.5 rounded-full bg-node-stopped text-white text-[10px] font-bold flex items-center justify-center shadow-lg">
+          {data.unreadCount}
+        </div>
       )}
 
       {/* Header */}

@@ -23,6 +23,7 @@ export interface SubscriptionSnapshot {
 
 export interface NodeSnapshot extends Omit<NodeInfo, "subscriptions"> {
   subscriptions: SubscriptionSnapshot[];
+  unread_count?: number;
 }
 
 export interface NetworkSnapshot {

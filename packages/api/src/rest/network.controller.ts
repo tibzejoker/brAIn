@@ -30,6 +30,7 @@ export class NetworkController {
       nodes: nodes.map((n) => ({
         ...n,
         subscriptions: this.brain.bus.getSubscriptions(n.id),
+        unread_count: this.brain.bus.getUnreadCount(n.id),
       })),
     };
   }
