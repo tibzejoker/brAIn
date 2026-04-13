@@ -161,6 +161,26 @@ export function resetNetwork(): Promise<{ killed: number }> {
   return request("/network/reset", { method: "POST" });
 }
 
+// === Node mailboxes ===
+
+export interface MailboxInfo {
+  pattern: string;
+  total: number;
+  unread: number;
+  messages: Array<{
+    id: string;
+    topic: string;
+    criticality: number;
+    from: string;
+    timestamp: number;
+    preview: string;
+  }>;
+}
+
+export function getNodeMailboxes(id: string): Promise<MailboxInfo[]> {
+  return request(`/nodes/${id}/mailboxes`);
+}
+
 // === Node logs ===
 
 export interface NodeLogEntry {

@@ -72,7 +72,8 @@ describe("Integration: BrainService end-to-end", () => {
       },
     });
 
-    expect(llmNode.state).toBe("active");
+    // Node may already be sleeping (reactive nodes sleep immediately when idle)
+    expect(["active", "sleeping"]).toContain(llmNode.state);
 
     // Wait a tick for the node to enter its loop and go to sleep
     await new Promise((r) => { setTimeout(r, 500); });

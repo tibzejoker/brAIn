@@ -8,5 +8,6 @@
     { "topic": "brain.*" },
     { "topic": "alerts.*" }
   ],
+  "default_publishes": ["brain.output"],
   "supports_transport": ["process"]
 }

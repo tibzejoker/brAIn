@@ -13,7 +13,7 @@ import {
   BackgroundVariant,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import type { NodeSnapshot } from "../../api/types";
+import type { NodeSnapshot, NodeTypeConfig } from "../../api/types";
 import { updateNodePosition } from "../../api/client";
 import { NodeBlock } from "./NodeBlock";
 import { layoutGraph } from "./graph-layout";
@@ -34,10 +34,13 @@ export interface EdgeSelection {
 interface NetworkGraphProps {
   nodes: NodeSnapshot[];
   flows: Flow[];
+  types: NodeTypeConfig[];
   onNodeSelect: (id: string | null) => void;
   onEdgeSelect: (edge: EdgeSelection | null) => void;
   selectedNodeId: string | null;
 }
+
+function noop(): void { /* best-effort */ }
 
 const nodeTypes: NodeTypes = {
   brainNode: NodeBlock,
@@ -67,65 +70,86 @@ function matchWildcard(pattern: string, topic: string): boolean {
   return false;
 }
 
-function buildEdges(snapshots: NodeSnapshot[], flows: Flow[]): Edge[] {
-  const edgeMap = new Map<string, { topics: Set<string>; active: boolean }>();
+/**
+ * Infer what topics a node likely publishes on, based on:
+ * - config_overrides.response_topic / topic
+ * - Known patterns: echo publishes on echo.output, cron publishes its configured topic, etc.
+ * - Node type defaults
+ */
+/**
+ * Infer what topics a node publishes on.
+ * Sources (in priority order):
+ *   1. config_overrides.response_topic / topic (instance-level override)
+ *   2. default_publishes from the node type config
+ * Purely data-driven — no hardcoded types.
+ */
+function inferPublishTopics(n: NodeSnapshot, typeMap: Map<string, NodeTypeConfig>): string[] {
+  const topics: string[] = [];
+  const co = n.config_overrides ?? {} as Record<string, unknown>;
 
-  // Track which flows are active (messages actually passing)
-  const activeFlows = new Set<string>();
-  for (const flow of flows) {
-    activeFlows.add(`${flow.sourceId}->${flow.targetId}`);
+  // Instance-level overrides take priority
+  if (typeof co.response_topic === "string") topics.push(co.response_topic);
+  if (typeof co.topic === "string") topics.push(co.topic);
+
+  // Fall back to type defaults
+  if (topics.length === 0) {
+    const typeConfig = typeMap.get(n.type);
+    if (typeConfig?.default_publishes) {
+      topics.push(...typeConfig.default_publishes);
+    }
   }
 
-  // Build edges from subscriptions — match subscriber patterns against
-  // other nodes' published topics (inferred from their type name or known outputs)
-  for (const subscriber of snapshots) {
-    for (const sub of subscriber.subscriptions) {
-      for (const publisher of snapshots) {
-        if (publisher.id === subscriber.id) continue;
+  return topics;
+}
 
-        // Heuristic: a node likely publishes on topics matching its type or name
-        const likelyTopics = [
-          `${publisher.type}.*`,
-          `${publisher.name}.*`,
-          publisher.type,
-          publisher.name,
-        ];
+function buildEdges(snapshots: NodeSnapshot[], flows: Flow[], types: NodeTypeConfig[]): Edge[] {
+  const typeMap = new Map(types.map((t) => [t.name, t]));
+  const edgeMap = new Map<string, { topics: Set<string>; active: boolean }>();
 
-        // Also check if the subscription pattern could match any topic from this publisher
-        // by checking if the patterns overlap
-        const connected =
-          likelyTopics.some((t) => matchWildcard(sub.pattern, t)) ||
-          matchWildcard(sub.pattern, `${publisher.type}.output`) ||
-          matchWildcard(sub.pattern, `${publisher.type}.tick`);
+  // Active flows from real messages
+  const activeFlows = new Map<string, Set<string>>();
+  for (const flow of flows) {
+    const key = `${flow.sourceId}->${flow.targetId}`;
+    const existing = activeFlows.get(key);
+    if (existing) {
+      existing.add(flow.topic);
+    } else {
+      activeFlows.set(key, new Set([flow.topic]));
+    }
+  }
 
-        // Also connect if we've seen actual messages flow between them
-        const flowKey = `${publisher.id}->${subscriber.id}`;
-        const hasFlow = activeFlows.has(flowKey);
+  // Match inferred publish topics against subscriptions
+  for (const publisher of snapshots) {
+    const pubTopics = inferPublishTopics(publisher, typeMap);
+    if (pubTopics.length === 0) continue;
 
-        if (connected || hasFlow) {
-          const existing = edgeMap.get(flowKey);
-          if (existing) {
-            existing.topics.add(sub.pattern);
-            if (hasFlow) existing.active = true;
-          } else {
-            edgeMap.set(flowKey, {
-              topics: new Set([sub.pattern]),
-              active: hasFlow,
-            });
+    for (const subscriber of snapshots) {
+      if (subscriber.id === publisher.id) continue;
+
+      const matchedPatterns = new Set<string>();
+      for (const sub of subscriber.subscriptions) {
+        for (const pubTopic of pubTopics) {
+          if (matchWildcard(sub.pattern, pubTopic)) {
+            matchedPatterns.add(sub.pattern);
           }
         }
+      }
+
+      if (matchedPatterns.size > 0) {
+        const key = `${publisher.id}->${subscriber.id}`;
+        const flowTopics = activeFlows.get(key);
+        edgeMap.set(key, {
+          topics: matchedPatterns,
+          active: flowTopics !== undefined && flowTopics.size > 0,
+        });
       }
     }
   }
 
-  // Also add any flow-based edges not captured by subscription heuristics
-  for (const flow of flows) {
-    const key = `${flow.sourceId}->${flow.targetId}`;
+  // Add any flow-based edges not captured by inference
+  for (const [key, topics] of activeFlows) {
     if (!edgeMap.has(key)) {
-      edgeMap.set(key, {
-        topics: new Set([flow.topic]),
-        active: true,
-      });
+      edgeMap.set(key, { topics, active: true });
     }
   }
 
@@ -150,6 +174,7 @@ function buildEdges(snapshots: NodeSnapshot[], flows: Flow[]): Edge[] {
 export function NetworkGraph({
   nodes: snapshots,
   flows,
+  types,
   onNodeSelect,
   onEdgeSelect,
   selectedNodeId,
@@ -157,42 +182,32 @@ export function NetworkGraph({
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([] as Node[]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([] as Edge[]);
 
-  // Sync snapshots into React Flow state
   useEffect(() => {
     setNodes((prev) => {
-      // Build a map of current positions (from drag or previous state)
       const posMap = new Map(prev.map((n) => [n.id, n.position]));
-
       const newNodes = snapshots.map((snap) => {
         const flowNode = snapshotToFlowNode(snap);
-        // Keep dragged position if it exists, otherwise use snapshot position
         const existing = posMap.get(snap.id);
         if (existing && (existing.x !== 0 || existing.y !== 0)) {
           flowNode.position = existing;
         }
         return flowNode;
       });
-
-      // Auto-place nodes at {0,0}
       return layoutGraph(newNodes, []).nodes;
     });
   }, [snapshots, setNodes]);
 
-  // Sync edges
   useEffect(() => {
-    setEdges(buildEdges(snapshots, flows));
-  }, [snapshots, flows, setEdges]);
+    setEdges(buildEdges(snapshots, flows, types));
+  }, [snapshots, flows, types, setEdges]);
 
-  // Apply selection
   const displayNodes = useMemo(
     () => nodes.map((n) => ({ ...n, selected: n.id === selectedNodeId })),
     [nodes, selectedNodeId],
   );
 
   const handleNodeDragStop = useCallback((_event: React.MouseEvent, node: Node): void => {
-    updateNodePosition(node.id, node.position.x, node.position.y).catch(() => {
-      // best-effort
-    });
+    updateNodePosition(node.id, node.position.x, node.position.y).catch(noop);
   }, []);
 
   const handleNodeClick = useCallback(

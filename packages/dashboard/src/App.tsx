@@ -119,6 +119,7 @@ export function App(): React.ReactElement {
               <NetworkGraph
                 nodes={nodes}
                 flows={flows}
+                types={types}
                 onNodeSelect={handleNodeSelect}
                 onEdgeSelect={handleEdgeSelect}
                 selectedNodeId={selectedNode?.id ?? null}

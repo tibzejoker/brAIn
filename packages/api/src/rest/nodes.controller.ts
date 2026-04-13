@@ -134,4 +134,12 @@ export class NodesController {
   ): Array<{ timestamp: number; level: string; message: string; data?: Record<string, unknown> }> {
     return this.brain.getNodeLogs(id, last ? parseInt(last, 10) : undefined);
   }
+
+  @Get(":id/mailboxes")
+  mailboxes(@Param("id") id: string): Array<{
+    pattern: string; total: number; unread: number;
+    messages: Array<{ id: string; topic: string; criticality: number; from: string; timestamp: number; preview: string }>;
+  }> {
+    return this.brain.getNodeMailboxes(id);
+  }
 }

@@ -5,5 +5,6 @@
   "default_authority": 0,
   "default_priority": 1,
   "default_subscriptions": [],
+  "default_publishes": ["echo.output"],
   "supports_transport": ["process"]
 }
