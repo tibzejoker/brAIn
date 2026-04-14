@@ -39,6 +39,9 @@ function mockCtx(messages: Message[]): NodeContext & {
     published,
     logs,
     readMessages: () => [],
+    respond(content, metadata) {
+      published.push({ topic: "memory-vector.result", type: "text", criticality: 1, payload: { content }, metadata });
+    },
     publish(topic, msg) { published.push({ topic, ...msg }); },
     subscribe: vi.fn(),
     unsubscribe: vi.fn(),
