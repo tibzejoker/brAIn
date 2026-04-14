@@ -23,6 +23,9 @@ function mockCtx(messages: Message[]): NodeContext & {
     logs,
     get slept() { return slept; },
     readMessages: () => [],
+    respond(content, metadata) {
+      published.push({ topic: "memory.result", type: "text", criticality: 1, payload: { content }, metadata });
+    },
     publish(topic, msg) {
       published.push({ topic, ...msg });
     },

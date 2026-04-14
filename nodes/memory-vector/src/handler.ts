@@ -189,12 +189,7 @@ export const handler: NodeHandler = async (ctx) => {
       ctx.log("error", `Error: ${result.error as string}`);
     }
 
-    ctx.publish("memory-vector.result", {
-      type: "text",
-      criticality: 1,
-      payload: { content: JSON.stringify(result) },
-      metadata: { action, requested_by: msg.from },
-    });
+    ctx.respond(JSON.stringify(result), { action, requested_by: msg.from });
   }
 };
 
