@@ -130,9 +130,10 @@ export const handler: NodeHandler = async (ctx) => {
   }
 
   // Build situation awareness
-  const messagesSummary = ctx.messages.length > 0
+  const hasMessages = ctx.messages.length > 0;
+  const messagesSummary = hasMessages
     ? ctx.messages.map(formatMessage).join("\n")
-    : "No new messages. You are in idle mode. Reflect on the network state or sleep if nothing needs attention.";
+    : "No new messages.";
 
   const iterationState = ctx.state.conversation_count as number | undefined ?? 0;
   ctx.state.conversation_count = iterationState + 1;
@@ -202,7 +203,8 @@ While sleeping, you'll only wake up if a message arrives on your subscribed topi
   }
 
   // --- Helpers: publish response & request sleep ---
-  function respond(content: string): void {
+  function respond(raw: string): void {
+    const content = stripToolJson(raw);
     if (content.length === 0) return;
     ctx.publish(config.response_topic, {
       type: "text",
@@ -217,7 +219,11 @@ While sleeping, you'll only wake up if a message arrives on your subscribed topi
   }
 
   function stripToolJson(text: string): string {
-    return text.replace(/\{[\s]*"tool"[\s]*:[\s]*"[^"]*"[\s\S]*?\}/g, "").trim();
+    return text
+      .replace(/\{[\s]*"tool"[\s]*:[\s]*"[^"]*"[\s\S]*?\}/g, "")  // complete tool JSON
+      .replace(/^\s*[{}]\s*$/gm, "")                                // orphan braces on their own line
+      .replace(/\n{3,}/g, "\n\n")                                   // collapse excess blank lines
+      .trim();
   }
 
   // --- Main LLM loop ---
@@ -253,7 +259,7 @@ While sleeping, you'll only wake up if a message arrives on your subscribed topi
       // Sleep requested by LLM
       const sleepDuration = parseSleepRequest(text);
       if (sleepDuration) {
-        respond(stripToolJson(text));
+        respond(text);
         goToSleep(sleepDuration, "Brain going to sleep");
         return;
       }
@@ -271,16 +277,10 @@ While sleeping, you'll only wake up if a message arrives on your subscribed topi
         continue;
       }
 
-      // No tool, no sleep — publish and finish
+      // No tool, no sleep — publish and let the runner handle next steps
       respond(text);
-      if (ctx.messages.length === 0) {
-        goToSleep(config.idle_sleep, "Brain idle, auto-sleeping");
-      }
       return;
     }
-
-    // Max steps exhausted
-    goToSleep("10s", "Brain reached max steps, sleeping");
   } catch (err) {
     log.error({ err }, "Brain error");
     respond(`Brain error: ${err instanceof Error ? err.message : String(err)}`);
