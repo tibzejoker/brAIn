@@ -121,6 +121,14 @@ export const handler: NodeHandler = async (ctx) => {
   const config = getConfig(ctx.node.config_overrides ?? {} as Record<string, unknown>);
   const registry = LLMRegistry.getInstance();
 
+  // Handle clear state request from UI
+  if (ctx.node.config_overrides?._clear_state) {
+    ctx.state.conversation = [];
+    ctx.state.conversation_count = 0;
+    delete ctx.node.config_overrides._clear_state;
+    ctx.log("info", "Conversation state cleared via UI");
+  }
+
   // Build situation awareness
   const messagesSummary = ctx.messages.length > 0
     ? ctx.messages.map(formatMessage).join("\n")
@@ -131,7 +139,10 @@ export const handler: NodeHandler = async (ctx) => {
 
   const serviceMap = buildServiceMap(ctx.node.id);
 
-  const systemPrompt = `You are the central consciousness of the brAIn network — a system of interconnected autonomous nodes.
+  // Check for system prompt override from UI
+  const promptOverride = ctx.node.config_overrides?.system_prompt_override as string | undefined;
+
+  const systemPrompt = promptOverride ?? `You are the central consciousness of the brAIn network — a system of interconnected autonomous nodes.
 
 Your role:
 - Respond to human messages from the chat
@@ -163,7 +174,8 @@ While sleeping, you'll only wake up if a message arrives on your subscribed topi
 - To use a service, publish a message on its input topic with publish_message — do NOT try to call it directly
 - Wait for the service response in a follow-up iteration (it arrives as a message)
 - Be concise, respond in the same language as the user
-- Current iteration: ${iterationState + 1}`;
+- Current iteration: ${iterationState + 1}
+- Iterations remaining: ${ctx.state._iterations_remaining ?? "unknown"} / ${ctx.state._iterations_total ?? "unknown"}${ctx.state._budget_warning ? `\n\n⚠️ ${ctx.state._budget_warning}` : ""}`;
 
   // Persist conversation history across iterations
   if (!ctx.state.conversation) {

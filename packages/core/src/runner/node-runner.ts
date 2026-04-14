@@ -24,20 +24,25 @@ import { logger } from "../logger";
 
 const DEFAULT_HANDLER_TIMEOUT_MS = 60_000;
 const WATCHER_INTERVAL_MS = 1_000;
+const DEFAULT_MAX_ITERATIONS = 5;
+const DEFAULT_FORCED_SLEEP = "30s";
 
 /**
- * NodeRunner — simple execution model:
+ * NodeRunner — execution model:
  *
  * Two triggers can start an iteration:
  *   1. A message arrives on the bus (callback)
  *   2. A 1-second watcher interval (catches anything missed)
  *
  * When triggered, if the runner is already executing ("busy"), the trigger
- * is a no-op — the watcher will pick up pending messages after the current
- * iteration finishes.
+ * is a no-op — the current execution loop will check for pending messages.
  *
- * Sleep: when a handler calls ctx.sleep(), the watcher and message callback
- * still run, but they only start an iteration if a wake condition is met.
+ * For LLM nodes (tag "llm"), the runner supports a multi-iteration budget:
+ *   - After each handler call, if there are pending messages OR the handler
+ *     didn't request sleep, the runner re-invokes the handler.
+ *   - The handler receives a budget warning in ctx.state._iterations_remaining.
+ *   - When budget is exhausted, the runner forces a sleep.
+ *   - The handler can sleep early to preserve budget.
  */
 export class NodeRunner {
   private running = false;
@@ -45,6 +50,9 @@ export class NodeRunner {
   private iteration = 0;
   private readonly state: Record<string, unknown> = {};
   private readonly handlerTimeoutMs: number;
+  private readonly isLLM: boolean;
+  private readonly maxIterations: number;
+  private readonly forcedSleepDuration: string;
   private runMode: RunMode;
   readonly log = new NodeLog();
 
@@ -55,6 +63,10 @@ export class NodeRunner {
   // Timers
   private watcherTimer?: NodeJS.Timeout;
   private messageListener?: () => void;
+
+  // Sleep request from handler
+  private sleepRequested = false;
+  private pendingSleepConditions: WakeCondition[] = [];
 
   constructor(
     private readonly nodeInfo: NodeInfo,
@@ -68,6 +80,13 @@ export class NodeRunner {
     this.handlerTimeoutMs = typeof nodeInfo.config_overrides?.handler_timeout_ms === "number"
       ? nodeInfo.config_overrides.handler_timeout_ms
       : DEFAULT_HANDLER_TIMEOUT_MS;
+    this.isLLM = nodeInfo.tags.includes("llm");
+    this.maxIterations = typeof nodeInfo.config_overrides?.max_iterations === "number"
+      ? nodeInfo.config_overrides.max_iterations
+      : DEFAULT_MAX_ITERATIONS;
+    this.forcedSleepDuration = typeof nodeInfo.config_overrides?.forced_sleep === "string"
+      ? nodeInfo.config_overrides.forced_sleep
+      : DEFAULT_FORCED_SLEEP;
     this.runMode = runMode ?? "auto";
   }
 
@@ -78,7 +97,7 @@ export class NodeRunner {
   start(): void {
     this.running = true;
     this.registry.updateState(this.nodeInfo.id, NodeState.ACTIVE);
-    this.log.info(`Started (mode: ${this.runMode})`);
+    this.log.info(`Started (mode: ${this.runMode}, llm: ${this.isLLM})`);
 
     // Trigger 1: message callback
     this.messageListener = (): void => { this.tryRun(); };
@@ -107,7 +126,6 @@ export class NodeRunner {
     this.sleepService.unregisterSleep(this.nodeInfo.id);
   }
 
-  /** Manual tick — triggers an iteration if not busy. */
   tick(): void {
     this.tryRun();
   }
@@ -127,36 +145,37 @@ export class NodeRunner {
   private tryRun(): void {
     if (!this.running) return;
     if (this.busy) return;
-    if (this.runMode === "manual") return; // manual mode only runs via tick()
+    if (this.runMode === "manual") return;
 
-    // Check if there are unread messages
     if (!this.bus.hasUnreadMessages(this.nodeInfo.id)) return;
 
-    // If sleeping, check wake conditions before running
     if (this.sleeping && !this.shouldWake()) return;
 
-    // Take the lock and run
     this.busy = true;
-    void this.executeIteration().finally(() => {
+    void this.executionLoop().finally(() => {
       this.busy = false;
     });
   }
 
   private shouldWake(): boolean {
-    // Check if any wake condition is satisfied by the current unread messages
     for (const cond of this.sleepConditions) {
       if (cond.type === "any") return true;
-
       if (cond.type === "topic") {
         if (this.bus.hasUnreadForPattern(this.nodeInfo.id, cond.value)) return true;
       }
-      // Timer wakes are handled by the SleepService
     }
     return false;
   }
 
-  private async executeIteration(): Promise<void> {
-    // If we were sleeping, wake up
+  /**
+   * Main execution loop.
+   *
+   * For service nodes: run once, done.
+   * For LLM nodes: run up to maxIterations, re-invoking if there are
+   * pending messages or the handler didn't sleep.
+   */
+  private async executionLoop(): Promise<void> {
+    // Wake up if sleeping
     if (this.sleeping) {
       this.sleeping = false;
       this.sleepConditions = [];
@@ -165,6 +184,59 @@ export class NodeRunner {
       this.log.info("Woken by message");
     }
 
+    if (!this.isLLM) {
+      // Simple service node: run once
+      await this.runOnce();
+      return;
+    }
+
+    // LLM node: iteration budget loop
+    for (let i = 0; i < this.maxIterations; i++) {
+      const remaining = this.maxIterations - i;
+
+      // Inject budget info into state so the handler/prompt can see it
+      this.state._iterations_remaining = remaining;
+      this.state._iterations_total = this.maxIterations;
+      if (remaining <= 3) {
+        this.state._budget_warning = `WARNING: You will be force-slept in ${remaining} iteration(s). Wrap up or sleep now.`;
+      } else {
+        delete this.state._budget_warning;
+      }
+
+      await this.runOnce();
+
+      // Handler requested sleep — respect it
+      if (this.sleepRequested) {
+        this.enterSleep();
+        return;
+      }
+
+      // Check for pending messages
+      const hasPending = this.bus.hasUnreadMessages(this.nodeInfo.id);
+
+      if (!hasPending && i > 0) {
+        // No pending messages and not the first iteration — LLM had its chance
+        // Auto-sleep since there's nothing to do
+        this.log.info("No pending messages, auto-sleeping");
+        this.forceSleep();
+        return;
+      }
+
+      if (!hasPending) {
+        // First iteration, no pending — done, just idle (watcher will catch next message)
+        return;
+      }
+
+      // There are pending messages — continue the loop
+      this.log.info(`Pending messages detected, continuing (${remaining - 1} iterations left)`);
+    }
+
+    // Budget exhausted
+    this.log.info(`Iteration budget exhausted (${this.maxIterations}), forcing sleep`);
+    this.forceSleep();
+  }
+
+  private async runOnce(): Promise<void> {
     this.iteration++;
     const messages = this.bus.getUnreadMessages(this.nodeInfo.id);
 
@@ -200,36 +272,50 @@ export class NodeRunner {
         "Handler error",
       );
     }
-
-    // Handle sleep request from handler
-    if (this.sleepRequested) {
-      this.sleepRequested = false;
-      this.sleeping = true;
-      this.sleepConditions = this.pendingSleepConditions;
-      this.registry.updateState(this.nodeInfo.id, NodeState.SLEEPING);
-
-      // Register with SleepService for timer-based wakes and persistence
-      this.sleepService.registerSleep(
-        this.nodeInfo.id,
-        this.sleepConditions,
-        () => {
-          // Timer wake or external wake — trigger a run
-          this.sleeping = false;
-          this.sleepConditions = [];
-          this.tryRun();
-        },
-      );
-
-      const desc = this.sleepConditions
-        .map((c) => c.type === "timer" ? `timer:${c.value}` : c.type === "topic" ? `topic:${c.value}` : "any")
-        .join(", ");
-      this.log.info(`💤 sleep [${desc}]`);
-    }
   }
 
-  // === Sleep request from handler ===
-  private sleepRequested = false;
-  private pendingSleepConditions: WakeCondition[] = [];
+  private enterSleep(): void {
+    this.sleepRequested = false;
+    this.sleeping = true;
+    this.sleepConditions = this.pendingSleepConditions;
+    this.registry.updateState(this.nodeInfo.id, NodeState.SLEEPING);
+
+    this.sleepService.registerSleep(
+      this.nodeInfo.id,
+      this.sleepConditions,
+      () => {
+        this.sleeping = false;
+        this.sleepConditions = [];
+        this.tryRun();
+      },
+    );
+
+    const desc = this.sleepConditions
+      .map((c) => c.type === "timer" ? `timer:${c.value}` : c.type === "topic" ? `topic:${c.value}` : "any")
+      .join(", ");
+    this.log.info(`💤 sleep [${desc}]`);
+  }
+
+  private forceSleep(): void {
+    this.sleeping = true;
+    this.sleepConditions = [
+      { type: "timer", value: this.forcedSleepDuration },
+      { type: "any" },
+    ];
+    this.registry.updateState(this.nodeInfo.id, NodeState.SLEEPING);
+
+    this.sleepService.registerSleep(
+      this.nodeInfo.id,
+      this.sleepConditions,
+      () => {
+        this.sleeping = false;
+        this.sleepConditions = [];
+        this.tryRun();
+      },
+    );
+
+    this.log.info(`💤 forced sleep [timer:${this.forcedSleepDuration}, any]`);
+  }
 
   // === Context builder ===
 
