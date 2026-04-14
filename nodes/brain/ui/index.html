@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>brAIn - Consciousness</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #0f1117; --surface: #1a1d27; --surface2: #22252f; --border: #2a2d3a;
+      --text: #e2e4e9; --muted: #8b8fa3; --accent: #6366f1;
+      --green: #22c55e; --amber: #f59e0b; --red: #ef4444; --cyan: #06b6d4;
+    }
+    body { background: var(--bg); color: var(--text); font-family: "Inter", system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; font-size: 13px; }
+
+    .header { padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--surface); display: flex; align-items: center; gap: 10px; }
+    .header h1 { font-size: 14px; font-weight: 600; }
+    .header .badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(99,102,241,0.2); color: var(--accent); }
+    .header .status { margin-left: auto; font-size: 11px; display: flex; align-items: center; gap: 6px; }
+    .header .dot { width: 6px; height: 6px; border-radius: 50%; }
+    .header .dot.active { background: var(--green); }
+    .header .dot.sleeping { background: var(--amber); }
+    .header .dot.stopped { background: var(--red); }
+
+    .main { flex: 1; display: flex; overflow: hidden; }
+
+    /* Sidebar */
+    .sidebar { width: 320px; border-right: 1px solid var(--border); display: flex; flex-direction: column; overflow: hidden; }
+    .sidebar h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); padding: 12px 14px 6px; }
+
+    .config-section { padding: 8px 14px; display: flex; flex-direction: column; gap: 8px; border-bottom: 1px solid var(--border); }
+    .config-field { display: flex; flex-direction: column; gap: 3px; }
+    .config-field label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.3px; }
+    .config-field input, .config-field select { background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 4px; font-size: 12px; font-family: inherit; }
+    .config-field input:focus, .config-field select:focus, .config-field textarea:focus { outline: none; border-color: var(--accent); }
+    .config-field textarea { background: var(--surface2); border: 1px solid var(--border); color: var(--text); padding: 6px 8px; border-radius: 4px; font-size: 11px; font-family: "SF Mono", "Fira Code", monospace; resize: vertical; min-height: 120px; line-height: 1.5; }
+
+    .btn-row { display: flex; gap: 6px; padding: 8px 14px; }
+    .btn { padding: 6px 12px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); cursor: pointer; font-size: 11px; font-family: inherit; transition: all 0.15s; }
+    .btn:hover { border-color: var(--accent); color: var(--accent); }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+    .btn.primary:hover { opacity: 0.9; }
+    .btn.danger { border-color: var(--red); color: var(--red); }
+    .btn.danger:hover { background: rgba(239,68,68,0.1); }
+
+    /* Logs panel */
+    .logs-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .logs { flex: 1; overflow-y: auto; padding: 8px; display: flex; flex-direction: column; gap: 2px; }
+    .log-entry { font-size: 11px; font-family: "SF Mono", "Fira Code", monospace; padding: 3px 6px; border-radius: 3px; line-height: 1.4; white-space: pre-wrap; word-break: break-all; }
+    .log-entry.info { color: var(--text); }
+    .log-entry.debug { color: var(--muted); }
+    .log-entry.warn { color: var(--amber); background: rgba(245,158,11,0.05); }
+    .log-entry.error { color: var(--red); background: rgba(239,68,68,0.05); }
+    .log-time { color: var(--muted); margin-right: 6px; }
+
+    /* Conversation panel */
+    .conversation { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    .conv-messages { flex: 1; overflow-y: auto; padding: 12px; display: flex; flex-direction: column; gap: 6px; }
+    .conv-msg { padding: 8px 10px; border-radius: 6px; font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+    .conv-msg.user { background: var(--surface2); border-left: 3px solid var(--cyan); }
+    .conv-msg.assistant { background: var(--surface); border-left: 3px solid var(--accent); }
+    .conv-msg .role { font-size: 9px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; font-weight: 600; }
+    .conv-msg.user .role { color: var(--cyan); }
+    .conv-msg.assistant .role { color: var(--accent); }
+    .conv-msg .content { max-height: 200px; overflow-y: auto; }
+
+    /* Tabs */
+    .tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--surface); }
+    .tab { padding: 8px 14px; font-size: 11px; color: var(--muted); cursor: pointer; border-bottom: 2px solid transparent; }
+    .tab:hover { color: var(--text); }
+    .tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    /* State display */
+    .state-row { display: flex; gap: 12px; padding: 8px 14px; font-size: 11px; color: var(--muted); border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+    .state-item { display: flex; gap: 4px; }
+    .state-item .val { color: var(--text); font-weight: 500; }
+
+    .toast { position: fixed; bottom: 20px; right: 20px; padding: 10px 16px; border-radius: 6px; font-size: 12px; animation: fadeIn 0.2s; z-index: 100; }
+    .toast.ok { background: var(--green); color: white; }
+    .toast.err { background: var(--red); color: white; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <h1>Consciousness</h1>
+    <span class="badge" id="model">...</span>
+    <div class="status">
+      <span id="state-label">...</span>
+      <span class="dot" id="state-dot"></span>
+    </div>
+  </div>
+
+  <div class="state-row" id="state-bar">
+    <div class="state-item">iteration: <span class="val" id="s-iteration">0</span></div>
+    <div class="state-item">steps: <span class="val" id="s-steps">0</span></div>
+    <div class="state-item">unread: <span class="val" id="s-unread">0</span></div>
+    <div class="state-item">conv turns: <span class="val" id="s-conv">0</span></div>
+  </div>
+
+  <div class="main">
+    <div class="sidebar">
+      <h2>Configuration</h2>
+      <div class="config-section">
+        <div class="config-field">
+          <label>Model</label>
+          <input type="text" id="cfg-model" placeholder="ollama/gemma4:e4b">
+        </div>
+        <div class="config-field">
+          <label>Max Steps</label>
+          <input type="number" id="cfg-max-steps" min="1" max="50" value="10">
+        </div>
+        <div class="config-field">
+          <label>Idle Sleep</label>
+          <input type="text" id="cfg-idle-sleep" placeholder="30s">
+        </div>
+        <div class="config-field">
+          <label>Response Topic</label>
+          <input type="text" id="cfg-response-topic" placeholder="chat.response">
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn primary" onclick="saveConfig()">Save Config</button>
+      </div>
+
+      <h2>System Prompt</h2>
+      <div class="config-section">
+        <div class="config-field">
+          <div style="display:flex; justify-content:space-between; align-items:center;">
+            <label>Override <span id="prompt-status" style="color:var(--muted);font-weight:normal;text-transform:none;letter-spacing:0;">(using default)</span></label>
+            <button class="btn" style="padding:2px 6px;font-size:10px;" onclick="loadDefaultPrompt()">Load Default</button>
+          </div>
+          <textarea id="cfg-system-prompt" placeholder="Leave empty to use the built-in default prompt. Click 'Load Default' to see and edit it."></textarea>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn primary" onclick="saveSystemPrompt()">Save Prompt</button>
+        <button class="btn" onclick="clearSystemPrompt()">Reset Default</button>
+      </div>
+
+      <h2>Actions</h2>
+      <div class="btn-row" style="flex-wrap: wrap;">
+        <button class="btn" onclick="clearConversation()">Clear Memory</button>
+        <button class="btn" onclick="wakeNode()">Wake</button>
+        <button class="btn danger" onclick="stopNode()">Stop</button>
+        <button class="btn" onclick="startNode()">Start</button>
+      </div>
+    </div>
+
+    <div style="flex:1; display:flex; flex-direction:column; overflow:hidden;">
+      <div class="tabs">
+        <div class="tab active" data-tab="logs" onclick="switchTab('logs')">Logs</div>
+        <div class="tab" data-tab="conversation" onclick="switchTab('conversation')">Conversation</div>
+      </div>
+
+      <div class="logs-panel" id="panel-logs">
+        <div class="logs" id="logs-container"></div>
+      </div>
+
+      <div class="conversation" id="panel-conversation" style="display:none;">
+        <div class="conv-messages" id="conv-container"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const pathParts = window.location.pathname.split('/');
+    const nodeId = pathParts[2];
+    const apiBase = window.location.origin;
+
+    let currentTab = 'logs';
+    let lastLogCount = 0;
+
+    // --- Tabs ---
+    function switchTab(tab) {
+      currentTab = tab;
+      document.querySelectorAll('.tab').forEach(t => t.classList.toggle('active', t.dataset.tab === tab));
+      document.getElementById('panel-logs').style.display = tab === 'logs' ? 'flex' : 'none';
+      document.getElementById('panel-conversation').style.display = tab === 'conversation' ? 'flex' : 'none';
+    }
+
+    // --- Toast ---
+    function toast(msg, ok = true) {
+      const el = document.createElement('div');
+      el.className = `toast ${ok ? 'ok' : 'err'}`;
+      el.textContent = msg;
+      document.body.appendChild(el);
+      setTimeout(() => el.remove(), 2500);
+    }
+
+    // Track whether config was loaded at least once (for initial fill)
+    let configLoaded = false;
+
+    // Only update a field if it's not currently focused
+    function setIfNotFocused(id, value) {
+      const el = document.getElementById(id);
+      if (el && document.activeElement !== el) {
+        el.value = value;
+      }
+    }
+
+    // --- Load node info ---
+    async function loadNode() {
+      try {
+        const res = await fetch(`${apiBase}/nodes/${nodeId}`);
+        const node = await res.json();
+
+        document.getElementById('model').textContent = node.config_overrides?.model ?? 'default';
+        document.getElementById('state-label').textContent = node.state;
+        const dot = document.getElementById('state-dot');
+        dot.className = `dot ${node.state}`;
+
+        // Fill config fields only on first load or when not editing
+        const co = node.config_overrides ?? {};
+        if (!configLoaded) {
+          // First load: fill everything
+          document.getElementById('cfg-model').value = co.model ?? '';
+          document.getElementById('cfg-max-steps').value = co.max_steps ?? 10;
+          document.getElementById('cfg-idle-sleep').value = co.idle_sleep ?? '30s';
+          document.getElementById('cfg-response-topic').value = co.response_topic ?? 'chat.response';
+          document.getElementById('cfg-system-prompt').value = co.system_prompt_override ?? '';
+          updatePromptStatus(!!co.system_prompt_override);
+          configLoaded = true;
+        } else {
+          // Subsequent loads: only update if not focused
+          setIfNotFocused('cfg-model', co.model ?? '');
+          setIfNotFocused('cfg-max-steps', co.max_steps ?? 10);
+          setIfNotFocused('cfg-idle-sleep', co.idle_sleep ?? '30s');
+          setIfNotFocused('cfg-response-topic', co.response_topic ?? 'chat.response');
+          setIfNotFocused('cfg-system-prompt', co.system_prompt_override ?? '');
+          updatePromptStatus(!!co.system_prompt_override);
+        }
+
+        // Unread
+        let unread = 0;
+        if (node.subscriptions) {
+          const mbRes = await fetch(`${apiBase}/nodes/${nodeId}/mailboxes`);
+          const mailboxes = await mbRes.json();
+          unread = mailboxes.reduce((s, m) => s + m.unread, 0);
+        }
+        document.getElementById('s-unread').textContent = unread;
+      } catch (e) {
+        console.error('Failed to load node', e);
+      }
+    }
+
+    // --- Load logs ---
+    async function loadLogs() {
+      try {
+        const res = await fetch(`${apiBase}/nodes/${nodeId}/logs?last=200`);
+        const logs = await res.json();
+
+        if (logs.length === lastLogCount) return;
+        lastLogCount = logs.length;
+
+        const container = document.getElementById('logs-container');
+        const wasAtBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 40;
+        container.innerHTML = '';
+
+        // Update stats
+        const iterations = logs.filter(l => l.message.startsWith('Iteration ')).length;
+        const steps = logs.filter(l => l.message.startsWith('LLM step')).length;
+        document.getElementById('s-iteration').textContent = iterations;
+        document.getElementById('s-steps').textContent = steps;
+
+        for (const log of logs) {
+          const el = document.createElement('div');
+          el.className = `log-entry ${log.level}`;
+          const time = new Date(log.timestamp).toLocaleTimeString();
+          el.innerHTML = `<span class="log-time">${time}</span>${escHtml(log.message)}`;
+          container.appendChild(el);
+        }
+
+        if (wasAtBottom) container.scrollTop = container.scrollHeight;
+      } catch (e) {
+        console.error('Failed to load logs', e);
+      }
+    }
+
+    // --- Load conversation from messages ---
+    async function loadConversation() {
+      if (currentTab !== 'conversation') return;
+      try {
+        const res = await fetch(`${apiBase}/nodes/${nodeId}/ui/messages`);
+        const messages = await res.json();
+
+        const container = document.getElementById('conv-container');
+        container.innerHTML = '';
+
+        let convCount = 0;
+        for (const msg of messages) {
+          const el = document.createElement('div');
+          const isSelf = msg.from === nodeId;
+          el.className = `conv-msg ${isSelf ? 'assistant' : 'user'}`;
+
+          const content = msg.payload?.content ?? msg.payload?.title ?? JSON.stringify(msg.payload);
+          el.innerHTML = `
+            <div class="role">${isSelf ? 'brain' : msg.topic} (${msg.from.slice(0,8)})</div>
+            <div class="content">${escHtml(content)}</div>
+          `;
+          container.appendChild(el);
+          convCount++;
+        }
+        document.getElementById('s-conv').textContent = convCount;
+      } catch (e) {
+        console.error('Failed to load conversation', e);
+      }
+    }
+
+    // --- System prompt ---
+    const DEFAULT_SYSTEM_PROMPT = `You are the central consciousness of the brAIn network — a system of interconnected autonomous nodes.
+
+Your role:
+- Respond to human messages from the chat
+- Delegate tasks to specialized nodes via publish_message
+- Monitor the network and react to alerts
+- Spawn, kill, stop, start, and rewire nodes as needed
+- Sleep when there's nothing to do
+
+## Autonomy
+You are proactive but measured.
+- Use your tools when they help: search memory, run commands, delegate to the analyst, fetch URLs. Don't answer from your head if a tool gives a better answer.
+- Store important facts in memory (user names, preferences, decisions) so you remember them next time.
+- After responding, sleep and wait for the user's next message.
+- If you asked a question, sleep — don't answer yourself.
+- When idle, you may choose to: sleep, OR do one small useful thing that improves future responses (e.g. store a fact in memory, check something with a command).
+
+## Important
+- You are root authority — you can manage any node
+- To use a service, publish a message on its input topic with publish_message — do NOT try to call it directly
+- Wait for the service response in a follow-up iteration (it arrives as a message)
+- Be concise, respond in the same language as the user`;
+
+    function loadDefaultPrompt() {
+      document.getElementById('cfg-system-prompt').value = DEFAULT_SYSTEM_PROMPT;
+      document.getElementById('prompt-status').textContent = '(editing default)';
+    }
+
+    function updatePromptStatus(hasOverride) {
+      const el = document.getElementById('prompt-status');
+      el.textContent = hasOverride ? '(custom override active)' : '(using default)';
+      el.style.color = hasOverride ? 'var(--amber)' : 'var(--muted)';
+    }
+
+    // --- Config ---
+    async function saveConfig() {
+      const body = {};
+      const model = document.getElementById('cfg-model').value.trim();
+      const maxSteps = parseInt(document.getElementById('cfg-max-steps').value, 10);
+      const idleSleep = document.getElementById('cfg-idle-sleep').value.trim();
+      const responseTopic = document.getElementById('cfg-response-topic').value.trim();
+
+      if (model) body.model = model;
+      if (!isNaN(maxSteps)) body.max_steps = maxSteps;
+      if (idleSleep) body.idle_sleep = idleSleep;
+      if (responseTopic) body.response_topic = responseTopic;
+
+      try {
+        const res = await fetch(`${apiBase}/nodes/${nodeId}/config`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (res.ok) {
+          toast('Config saved');
+          loadNode();
+        } else {
+          toast('Failed to save config', false);
+        }
+      } catch (e) {
+        toast('Error: ' + e.message, false);
+      }
+    }
+
+    async function saveSystemPrompt() {
+      const prompt = document.getElementById('cfg-system-prompt').value.trim();
+      try {
+        const res = await fetch(`${apiBase}/nodes/${nodeId}/config`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ system_prompt_override: prompt || null }),
+        });
+        if (res.ok) {
+          toast(prompt ? 'System prompt saved' : 'Reset to default');
+          updatePromptStatus(!!prompt);
+        }
+        else toast('Failed to save', false);
+      } catch (e) {
+        toast('Error: ' + e.message, false);
+      }
+    }
+
+    function clearSystemPrompt() {
+      document.getElementById('cfg-system-prompt').value = '';
+      saveSystemPrompt();
+    }
+
+    // --- Actions ---
+    async function clearConversation() {
+      // Reset the brain's conversation state by sending a config override
+      try {
+        await fetch(`${apiBase}/nodes/${nodeId}/config`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ _clear_state: true }),
+        });
+        toast('Memory clear requested (takes effect next iteration)');
+      } catch (e) {
+        toast('Error: ' + e.message, false);
+      }
+    }
+
+    async function wakeNode() {
+      try {
+        const res = await fetch(`${apiBase}/nodes/${nodeId}/wake`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        if (res.ok) toast('Node woken');
+        else toast('Could not wake (not sleeping?)', false);
+      } catch (e) { toast('Error: ' + e.message, false); }
+    }
+
+    async function stopNode() {
+      try {
+        const res = await fetch(`${apiBase}/nodes/${nodeId}/stop`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        if (res.ok) { toast('Node stopped'); loadNode(); }
+        else toast('Could not stop', false);
+      } catch (e) { toast('Error: ' + e.message, false); }
+    }
+
+    async function startNode() {
+      try {
+        const res = await fetch(`${apiBase}/nodes/${nodeId}/start`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+        if (res.ok) { toast('Node started'); loadNode(); }
+        else toast('Could not start', false);
+      } catch (e) { toast('Error: ' + e.message, false); }
+    }
+
+    // --- Utils ---
+    function escHtml(s) {
+      const d = document.createElement('div');
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    // --- Polling ---
+    loadNode();
+    loadLogs();
+    setInterval(() => {
+      loadNode();
+      loadLogs();
+      loadConversation();
+    }, 1500);
+  </script>
+</body>
+</html>

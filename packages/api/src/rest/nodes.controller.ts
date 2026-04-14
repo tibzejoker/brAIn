@@ -118,6 +118,27 @@ export class NodesController {
     return { updated: true, node_id: id };
   }
 
+  @Patch(":id/config")
+  updateConfig(
+    @Param("id") id: string,
+    @Body() body: Record<string, unknown>,
+  ): { updated: boolean; node_id: string; config_overrides: Record<string, unknown> } {
+    const node = this.brain.instanceRegistry.get(id);
+    if (!node) {
+      throw new HttpException("Node not found", HttpStatus.NOT_FOUND);
+    }
+    const overrides = node.config_overrides ?? {};
+    for (const [key, value] of Object.entries(body)) {
+      if (value === null) {
+        delete overrides[key];
+      } else {
+        overrides[key] = value;
+      }
+    }
+    node.config_overrides = overrides;
+    return { updated: true, node_id: id, config_overrides: overrides };
+  }
+
   @Post(":id/tick")
   tick(@Param("id") id: string): { ticked: boolean; node_id: string } {
     const ticked = this.brain.tickNode(id);

@@ -9,5 +9,6 @@
     { "topic": "alerts.*" }
   ],
   "default_publishes": ["brain.output"],
+  "has_ui": true,
   "supports_transport": ["process"]
 }
