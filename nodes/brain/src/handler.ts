@@ -183,10 +183,17 @@ While sleeping, you'll only wake up if a message arrives on your subscribed topi
   }
   const conversation = ctx.state.conversation as Array<{ role: "user" | "assistant"; content: string }>;
 
-  // Add new incoming messages
+  // Build iteration context
+  const wakeNotice = ctx.state._woke_from_sleep
+    ? "You just woke up from sleep. Check your messages and decide what to do.\n\n"
+    : "";
+  const budgetNotice = ctx.state._budget_warning
+    ? `\n\n⚠️ ${ctx.state._budget_warning}`
+    : "";
+
   conversation.push({
     role: "user",
-    content: `Network iteration ${iterationState + 1}.\n\nIncoming messages:\n${messagesSummary}`,
+    content: `${wakeNotice}Network iteration ${iterationState + 1}.\n\nIncoming messages:\n${messagesSummary}${budgetNotice}`,
   });
 
   // Trim to avoid context overflow (keep last 40 turns)
@@ -194,6 +201,26 @@ While sleeping, you'll only wake up if a message arrives on your subscribed topi
     conversation.shift();
   }
 
+  // --- Helpers: publish response & request sleep ---
+  function respond(content: string): void {
+    if (content.length === 0) return;
+    ctx.publish(config.response_topic, {
+      type: "text",
+      criticality: 1,
+      payload: { content },
+    });
+  }
+
+  function goToSleep(duration: string, reason: string): void {
+    log.info({ duration }, reason);
+    ctx.sleep([{ type: "timer", value: duration }, { type: "any" }]);
+  }
+
+  function stripToolJson(text: string): string {
+    return text.replace(/\{[\s]*"tool"[\s]*:[\s]*"[^"]*"[\s\S]*?\}/g, "").trim();
+  }
+
+  // --- Main LLM loop ---
   try {
     await registry.initialize();
     ctx.log("info", `LLM call → ${config.model} (${ctx.messages.length} messages)`);
@@ -215,81 +242,48 @@ While sleeping, you'll only wake up if a message arrives on your subscribed topi
       if (typeof result.text === "string" && result.text) {
         text = result.text;
       } else if (Array.isArray(r.steps) && r.steps.length > 0) {
-        const step = r.steps[0] as Record<string, unknown>;
-        if (typeof step.text === "string" && step.text) text = step.text;
-        if (!text && typeof step.reasoning === "string") text = step.reasoning;
+        const s = r.steps[0] as Record<string, unknown>;
+        if (typeof s.text === "string" && s.text) text = s.text;
+        if (!text && typeof s.reasoning === "string") text = s.reasoning;
       }
       if (!text && typeof r.reasoning === "string") text = r.reasoning;
       ctx.log("info", `LLM response (${text.length} chars): ${text.slice(0, 120)}`);
       conversation.push({ role: "assistant", content: text });
 
-      // Check for sleep request
+      // Sleep requested by LLM
       const sleepDuration = parseSleepRequest(text);
       if (sleepDuration) {
-        log.info({ duration: sleepDuration, step }, "Brain going to sleep");
-        ctx.sleep([
-          { type: "timer", value: sleepDuration },
-          { type: "any" },
-        ]);
+        respond(stripToolJson(text));
+        goToSleep(sleepDuration, "Brain going to sleep");
         return;
       }
 
-      // Check for tool call
+      // Tool call — execute and feed result back into conversation
       const toolCall = parseToolCall(text);
-      if (!toolCall) {
-        // No tool call, no sleep — the brain is done for this iteration
-        // Publish any final thoughts
-        if (text.length > 0) {
-          ctx.publish(config.response_topic, {
-            type: "text",
-            criticality: 1,
-            payload: { content: text },
-          });
-        }
-
-        // Auto-sleep if idle
-        if (ctx.messages.length === 0) {
-          log.info({ duration: config.idle_sleep }, "Brain idle, auto-sleeping");
-          ctx.sleep([
-            { type: "timer", value: config.idle_sleep },
-            { type: "any" },
-          ]);
-        }
-        return;
+      if (toolCall) {
+        ctx.log("info", `Tool call: ${toolCall.tool}(${JSON.stringify(toolCall.args).slice(0, 100)})`);
+        const toolResult = await executeBrainTool(toolCall.tool, toolCall.args, ctx.node.id);
+        ctx.log("info", `Tool result: ${JSON.stringify(toolResult).slice(0, 150)}`);
+        conversation.push({
+          role: "user",
+          content: `Tool result for ${toolCall.tool}:\n${JSON.stringify(toolResult, null, 2)}`,
+        });
+        continue;
       }
 
-      // Execute tool
-      ctx.log("info", `Tool call: ${toolCall.tool}(${JSON.stringify(toolCall.args).slice(0, 100)})`);
-      const toolResult = await executeBrainTool(toolCall.tool, toolCall.args, ctx.node.id);
-      ctx.log("info", `Tool result: ${JSON.stringify(toolResult).slice(0, 150)}`);
-
-      conversation.push({
-        role: "user",
-        content: `Tool result for ${toolCall.tool}:\n${JSON.stringify(toolResult, null, 2)}`,
-      });
+      // No tool, no sleep — publish and finish
+      respond(text);
+      if (ctx.messages.length === 0) {
+        goToSleep(config.idle_sleep, "Brain idle, auto-sleeping");
+      }
+      return;
     }
 
-    // Max steps reached — sleep
-    log.info("Brain reached max steps, sleeping");
-    ctx.sleep([
-      { type: "timer", value: "10s" },
-      { type: "any" },
-    ]);
+    // Max steps exhausted
+    goToSleep("10s", "Brain reached max steps, sleeping");
   } catch (err) {
     log.error({ err }, "Brain error");
-    ctx.publish(config.response_topic, {
-      type: "alert",
-      criticality: 7,
-      payload: {
-        title: "Brain error",
-        description: err instanceof Error ? err.message : String(err),
-      },
-    });
-
-    // Sleep after error to avoid rapid retry
-    ctx.sleep([
-      { type: "timer", value: "10s" },
-      { type: "any" },
-    ]);
+    respond(`Brain error: ${err instanceof Error ? err.message : String(err)}`);
+    goToSleep("10s", "Sleeping after error");
   }
 };

@@ -176,6 +176,7 @@ export class NodeRunner {
    */
   private async executionLoop(): Promise<void> {
     // Wake up if sleeping
+    const wasSleeping = this.sleeping;
     if (this.sleeping) {
       this.sleeping = false;
       this.sleepConditions = [];
@@ -184,9 +185,17 @@ export class NodeRunner {
       this.log.info("Woken by message");
     }
 
+    // Inject wake context for LLM handlers
+    this.state._woke_from_sleep = wasSleeping;
+
     if (!this.isLLM) {
-      // Simple service node: run once
+      // Simple service node: run once, then auto-sleep
       await this.runOnce();
+      if (!this.sleepRequested) {
+        this.sleepRequested = true;
+        this.pendingSleepConditions = [{ type: "any" }];
+      }
+      this.enterSleep();
       return;
     }
 
@@ -357,33 +366,11 @@ export class NodeRunner {
         self.pendingSleepConditions = conditions;
       },
 
-      callLLM(_opts: LLMRequest): Promise<LLMResponse> {
-        return Promise.reject(new Error("callLLM not yet implemented"));
-      },
-
-      callTool(
-        _server: string,
-        _tool: string,
-        _params: unknown,
-      ): Promise<unknown> {
-        return Promise.reject(new Error("callTool not yet implemented"));
-      },
-
-      readFile(_id: string): Promise<FileContent> {
-        return Promise.reject(new Error("readFile not yet implemented"));
-      },
-
-      writeFile(
-        _name: string,
-        _content: string,
-        _opts?: FileOpts,
-      ): Promise<FileRef> {
-        return Promise.reject(new Error("writeFile not yet implemented"));
-      },
-
-      listFiles(_filter?: FileFilter): Promise<FileInfo[]> {
-        return Promise.reject(new Error("listFiles not yet implemented"));
-      },
+      callLLM: (_opts: LLMRequest): Promise<LLMResponse> => Promise.reject(new Error("callLLM not implemented")),
+      callTool: (_s: string, _t: string, _p: unknown): Promise<unknown> => Promise.reject(new Error("callTool not implemented")),
+      readFile: (_id: string): Promise<FileContent> => Promise.reject(new Error("readFile not implemented")),
+      writeFile: (_n: string, _c: string, _o?: FileOpts): Promise<FileRef> => Promise.reject(new Error("writeFile not implemented")),
+      listFiles: (_f?: FileFilter): Promise<FileInfo[]> => Promise.reject(new Error("listFiles not implemented")),
 
       state: self.state,
 
