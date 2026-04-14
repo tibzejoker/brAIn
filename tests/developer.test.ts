@@ -43,7 +43,7 @@ describe("Developer node: creates a new node type", () => {
       name: "test-developer",
       subscriptions: [{ topic: "test.dev.request" }],
       config_overrides: {
-        model: "ollama/gemma4:e2b",
+        model: "ollama/gemma4:e4b",
         response_topic: "test.dev.result",
         max_steps: 12,
       },

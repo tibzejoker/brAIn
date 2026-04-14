@@ -6,7 +6,7 @@ nodes:
     priority: 5
     position:
       x: 50
-      y: 250
+      y: 350
     subscriptions:
       - topic: "chat.response"
       - topic: "brain.output"
@@ -15,7 +15,7 @@ nodes:
       - topic: "cmd.output"
       - topic: "http.response"
       - topic: "reminder.*"
-      - topic: "memory.result"
+      - topic: "mem.response"
 
   # === Central brain — orchestrates everything ===
   - type: brain
@@ -23,8 +23,8 @@ nodes:
     description: "Central intelligence. Receives human messages, delegates to other nodes, responds."
     priority: 10
     position:
-      x: 400
-      y: 250
+      x: 450
+      y: 350
     subscriptions:
       - topic: "chat.input"
       - topic: "alerts.*"
@@ -33,12 +33,14 @@ nodes:
       - topic: "cmd.output"
       - topic: "http.response"
       - topic: "reminder.*"
-      - topic: "memory.result"
+      - topic: "mem.response"
     config_overrides:
       model: "ollama/gemma4:e4b"
       response_topic: "chat.response"
       idle_sleep: "1m"
       max_steps: 8
+
+  # ── REASONING ──────────────────────────────
 
   # === Analyst — general purpose reasoning ===
   - type: llm-basic
@@ -46,8 +48,8 @@ nodes:
     description: "Reasoning agent. The brain sends it analysis tasks, it returns reports."
     priority: 5
     position:
-      x: 750
-      y: 100
+      x: 850
+      y: 150
     subscriptions:
       - topic: "task.analyze"
     config_overrides:
@@ -61,8 +63,8 @@ nodes:
     description: "Creates new node types on demand. The brain asks it to build new capabilities."
     priority: 8
     position:
-      x: 750
-      y: 250
+      x: 850
+      y: 350
     subscriptions:
       - topic: "dev.request"
     config_overrides:
@@ -70,14 +72,16 @@ nodes:
       response_topic: "dev.result"
       timeout_ms: 300000
 
+  # ── TOOLS ──────────────────────────────────
+
   # === Shell — runs system commands ===
   - type: terminal
     name: shell
     description: "Executes whitelisted shell commands for the brain."
     priority: 3
     position:
-      x: 750
-      y: 400
+      x: 850
+      y: 550
     subscriptions:
       - topic: "cmd.exec"
     config_overrides:
@@ -91,8 +95,8 @@ nodes:
     description: "Fetches URLs and APIs for the brain."
     priority: 3
     position:
-      x: 400
-      y: 470
+      x: 600
+      y: 600
     subscriptions:
       - topic: "http.request"
     config_overrides:
@@ -101,22 +105,41 @@ nodes:
   # === Reminder — schedules timed alerts ===
   - type: reminder
     name: reminder
-    description: "Schedules reminders. Send '30m Do the thing' on reminder.set, it fires on reminder.fire when time is up."
+    description: "Schedules reminders. Send '30m Do the thing' on reminder.set, it fires when time is up."
     priority: 3
     position:
-      x: 100
-      y: 470
+      x: 300
+      y: 600
     subscriptions:
       - topic: "reminder.set"
 
-  # === Memory — persistent knowledge store ===
+  # ── MEMORY ─────────────────────────────────
+
+  # === Memory proxy — intelligent memory interface ===
+  - type: memory-proxy
+    name: memory-proxy
+    description: "Intelligent memory gateway. Queries the right stores, synthesizes results. Can reorganize memories."
+    priority: 5
+    position:
+      x: 200
+      y: 150
+    subscriptions:
+      - topic: "mem.ask"
+      - topic: "mem.store"
+      - topic: "memory.result"
+      - topic: "memory-vector.result"
+    config_overrides:
+      model: "ollama/gemma4:e4b"
+      response_topic: "mem.response"
+
+  # === Memory — persistent key-value store ===
   - type: memory
     name: memory
-    description: "Persistent memory. Store, recall, search, update, delete knowledge. The brain's long-term storage."
+    description: "Fast key-value memory. Facts, names, preferences."
     priority: 3
     position:
-      x: 250
-      y: 470
+      x: 50
+      y: 50
     subscriptions:
       - topic: "memory.store"
       - topic: "memory.recall"
@@ -124,3 +147,16 @@ nodes:
       - topic: "memory.update"
       - topic: "memory.delete"
       - topic: "memory.list"
+
+  # === Vector memory — long-term semantic search ===
+  - type: memory-vector
+    name: long-term-memory
+    description: "Vector memory with semantic search. Knowledge, documents, context."
+    priority: 3
+    position:
+      x: 400
+      y: 50
+    subscriptions:
+      - topic: "memory-vector.store"
+      - topic: "memory-vector.search"
+      - topic: "memory-vector.index"

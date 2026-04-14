@@ -8,7 +8,6 @@ import {
 import type Database from "better-sqlite3";
 import { v4 as uuid } from "uuid";
 import { saveNode, saveSubscription, deleteNode } from "./db";
-import { logger } from "./logger";
 import { NodeRunner, type SleepService } from "./runner";
 import type { BusService } from "./bus";
 import type { TypeRegistry, InstanceRegistry } from "./registry";
@@ -129,9 +128,7 @@ export async function spawnNode(
     }, nodeInfo.ttl);
   }
 
-  runner.start().catch((err) => {
-    logger.error({ err, node: nodeInfo.name }, "Runner crashed");
-  });
+  runner.start();
 
   return nodeInfo;
 }
@@ -232,9 +229,7 @@ export async function startNode(
     });
   }
 
-  runner.start().catch((err) => {
-    logger.error({ err, node: node.name }, "Runner crashed on restart");
-  });
+  runner.start();
 
   return true;
 }

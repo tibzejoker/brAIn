@@ -191,6 +191,17 @@ export class BusService extends EventEmitter {
     return false;
   }
 
+  hasUnreadForPattern(nodeId: string, pattern: string): boolean {
+    const nodeSubs = this.subscriptions.get(nodeId);
+    if (!nodeSubs) return false;
+
+    for (const [, sub] of nodeSubs) {
+      if (!matchTopic(pattern, sub.pattern) && !matchTopic(sub.pattern, pattern)) continue;
+      if (sub.mailbox.hasUnread()) return true;
+    }
+    return false;
+  }
+
   getHighestUnreadCriticality(nodeId: string): number {
     const nodeSubs = this.subscriptions.get(nodeId);
     if (!nodeSubs) return -1;
