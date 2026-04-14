@@ -72,12 +72,29 @@ export const handler: NodeHandler = (ctx) => {
     const action = msg.topic.split(".").pop() ?? "";
     const req = parseRequest(payload.content);
 
+    if (!req) {
+      ctx.log("warn", `Invalid payload from ${msg.from} on ${msg.topic}: not JSON (got: ${payload.content.slice(0, 80)})`);
+    }
+
     let result: Record<string, unknown>;
 
     switch (action) {
       case "store": {
-        if (!req || !req.key || !req.value) {
-          result = { error: "store requires key and value", example: '{"key":"name","value":"Thibaut","tags":["user"]}' };
+        if (!req) {
+          result = {
+            error: "Invalid format: payload must be valid JSON",
+            received: payload.content.slice(0, 120),
+            expected: '{"key":"<string>","value":"<string>","tags":["<optional>"]}',
+            hint: "Send a JSON object, not free text",
+          };
+          break;
+        }
+        if (!req.key || !req.value) {
+          result = {
+            error: "Missing required fields: 'key' and 'value' are mandatory",
+            received_fields: Object.keys(req),
+            expected: '{"key":"user_name","value":"Thibaut","tags":["user"]}',
+          };
           break;
         }
         const prev = store[req.key] as MemoryEntry | undefined;
@@ -96,8 +113,12 @@ export const handler: NodeHandler = (ctx) => {
       }
 
       case "recall": {
-        if (!req || !req.key) {
-          result = { error: "recall requires key", example: '{"key":"name"}' };
+        if (!req) {
+          result = { error: "Invalid format: payload must be valid JSON", received: payload.content.slice(0, 120), expected: '{"key":"<string>"}', hint: "Send a JSON object, not free text" };
+          break;
+        }
+        if (!req.key) {
+          result = { error: "Missing required field: 'key'", received_fields: Object.keys(req), expected: '{"key":"user_name"}' };
           break;
         }
         const entry = store[req.key] as MemoryEntry | undefined;
@@ -111,19 +132,32 @@ export const handler: NodeHandler = (ctx) => {
 
       case "search": {
         const query = req?.query ?? payload.content;
-        const q = query.toLowerCase();
-        const matches = Object.values(store).filter((e) =>
-          e.key.toLowerCase().includes(q) ||
-          e.value.toLowerCase().includes(q) ||
-          e.tags.some((t) => t.toLowerCase().includes(q)),
-        );
-        result = { count: matches.length, results: matches };
+        const words = query.toLowerCase().split(/[\s_']+/).filter((w) => w.length > 1);
+        const entries = Object.values(store);
+        // Score each entry: count how many query words match
+        const scored = entries.map((e) => {
+          const haystack = `${e.key.replace(/_/g, " ")} ${e.value} ${e.tags.join(" ")}`.toLowerCase();
+          const hits = words.filter((w) => haystack.includes(w)).length;
+          return { entry: e, hits };
+        }).filter((s) => s.hits > 0);
+        scored.sort((a, b) => b.hits - a.hits);
+        const matches = scored.map((s) => s.entry);
+        // If no exact matches, return all entries (let the caller filter)
+        if (matches.length === 0 && entries.length <= 20) {
+          result = { count: entries.length, results: entries, note: "no match, returning all entries" };
+        } else {
+          result = { count: matches.length, results: matches };
+        }
         break;
       }
 
       case "update": {
-        if (!req || !req.key) {
-          result = { error: "update requires key", example: '{"key":"name","value":"new value","tags":["new"]}' };
+        if (!req) {
+          result = { error: "Invalid format: payload must be valid JSON", received: payload.content.slice(0, 120), expected: '{"key":"<string>","value":"<new_value>","tags":["<optional>"]}', hint: "Send a JSON object, not free text" };
+          break;
+        }
+        if (!req.key) {
+          result = { error: "Missing required field: 'key'", received_fields: Object.keys(req), expected: '{"key":"user_name","value":"new value"}' };
           break;
         }
         const existing = store[req.key] as MemoryEntry | undefined;
@@ -141,8 +175,12 @@ export const handler: NodeHandler = (ctx) => {
       }
 
       case "delete": {
-        if (!req || !req.key) {
-          result = { error: "delete requires key", example: '{"key":"name"}' };
+        if (!req) {
+          result = { error: "Invalid format: payload must be valid JSON", received: payload.content.slice(0, 120), expected: '{"key":"<string>"}', hint: "Send a JSON object, not free text" };
+          break;
+        }
+        if (!req.key) {
+          result = { error: "Missing required field: 'key'", received_fields: Object.keys(req), expected: '{"key":"user_name"}' };
           break;
         }
         const toDelete = store[req.key] as MemoryEntry | undefined;

@@ -42,7 +42,7 @@ describe("Brain node: central consciousness", () => {
         { topic: "alerts.*" },
       ],
       config_overrides: {
-        model: "ollama/gemma4:e2b",
+        model: "ollama/gemma4:e4b",
         response_topic: "brain.output",
         max_steps: 5,
         idle_sleep: "5s",
@@ -99,7 +99,7 @@ describe("Brain node: central consciousness", () => {
       name: "sleep-test-brain",
       subscriptions: [{ topic: "brain.wake-test" }],
       config_overrides: {
-        model: "ollama/gemma4:e2b",
+        model: "ollama/gemma4:e4b",
         idle_sleep: "2s",
         max_steps: 3,
       },

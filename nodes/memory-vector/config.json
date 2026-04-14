@@ -1,0 +1,14 @@
+{
+  "name": "memory-vector",
+  "description": "Vector memory store using LanceDB + Ollama embeddings. Supports semantic search, indexing text/documents, and RAG-style recall. Long-term memory with similarity search.",
+  "tags": ["memory", "vector", "rag", "embeddings", "long-term"],
+  "default_authority": 0,
+  "default_priority": 3,
+  "default_subscriptions": [
+    { "topic": "memory-vector.store" },
+    { "topic": "memory-vector.search" },
+    { "topic": "memory-vector.index" }
+  ],
+  "default_publishes": ["memory-vector.result"],
+  "supports_transport": ["process"]
+}

@@ -88,9 +88,7 @@ export async function restoreNodes(opts: {
     );
     opts.runners.set(nodeInfo.id, runner);
 
-    runner.start().catch((err) => {
-      logger.error({ err, node: nodeInfo.name }, "Restored runner crashed");
-    });
+    runner.start();
 
     restored++;
   }

@@ -64,7 +64,7 @@ describe("Integration: BrainService end-to-end", () => {
       name: "test-llm",
       subscriptions: [{ topic: "test.llm.input" }],
       config_overrides: {
-        model: "ollama/gemma4:e2b",
+        model: "ollama/gemma4:e4b",
         system_prompt: "You are a test bot. Reply with exactly 'BRAIN_OK' and nothing else.",
         response_topic: "test.llm.response",
         max_tokens: 256,

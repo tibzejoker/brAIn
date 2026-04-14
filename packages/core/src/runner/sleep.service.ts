@@ -207,28 +207,60 @@ export class SleepService {
       if (sleeping.wakeAt !== null && sleeping.wakeAt <= now) {
         logger.info({ nodeId }, "Timestamp wake triggered");
         this.wake(nodeId);
+        continue;
+      }
+
+      // Safety net: if a sleeping node has unread messages, wake it if
+      // conditions allow — catches race conditions where the message
+      // arrived between handler return and registerSleep.
+      if (!this.bus.hasUnreadMessages(nodeId)) continue;
+
+      const wakeOnAny = sleeping.conditions.some((c) => c.type === "any");
+      const wakeOnTopic = sleeping.conditions.some(
+        (c) => c.type === "topic" && this.bus.hasUnreadForPattern(nodeId, c.value),
+      );
+
+      if (wakeOnAny || wakeOnTopic) {
+        logger.info({ nodeId }, "Safety-net wake: unread messages for sleeping node");
+        this.wake(nodeId);
       }
     }
   }
 
   private checkWakeConditions(msg: Message): void {
     const entries = Array.from(this.sleepingNodes.entries());
+    logger.debug(
+      { topic: msg.topic, from: msg.from, sleepingCount: entries.length },
+      "checkWakeConditions",
+    );
     for (const [, sleeping] of entries) {
       // First check if this message would actually reach the node's mailboxes
       // (i.e. matches at least one of its bus subscriptions)
       const nodeReaches = this.bus.wouldDeliver(sleeping.nodeId, msg);
 
+      logger.debug(
+        { nodeId: sleeping.nodeId, nodeReaches, conditions: sleeping.conditions, topic: msg.topic },
+        "checkWake candidate",
+      );
+
       for (const cond of sleeping.conditions) {
         if (cond.type === "any" && nodeReaches) {
+          logger.info({ nodeId: sleeping.nodeId, topic: msg.topic }, "Waking on any");
           this.wake(sleeping.nodeId, msg);
           break;
         }
         if (cond.type === "topic") {
-          if (!matchTopic(cond.value, msg.topic)) continue;
+          const topicMatch = matchTopic(cond.value, msg.topic);
+          logger.debug(
+            { nodeId: sleeping.nodeId, pattern: cond.value, topic: msg.topic, topicMatch },
+            "checkWake topic match",
+          );
+          if (!topicMatch) continue;
           if (
             cond.min_criticality !== undefined &&
             msg.criticality < cond.min_criticality
           ) continue;
+          logger.info({ nodeId: sleeping.nodeId, topic: msg.topic, pattern: cond.value }, "Waking on topic");
           this.wake(sleeping.nodeId, msg);
           break;
         }

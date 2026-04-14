@@ -6,3 +6,4 @@ data/
 .DS_Store
 nodes/_dynamic/
 !nodes/_dynamic/.gitkeep
+/.prompt.tmp

@@ -15,13 +15,13 @@ describe("LLMRegistry", () => {
     expect(registry.isAvailable("ollama")).toBe(true);
   });
 
-  it("returns model for ollama/gemma4:e2b", () => {
-    const model = registry.getModel("ollama/gemma4:e2b");
+  it("returns model for ollama/gemma4:e4b", () => {
+    const model = registry.getModel("ollama/gemma4:e4b");
     expect(model).toBeDefined();
   });
 
-  it("generates text with Ollama gemma4:e2b", async () => {
-    const model = registry.getModel("ollama/gemma4:e2b");
+  it("generates text with Ollama gemma4:e4b", async () => {
+    const model = registry.getModel("ollama/gemma4:e4b");
 
     const result = await generateText({
       model,
@@ -35,7 +35,7 @@ describe("LLMRegistry", () => {
   }, 30000);
 
   it("generates text with system prompt", async () => {
-    const model = registry.getModel("ollama/gemma4:e2b");
+    const model = registry.getModel("ollama/gemma4:e4b");
 
     const result = await generateText({
       model,
