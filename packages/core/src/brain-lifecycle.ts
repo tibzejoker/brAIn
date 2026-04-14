@@ -65,6 +65,7 @@ export async function spawnNode(
     transport: config.transport ?? "process",
     position: config.position ?? { x: 0, y: 0 },
     config_overrides: config.config_overrides,
+    default_publishes: typeConfig.default_publishes,
     spawned_by: callerNodeId,
     ttl: config.ttl ? deps.sleepService.parseInterval(config.ttl) : undefined,
     created_at: Date.now(),

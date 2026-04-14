@@ -1,5 +1,6 @@
 import { BrainService, logger } from "@brain/core";
 import type { NodeState } from "@brain/sdk";
+import { resolveRoute } from "./message-formatter";
 
 const log = logger.child({ node: "brain-tools" });
 
@@ -211,14 +212,68 @@ function publishMessage(
   args: Record<string, unknown>,
   callerNodeId: string,
 ): Promise<ToolResult> {
+  const rawTopic = args.topic as string;
+  const rawContent = args.content as string;
+
+  if (!rawTopic || !rawContent) {
+    return Promise.resolve({ error: "publish_message requires 'topic' and 'content'" });
+  }
+
+  const route = resolveRoute(rawTopic);
+
+  // Validate: is any node listening on this topic?
+  const listeners = brain.getNetworkSnapshot({ state: "all" })
+    .filter((n) => n.id !== callerNodeId)
+    .filter((n) => {
+      const subs = brain.bus.getSubscriptions(n.id);
+      return subs.some((s) => {
+        if (s.pattern === route.topic) return true;
+        if (s.pattern.endsWith(".*") && route.topic.startsWith(s.pattern.slice(0, -2))) return true;
+        if (s.pattern === "*") return true;
+        return false;
+      });
+    });
+
+  if (listeners.length === 0) {
+    // List available topics to help the brain self-correct
+    const allTopics = new Set<string>();
+    for (const n of brain.getNetworkSnapshot({ state: "all" })) {
+      if (n.id === callerNodeId) continue;
+      for (const s of brain.bus.getSubscriptions(n.id)) {
+        allTopics.add(s.pattern);
+      }
+    }
+    return Promise.resolve({
+      error: `No node is listening on topic "${route.topic}". Message not delivered.`,
+      available_topics: [...allTopics].sort(),
+      hint: "Use one of the available_topics, or inspect_network() to see which nodes listen on what.",
+    });
+  }
+
   const msg = brain.bus.publish({
     from: callerNodeId,
-    topic: args.topic as string,
+    topic: route.topic,
     type: "text",
     criticality: (args.criticality as number | undefined) ?? 3,
-    payload: { content: args.content as string },
+    payload: { content: route.format(rawContent) },
   });
-  return Promise.resolve({ success: true, message_id: msg.id });
+
+  const result: ToolResult = {
+    success: true,
+    message_id: msg.id,
+    topic: route.topic,
+    delivered_to: listeners.map((n) => n.name),
+  };
+
+  if (route.responseTopic && route.timeout > 0) {
+    result.expects_response = { topic: route.responseTopic, timeout: route.timeout };
+  }
+
+  if (route.topic !== rawTopic) {
+    result.note = `Topic aliased: "${rawTopic}" → "${route.topic}"`;
+  }
+
+  return Promise.resolve(result);
 }
 
 function getMessageHistory(brain: BrainService, args: Record<string, unknown>): Promise<ToolResult> {
