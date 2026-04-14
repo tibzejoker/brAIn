@@ -1,6 +1,7 @@
 import type { NodeHandler, TextPayload, AlertPayload } from "@brain/sdk";
 import { LLMRegistry, BrainService, generateText, logger } from "@brain/core";
 import { executeBrainTool, BRAIN_TOOL_DESCRIPTIONS } from "./tools";
+import { parseToolCall, parseSleepRequest } from "./tool-parser";
 
 const log = logger.child({ node: "brain" });
 
@@ -67,54 +68,6 @@ function formatMessage(msg: { from: string; topic: string; criticality: number; 
     return `[ALERT from:${msg.from.slice(0, 8)} topic:${msg.topic} crit:${msg.criticality}] ${payload.title}: ${payload.description}`;
   }
   return `[from:${msg.from.slice(0, 8)} topic:${msg.topic} crit:${msg.criticality}] ${JSON.stringify(payload)}`;
-}
-
-interface ToolCall {
-  tool: string;
-  args: Record<string, unknown>;
-}
-
-function parseToolCall(text: string): ToolCall | null {
-  const patterns = [
-    /\{[\s]*"tool"[\s]*:[\s]*"([^"]+)"[\s]*,[\s]*"args"[\s]*:[\s]*(\{[\s\S]*?\})\s*\}/,
-    /```json\s*(\{[\s\S]*?\})\s*```/,
-  ];
-
-  for (const pattern of patterns) {
-    const match = text.match(pattern);
-    if (match) {
-      try {
-        const parsed = JSON.parse(match[0]) as Record<string, unknown>;
-        if (typeof parsed.tool === "string") {
-          return { tool: parsed.tool, args: (parsed.args as Record<string, unknown> | undefined) ?? {} };
-        }
-      } catch {
-        if (match[1]) {
-          try {
-            const parsed = JSON.parse(match[1]) as Record<string, unknown>;
-            if (typeof parsed.tool === "string") {
-              return { tool: parsed.tool, args: (parsed.args as Record<string, unknown> | undefined) ?? {} };
-            }
-          } catch {
-            continue;
-          }
-        }
-      }
-    }
-  }
-  return null;
-}
-
-function parseSleepRequest(text: string): string | null {
-  // The LLM can request to sleep by saying: {"tool": "sleep", "args": {"duration": "5m"}}
-  // Or more naturally in text: "I'll sleep for 30 minutes"
-  const toolMatch = text.match(/"tool"\s*:\s*"sleep"[\s\S]*?"duration"\s*:\s*"([^"]+)"/);
-  if (toolMatch) return toolMatch[1];
-
-  const naturalMatch = text.match(/sleep (?:for )?(\d+)\s*(s|sec|seconds?|m|min|minutes?|h|hours?)/i);
-  if (naturalMatch) return `${naturalMatch[1]}${naturalMatch[2].charAt(0)}`;
-
-  return null;
 }
 
 export const handler: NodeHandler = async (ctx) => {
@@ -264,9 +217,12 @@ While sleeping, you'll only wake up if a message arrives on your subscribed topi
         return;
       }
 
-      // Tool call — execute and feed result back into conversation
+      // Tool call — execute, then either wait for async response or continue
       const toolCall = parseToolCall(text);
       if (toolCall) {
+        // Publish any text before the tool call JSON
+        respond(text);
+
         ctx.log("info", `Tool call: ${toolCall.tool}(${JSON.stringify(toolCall.args).slice(0, 100)})`);
         const toolResult = await executeBrainTool(toolCall.tool, toolCall.args, ctx.node.id);
         ctx.log("info", `Tool result: ${JSON.stringify(toolResult).slice(0, 150)}`);
@@ -274,6 +230,19 @@ While sleeping, you'll only wake up if a message arrives on your subscribed topi
           role: "user",
           content: `Tool result for ${toolCall.tool}:\n${JSON.stringify(toolResult, null, 2)}`,
         });
+
+        // If the tool expects an async response (e.g. memory, shell, http),
+        // sleep on that topic so we wake when the response arrives.
+        const expects = toolResult.expects_response as { topic: string; timeout: number } | undefined;
+        if (expects) {
+          ctx.log("info", `Waiting for response on ${expects.topic} (${expects.timeout}ms)`);
+          ctx.sleep([
+            { type: "topic", value: expects.topic },
+            { type: "timer", value: `${Math.ceil(expects.timeout / 1000)}s` },
+          ]);
+          return;
+        }
+
         continue;
       }
 

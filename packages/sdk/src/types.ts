@@ -98,6 +98,7 @@ export interface NodeInfo {
   transport: TransportMode;
   position: { x: number; y: number };
   config_overrides?: Record<string, unknown>;
+  default_publishes?: string[];
   spawned_by?: string;
   ttl?: number;
   created_at: number;
@@ -179,6 +180,9 @@ export interface NodeContext {
   readMessages(opts?: ReadMessagesOptions): Message[];
 
   // Communication
+  /** Publish to the node's configured response_topic. Preferred for service nodes. */
+  respond(content: string, metadata?: Record<string, unknown>): void;
+  /** Publish to a specific topic. Use respond() unless you need explicit routing. */
   publish(topic: string, message: Omit<Message, "id" | "from" | "timestamp" | "topic">): void;
   subscribe(topic: string, mailbox?: Partial<MailboxConfig>): void;
   unsubscribe(topic: string): void;

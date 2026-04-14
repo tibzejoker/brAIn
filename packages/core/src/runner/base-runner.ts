@@ -211,9 +211,27 @@ export abstract class BaseRunner {
     const bus = this.deps.bus;
     const self = this;
 
+    // Resolve response topic: config override > default_publishes[0]
+    const responseTopic = (self.nodeInfo.config_overrides?.response_topic as string | undefined)
+      ?? self.nodeInfo.default_publishes?.[0]
+      ?? "";
+
     return {
       messages,
       readMessages: (opts?: ReadMessagesOptions): Message[] => bus.readMessages(nodeId, opts),
+      respond(content: string, metadata?: Record<string, unknown>): void {
+        if (!responseTopic) {
+          self.log.error("respond() called but no response_topic configured");
+          return;
+        }
+        self.log.info(`respond → ${responseTopic}`);
+        bus.publish({
+          from: nodeId, topic: responseTopic,
+          type: "text", criticality: 1,
+          payload: { content },
+          metadata,
+        });
+      },
       publish(topic: string, msg: Omit<Message, "id" | "from" | "timestamp" | "topic">): void {
         self.log.info(`publish ${topic} (crit:${msg.criticality})`);
         bus.publish({ ...msg, from: nodeId, topic });

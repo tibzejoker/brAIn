@@ -212,12 +212,7 @@ export const handler: NodeHandler = (ctx) => {
         result = { error: `Unknown action: ${action}`, available: ["store", "recall", "search", "update", "delete", "list"] };
     }
 
-    ctx.publish("memory.result", {
-      type: "text",
-      criticality: 1,
-      payload: { content: JSON.stringify(result) },
-      metadata: { action, requested_by: msg.from },
-    });
+    ctx.respond(JSON.stringify(result), { action, requested_by: msg.from });
   }
 
   if (changed) {
