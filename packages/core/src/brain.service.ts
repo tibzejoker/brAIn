@@ -9,7 +9,7 @@ import EventEmitter from "eventemitter3";
 import { BusService } from "./bus";
 import { TypeRegistry, InstanceRegistry } from "./registry";
 import { AuthorityService } from "./authority";
-import { type NodeRunner, SleepService } from "./runner";
+import { type BaseRunner, SleepService } from "./runner";
 import { logger } from "./logger";
 import {
   getDb, clearAll, updateNodePosition, recordHistory, getHistory,
@@ -31,7 +31,7 @@ export class BrainService extends EventEmitter {
   readonly instanceRegistry: InstanceRegistry;
   readonly authority: AuthorityService;
   readonly sleepService: SleepService;
-  private readonly runners = new Map<string, NodeRunner>();
+  private readonly runners = new Map<string, BaseRunner>();
   private readonly db: Database.Database;
   private seedsDir?: string;
   private globalRunMode: "auto" | "manual" = "auto";

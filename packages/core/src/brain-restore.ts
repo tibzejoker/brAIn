@@ -2,7 +2,7 @@ import { type NodeInfo, type NodeHandler, type RunMode, NodeState } from "@brain
 import type Database from "better-sqlite3";
 import { loadAllNodes, loadSubscriptions } from "./db";
 import { logger } from "./logger";
-import { NodeRunner, type SleepService } from "./runner";
+import { createRunner, type BaseRunner, type SleepService } from "./runner";
 import type { BusService } from "./bus";
 import type { TypeRegistry, InstanceRegistry } from "./registry";
 
@@ -14,7 +14,7 @@ export async function restoreNodes(opts: {
   typeRegistry: TypeRegistry;
   instanceRegistry: InstanceRegistry;
   sleepService: SleepService;
-  runners: Map<string, NodeRunner>;
+  runners: Map<string, BaseRunner>;
   globalRunMode: RunMode;
   loadHandler: HandlerLoader;
 }): Promise<number> {
@@ -77,13 +77,10 @@ export async function restoreNodes(opts: {
       });
     }
 
-    const runner = new NodeRunner(
+    const runner = createRunner(
       nodeInfo,
       handler,
-      opts.bus,
-      opts.instanceRegistry,
-      opts.sleepService,
-      typeConfig?.interval,
+      { bus: opts.bus, registry: opts.instanceRegistry, sleepService: opts.sleepService },
       opts.globalRunMode,
     );
     opts.runners.set(nodeInfo.id, runner);

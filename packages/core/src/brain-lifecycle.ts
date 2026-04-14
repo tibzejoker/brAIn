@@ -8,7 +8,7 @@ import {
 import type Database from "better-sqlite3";
 import { v4 as uuid } from "uuid";
 import { saveNode, saveSubscription, deleteNode } from "./db";
-import { NodeRunner, type SleepService } from "./runner";
+import { createRunner, type BaseRunner, type SleepService } from "./runner";
 import type { BusService } from "./bus";
 import type { TypeRegistry, InstanceRegistry } from "./registry";
 import type { AuthorityService } from "./authority";
@@ -22,7 +22,7 @@ export interface LifecycleDeps {
   instanceRegistry: InstanceRegistry;
   authority: AuthorityService;
   sleepService: SleepService;
-  runners: Map<string, NodeRunner>;
+  runners: Map<string, BaseRunner>;
   globalRunMode: RunMode;
   loadHandler: HandlerLoader;
 }
@@ -101,13 +101,10 @@ export async function spawnNode(
     deps.bus.subscribe(nodeInfo.id, sub.topic, { mailbox: sub.mailbox });
   }
 
-  const runner = new NodeRunner(
+  const runner = createRunner(
     nodeInfo,
     handler,
-    deps.bus,
-    deps.instanceRegistry,
-    deps.sleepService,
-    typeConfig.interval,
+    { bus: deps.bus, registry: deps.instanceRegistry, sleepService: deps.sleepService },
     deps.globalRunMode,
   );
   deps.runners.set(nodeInfo.id, runner);
@@ -210,11 +207,11 @@ export async function startNode(
   if (!typePath) return false;
 
   const handler = await deps.loadHandler(node.type, typePath);
-  const typeConfig = deps.typeRegistry.get(node.type);
 
-  const runner = new NodeRunner(
-    node, handler, deps.bus, deps.instanceRegistry,
-    deps.sleepService, typeConfig?.interval, deps.globalRunMode,
+  const runner = createRunner(
+    node, handler,
+    { bus: deps.bus, registry: deps.instanceRegistry, sleepService: deps.sleepService },
+    deps.globalRunMode,
   );
   deps.runners.set(nodeId, runner);
 
