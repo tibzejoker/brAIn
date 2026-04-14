@@ -78,11 +78,19 @@ export const handler: NodeHandler = async (ctx) => {
     const req = parseRequest(payload.content, config);
     if (!req) {
       ctx.publish(responseTopic, {
-        type: "alert",
+        type: "text",
         criticality: 3,
         payload: {
-          title: "Invalid HTTP request",
-          description: `Could not parse request from message: ${payload.content.slice(0, 100)}`,
+          content: JSON.stringify({
+            error: "Invalid HTTP request: payload must be a URL or JSON with a 'url' field",
+            received: payload.content.slice(0, 120),
+            expected_formats: [
+              "https://example.com",
+              '{"url":"https://example.com","method":"GET"}',
+              '{"url":"https://api.example.com/search","method":"POST","body":"query","headers":{"Authorization":"Bearer ..."}}',
+            ],
+            hint: "Send a valid URL or a JSON object with at least a 'url' field. Do NOT send a description of what you want — send the actual URL to fetch.",
+          }),
         },
       });
       continue;
