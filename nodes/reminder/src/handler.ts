@@ -141,5 +141,11 @@ export const handler: NodeHandler = (ctx) => {
     });
   }
 
+  // If there are pending reminders, wake periodically to check them.
+  // Otherwise let the runner auto-sleep (wakes on new reminder.set message).
+  if (remaining.length > 0) {
+    ctx.sleep([{ type: "timer", value: "5s" }, { type: "any" }]);
+  }
+
   return Promise.resolve();
 };

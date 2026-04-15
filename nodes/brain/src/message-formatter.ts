@@ -41,16 +41,18 @@ function discoverResponseTopic(topic: string): { responseTopic: string; timeout:
     const responseTopic = overrides.response_topic as string | undefined;
     if (responseTopic) {
       // LLM nodes are slower
-      const isLLM = node.tags.includes("llm");
-      return { responseTopic, timeout: isLLM ? 30_000 : 10_000 };
+      // Nodes that use AI internally are slower
+      const usesAI = node.tags.some((t) => ["ai", "llm", "reasoning", "intelligence"].includes(t));
+      return { responseTopic, timeout: usesAI ? 30_000 : 10_000 };
     }
 
     // Infer from type config default_publishes
     const typeConfig = brain.typeRegistry.get(node.type);
     if (typeConfig?.default_publishes?.length) {
+      const usesAI = node.tags.some((t) => ["ai", "llm", "reasoning", "intelligence"].includes(t));
       return {
         responseTopic: typeConfig.default_publishes[0],
-        timeout: node.tags.includes("llm") ? 30_000 : 10_000,
+        timeout: usesAI ? 30_000 : 10_000,
       };
     }
   }

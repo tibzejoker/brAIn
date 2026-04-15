@@ -132,6 +132,20 @@ nodes:
       model: "ollama/gemma4:e4b"
       response_topic: "mem.response"
 
+  # === Memory consolidator — autonomous maintenance agent ===
+  - type: memory-consolidator
+    name: memory-janitor
+    description: "Periodically reviews, consolidates, and cleans up memories. Merges duplicates, removes stale entries."
+    priority: 2
+    position:
+      x: -50
+      y: 150
+    subscriptions:
+      - topic: "memory.result"
+    config_overrides:
+      model: "ollama/gemma4:e4b"
+      max_iterations: 8
+
   # === Memory — persistent key-value store ===
   - type: memory
     name: memory

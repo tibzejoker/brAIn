@@ -125,6 +125,7 @@ While sleeping, you'll only wake up if a message arrives on your subscribed topi
 - To use a service, publish a message on its input topic with publish_message — do NOT try to call it directly
 - Wait for the service response in a follow-up iteration (it arrives as a message)
 - Be concise, respond in the same language as the user
+- Current time: ${new Date().toLocaleString("fr-FR", { dateStyle: "full", timeStyle: "medium" })}
 - Current iteration: ${iterationState + 1}
 - Iterations remaining: ${ctx.state._iterations_remaining ?? "unknown"} / ${ctx.state._iterations_total ?? "unknown"}${ctx.state._budget_warning ? `\n\n⚠️ ${ctx.state._budget_warning}` : ""}`;
 

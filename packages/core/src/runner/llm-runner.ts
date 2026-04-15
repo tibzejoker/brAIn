@@ -65,11 +65,19 @@ export class LLMRunner extends BaseRunner {
     this.state._iterations_remaining = budget;
     this.state._iterations_total = this.maxIterations;
 
-    // Discreet system hint for the LLM — not shown to the user
-    if (budget <= 3) {
-      this.state._system_hint = `[system: iteration ${current}/${this.maxIterations} — you will be put to sleep in ${budget} iteration(s). wrap up or sleep voluntarily.]`;
-    } else {
-      this.state._system_hint = `[system: iteration ${current}/${this.maxIterations} — you have budget to keep working, use tools, or sleep when done.]`;
-    }
+    // Wake context for LLM handlers
+    const wakeReason = this.state._wake_reason as string | undefined ?? "unknown";
+    const wakeLabel = current === 1
+      ? (wakeReason === "timer" ? "You woke up from a scheduled timer."
+        : wakeReason === "message" ? "You were woken by a new message."
+        : "You are starting up.")
+      : "";
+
+    // Budget hint
+    const budgetHint = budget <= 3
+      ? `You will be put to sleep in ${budget} iteration(s). Wrap up or sleep voluntarily.`
+      : `You have ${budget} iterations remaining. Use tools, act, or sleep when done.`;
+
+    this.state._system_hint = `[system: ${wakeLabel} iteration ${current}/${this.maxIterations}. ${budgetHint}]`;
   }
 }

@@ -9,6 +9,8 @@ interface MemoryEntry {
   created_at: number;
   updated_at: number;
   created_by: string;
+  created_date?: string;
+  updated_date?: string;
 }
 
 type MemoryStore = Record<string, MemoryEntry>;
@@ -95,13 +97,17 @@ export const handler: NodeHandler = (ctx) => {
           break;
         }
         const prev = store[req.key] as MemoryEntry | undefined;
+        const now = Date.now();
+        const nowISO = new Date(now).toISOString();
         store[req.key] = {
           key: req.key,
           value: req.value,
           tags: req.tags ?? [],
-          created_at: prev?.created_at ?? Date.now(),
-          updated_at: Date.now(),
+          created_at: prev?.created_at ?? now,
+          updated_at: now,
           created_by: msg.from,
+          created_date: prev?.created_date ?? nowISO,
+          updated_date: nowISO,
         };
         changed = true;
         ctx.log("info", `Stored: ${req.key} = ${req.value.slice(0, 80)}`);
@@ -165,6 +171,7 @@ export const handler: NodeHandler = (ctx) => {
         if (req.value) existing.value = req.value;
         if (req.tags) existing.tags = req.tags;
         existing.updated_at = Date.now();
+        existing.updated_date = new Date().toISOString();
         changed = true;
         ctx.log("info", `Updated: ${req.key}`);
         result = { ok: true, key: req.key, action: "updated" };

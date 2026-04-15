@@ -1,0 +1,12 @@
+{
+  "name": "@brain/node-memory-consolidator",
+  "version": "0.1.0",
+  "main": "dist/handler.js",
+  "scripts": {
+    "build": "tsc"
+  },
+  "dependencies": {
+    "@brain/sdk": "workspace:*",
+    "@brain/core": "workspace:*"
+  }
+}

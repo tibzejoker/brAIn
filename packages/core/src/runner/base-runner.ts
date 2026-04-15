@@ -106,13 +106,17 @@ export abstract class BaseRunner {
 
   // === Trigger ===
 
-  private tryRun(): void {
-    if (!this.running || this.busy || this.runMode === "manual") return;
-    if (!this.deps.bus.hasUnreadMessages(this.nodeInfo.id)) return;
-    if (this.sleeping && !this.shouldWake()) return;
-
+  private startRun(): void {
+    if (!this.running || this.busy) return;
     this.busy = true;
     void this.run().finally(() => { this.busy = false; });
+  }
+
+  protected tryRun(): void {
+    if (this.runMode === "manual") return;
+    if (!this.deps.bus.hasUnreadMessages(this.nodeInfo.id)) return;
+    if (this.sleeping && !this.shouldWake()) return;
+    this.startRun();
   }
 
   private shouldWake(): boolean {
@@ -126,11 +130,16 @@ export abstract class BaseRunner {
   private async run(): Promise<void> {
     const wasSleeping = this.sleeping;
     if (this.sleeping) {
+      const hadMessages = this.deps.bus.hasUnreadMessages(this.nodeInfo.id);
       this.sleeping = false;
       this.sleepConditions = [];
       this.deps.sleepService.unregisterSleep(this.nodeInfo.id);
       this.deps.registry.updateState(this.nodeInfo.id, NodeState.ACTIVE);
-      this.log.info("Woken by message");
+      this.log.info(hadMessages ? "Woken by message" : "Woken by timer");
+
+      this.state._wake_reason = hadMessages ? "message" : "timer";
+    } else {
+      this.state._wake_reason = "running";
     }
     this.state._woke_from_sleep = wasSleeping;
 
@@ -182,7 +191,7 @@ export abstract class BaseRunner {
     this.deps.sleepService.registerSleep(this.nodeInfo.id, this.sleepConditions, () => {
       this.sleeping = false;
       this.sleepConditions = [];
-      this.tryRun();
+      this.startRun();
     });
 
     const desc = this.sleepConditions

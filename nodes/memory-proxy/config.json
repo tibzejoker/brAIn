@@ -1,7 +1,7 @@
 {
   "name": "memory-proxy",
   "description": "Intelligent memory interface. Receives natural language memory requests, queries the right memory stores (key-value and vector), and returns synthesized results. Can autonomously reorganize and consolidate memories.",
-  "tags": ["memory", "proxy", "llm", "intelligence"],
+  "tags": ["memory", "proxy", "intelligence"],
   "default_authority": 0,
   "default_priority": 5,
   "default_subscriptions": [
