@@ -39,6 +39,9 @@ function mockCtx(
     logs,
     get slept() { return slept; },
     readMessages: () => [],
+    respond(content, metadata) {
+      published.push({ topic: "http.response", type: "text", payload: { content }, metadata });
+    },
     publish(topic, msg) { published.push({ topic, ...msg } as typeof published[0]); },
     subscribe: vi.fn(),
     unsubscribe: vi.fn(),
@@ -97,10 +100,10 @@ describe("http-bridge handler", () => {
 
   // === SLEEP ===
 
-  it("sleeps when no messages", async () => {
+  it("does nothing when no messages", async () => {
     const ctx = mockCtx([]);
     await handler(ctx);
-    expect(ctx.slept).toBe(true);
+    expect(ctx.published).toHaveLength(0);
   });
 
   // === JSON request ===
@@ -220,10 +223,8 @@ describe("http-bridge handler", () => {
     await handler(ctx);
 
     expect(ctx.published).toHaveLength(1);
-    expect(ctx.published[0].type).toBe("alert");
-    const payload = ctx.published[0].payload as { title: string; description: string };
-    expect(payload.title).toBe("HTTP request failed");
-    expect(payload.description).toContain("ECONNREFUSED");
+    const body = JSON.parse((ctx.published[0].payload as { content: string }).content);
+    expect(body.error).toContain("ECONNREFUSED");
   });
 
   it("handles HTTP error status codes", async () => {
@@ -242,23 +243,13 @@ describe("http-bridge handler", () => {
 
   // === Config: response_topic ===
 
-  it("publishes to configured response_topic", async () => {
-    mockFetchOk("ok");
-    const ctx = mockCtx(
-      [makeMsg("http.request", "https://example.com")],
-      { response_topic: "http.response" },
-    );
-    await handler(ctx);
-
-    expect(ctx.published[0].topic).toBe("http.response");
-  });
-
-  it("publishes to default topic with node name", async () => {
+  it("publishes via ctx.respond", async () => {
     mockFetchOk("ok");
     const ctx = mockCtx([makeMsg("http.request", "https://example.com")]);
     await handler(ctx);
 
-    expect(ctx.published[0].topic).toBe("http.response.web-fetch");
+    // respond() routes to the mock response topic
+    expect(ctx.published[0].topic).toBe("http.response");
   });
 
   // === Config: default_url (API mode) ===

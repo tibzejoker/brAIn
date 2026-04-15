@@ -46,16 +46,12 @@ Example — to fetch a URL:
 interface BrainConfig {
   model: string;
   max_steps: number;
-  idle_sleep: string;
-  response_topic: string;
 }
 
 function getConfig(overrides: Record<string, unknown>): BrainConfig {
   return {
     model: (overrides.model as string | undefined) ?? "ollama/gemma4:e4b",
     max_steps: (overrides.max_steps as number | undefined) ?? 10,
-    idle_sleep: (overrides.idle_sleep as string | undefined) ?? "30s",
-    response_topic: (overrides.response_topic as string | undefined) ?? "brain.output",
   };
 }
 
@@ -159,11 +155,7 @@ While sleeping, you'll only wake up if a message arrives on your subscribed topi
   function respond(raw: string): void {
     const content = stripToolJson(raw);
     if (content.length === 0) return;
-    ctx.publish(config.response_topic, {
-      type: "text",
-      criticality: 1,
-      payload: { content },
-    });
+    ctx.respond(content);
   }
 
   function goToSleep(duration: string, reason: string): void {

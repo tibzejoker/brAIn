@@ -164,10 +164,9 @@ describe("memory-vector handler", () => {
 
   // === SLEEP ===
 
-  it("sleeps when no messages", async () => {
+  it("does nothing when no messages", async () => {
     const ctx = mockCtx([]);
     await handler(ctx);
-    expect(ctx.slept).toBe(true);
     expect(ctx.published).toHaveLength(0);
   });
 

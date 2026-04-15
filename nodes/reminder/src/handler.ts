@@ -90,14 +90,11 @@ export const handler: NodeHandler = (ctx) => {
     const parsed = parseRequest(payload.content);
 
     if (!parsed) {
-      ctx.publish("reminder.fire", {
-        type: "alert",
-        criticality: 3,
-        payload: {
-          title: "Invalid reminder format",
-          description: `Use: "30m Do the thing" or JSON {"delay":"30m","message":"..."}. Got: ${payload.content.slice(0, 100)}`,
-        },
-      });
+      ctx.respond(JSON.stringify({
+        error: "Invalid reminder format",
+        hint: 'Use: "30m Do the thing" or JSON {"delay":"30m","message":"..."}',
+        received: payload.content.slice(0, 100),
+      }));
       continue;
     }
 
@@ -119,13 +116,7 @@ export const handler: NodeHandler = (ctx) => {
     });
 
     ctx.log("info", `Reminder set: "${parsed.message}" fires at ${fireTime}`);
-    ctx.publish("reminder.ack", {
-      type: "text",
-      criticality: 1,
-      payload: {
-        content: `Reminder recorded for ${fireTime}: "${parsed.message}"`,
-      },
-    });
+    ctx.respond(`Reminder recorded for ${fireTime}: "${parsed.message}"`);
   }
 
   // Check and fire due reminders (including overdue from restart)

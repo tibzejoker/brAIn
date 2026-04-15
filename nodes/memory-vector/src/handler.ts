@@ -59,10 +59,7 @@ async function getOrCreateTable(
 }
 
 export const handler: NodeHandler = async (ctx) => {
-  if (ctx.messages.length === 0) {
-    ctx.sleep([{ type: "any" }]);
-    return;
-  }
+  if (ctx.messages.length === 0) return;
 
   const dbPath = resolveDbPath();
 

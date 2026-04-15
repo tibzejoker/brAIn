@@ -1,16 +1,8 @@
 import type { NodeHandler, TextPayload, Message } from "@brain/sdk";
 import { LLMRegistry, generateText } from "@brain/core";
 
-interface ProxyConfig {
-  model: string;
-  response_topic: string;
-}
-
-function getConfig(overrides: Record<string, unknown>): ProxyConfig {
-  return {
-    model: (overrides.model as string | undefined) ?? "ollama/gemma4:e4b",
-    response_topic: (overrides.response_topic as string | undefined) ?? "mem.response",
-  };
+function getModel(overrides: Record<string, unknown>): string {
+  return (overrides.model as string | undefined) ?? "ollama/gemma4:e4b";
 }
 
 /**
@@ -26,7 +18,7 @@ export const handler: NodeHandler = async (ctx) => {
     return;
   }
 
-  const config = getConfig(ctx.node.config_overrides ?? {} as Record<string, unknown>);
+  const modelName = getModel(ctx.node.config_overrides ?? {} as Record<string, unknown>);
 
   // Separate messages by type
   const requests: Message[] = [];
@@ -54,7 +46,7 @@ export const handler: NodeHandler = async (ctx) => {
       try {
         const registry = LLMRegistry.getInstance();
         await registry.initialize();
-        const model = registry.getModel(config.model);
+        const model = registry.getModel(modelName);
 
         const result = await generateText({
           model,
@@ -68,18 +60,9 @@ export const handler: NodeHandler = async (ctx) => {
         const text = typeof result.text === "string" ? result.text : "";
         ctx.log("info", `Response: ${text.slice(0, 120)}`);
 
-        ctx.publish(config.response_topic, {
-          type: "text",
-          criticality: 2,
-          payload: { content: text || "No relevant memories found." },
-          metadata: { query: pendingQuery, requested_by: pendingFrom },
-        });
+        ctx.respond(text || "No relevant memories found.", { query: pendingQuery, requested_by: pendingFrom });
       } catch (err) {
-        ctx.publish(config.response_topic, {
-          type: "text",
-          criticality: 3,
-          payload: { content: `Memory synthesis error: ${err instanceof Error ? err.message : String(err)}` },
-        });
+        ctx.respond(`Memory synthesis error: ${err instanceof Error ? err.message : String(err)}`);
       }
 
       ctx.state.pending_query = undefined;
@@ -126,11 +109,7 @@ export const handler: NodeHandler = async (ctx) => {
         payload: { content: JSON.stringify({ text: `${key}: ${value}`, tags }) },
       });
 
-      ctx.publish(config.response_topic, {
-        type: "text",
-        criticality: 1,
-        payload: { content: `Stored: "${key}" = "${value.slice(0, 80)}"` },
-      });
+      ctx.respond(`Stored: "${key}" = "${value.slice(0, 80)}"`);
 
     } else if (req.topic === "mem.ask") {
       // ASK: LLM reformulates the question into search keywords, then broadcast
@@ -142,7 +121,7 @@ export const handler: NodeHandler = async (ctx) => {
       try {
         const registry = LLMRegistry.getInstance();
         await registry.initialize();
-        const model = registry.getModel(config.model);
+        const model = registry.getModel(modelName);
 
         const reformulation = await generateText({
           model,
