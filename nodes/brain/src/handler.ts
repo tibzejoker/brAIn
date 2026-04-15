@@ -6,7 +6,8 @@ import { parseToolCall, parseSleepRequest } from "./tool-parser";
 const log = logger.child({ node: "brain" });
 
 function buildServiceMap(selfId: string): string {
-  const brain = BrainService.current;
+  const brain = BrainService.current
+    ?? (globalThis as Record<string, unknown>).__brainService as BrainService | undefined;
   if (!brain) return "No network info available.";
 
   const nodes = brain.getNetworkSnapshot({ state: "all" });
