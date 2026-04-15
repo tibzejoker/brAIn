@@ -32,15 +32,17 @@ function extractJSON(text: string): Record<string, unknown> | null {
   }
   if (end === -1) return null;
 
-  let jsonStr = clean.slice(start, end + 1);
+  const jsonStr = clean.slice(start, end + 1);
 
-  // Repair common issues
-  jsonStr = repairJSON(jsonStr);
-
+  // Try parsing as-is first, then repair if it fails
   try {
     return JSON.parse(jsonStr) as Record<string, unknown>;
   } catch {
-    return null;
+    try {
+      return JSON.parse(repairJSON(jsonStr)) as Record<string, unknown>;
+    } catch {
+      return null;
+    }
   }
 }
 
