@@ -131,21 +131,42 @@ async function spawnNode(
   args: Record<string, unknown>,
   callerNodeId: string,
 ): Promise<ToolResult> {
+  if (!args.type || !args.name) {
+    return { error: "spawn_node requires 'type' and 'name'." };
+  }
+
+  // Normalize subscriptions — LLM may send strings, null, or objects
+  let subscriptions: Array<{ topic: string }> | undefined;
+  const rawSubs = args.subscriptions;
+  if (Array.isArray(rawSubs) && rawSubs.length > 0) {
+    subscriptions = rawSubs.map((s) =>
+      typeof s === "string" ? { topic: s } : s as { topic: string },
+    );
+  } else if (rawSubs === null || rawSubs === undefined) {
+    // No subscriptions — use type defaults (pass undefined, let the framework decide)
+    subscriptions = undefined;
+  }
+
   try {
     const node = await brain.spawnNode(
       {
         type: args.type as string,
         name: args.name as string,
         description: args.description as string | undefined,
-        subscriptions: args.subscriptions as Array<{ topic: string }> | undefined,
+        subscriptions,
         config_overrides: args.config_overrides as Record<string, unknown> | undefined,
       },
       callerNodeId,
     );
     log.info({ name: node.name, type: node.type }, "Brain spawned node");
-    return { success: true, node_id: node.id, name: node.name };
+    return { success: true, node_id: node.id, name: node.name, type: node.type };
   } catch (err) {
-    return { error: err instanceof Error ? err.message : String(err) };
+    const msg = err instanceof Error ? err.message : String(err);
+    return {
+      error: `Failed to spawn node: ${msg}`,
+      hint: 'Subscriptions must be an array of objects: [{"topic": "some.topic"}]. Pass null or omit to use type defaults.',
+      example: '{"type": "echo", "name": "my-echo", "subscriptions": [{"topic": "test.input"}]}',
+    };
   }
 }
 

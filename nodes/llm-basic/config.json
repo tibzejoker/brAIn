@@ -1,7 +1,7 @@
 {
   "name": "llm-basic",
   "description": "LLM-powered node using Vercel AI SDK. Receives messages, processes them with a configurable model and system prompt, and publishes responses. Supports tool calling.",
-  "tags": ["llm", "ai", "reasoning"],
+  "tags": ["ai", "reasoning"],
   "default_authority": 0,
   "default_priority": 5,
   "default_subscriptions": [],

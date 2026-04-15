@@ -39,16 +39,6 @@ importers:
         specifier: ^9.0.5
         version: 9.0.5
 
-  nodes/_dynamic/dev-eacae6ba:
-    dependencies:
-      '@brain/sdk':
-        specifier: workspace:*
-        version: link:../../../packages/sdk
-    devDependencies:
-      typescript:
-        specifier: ^5.4.0
-        version: 5.9.3
-
   nodes/brain:
     dependencies:
       '@brain/core':
@@ -169,6 +159,15 @@ importers:
       typescript:
         specifier: ^5.4.0
         version: 5.9.3
+
+  nodes/memory-consolidator:
+    dependencies:
+      '@brain/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
 
   nodes/memory-proxy:
     dependencies:

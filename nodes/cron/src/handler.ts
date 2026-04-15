@@ -38,5 +38,9 @@ export const handler: NodeHandler = (ctx) => {
     });
   }
 
+  // Re-tick based on configured interval (default 10s)
+  const interval = (ctx.node.config_overrides?.interval as string | undefined) ?? "10s";
+  ctx.sleep([{ type: "timer", value: interval }]);
+
   return Promise.resolve();
 };

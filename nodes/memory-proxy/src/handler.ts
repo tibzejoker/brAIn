@@ -6,21 +6,19 @@ function getModel(overrides: Record<string, unknown>): string {
 }
 
 /**
- * Memory proxy — deterministic router + LLM for synthesis only.
+ * Memory proxy — reactive gateway to the memory subsystem.
  *
- * On mem.store: writes to BOTH KV and vector, no LLM needed.
- * On mem.ask: broadcasts search to BOTH backends, waits for results,
- *             then uses LLM to synthesize a human-readable answer.
+ * On mem.store: writes to BOTH KV and vector backends.
+ * On mem.ask: broadcasts search to BOTH, waits for results, synthesizes answer.
+ *
+ * Pure ServiceRunner — no maintenance, no autonomous behavior.
  */
 export const handler: NodeHandler = async (ctx) => {
-  if (ctx.messages.length === 0) {
-    ctx.sleep([{ type: "any" }]);
-    return;
-  }
+  if (ctx.messages.length === 0) return;
 
   const modelName = getModel(ctx.node.config_overrides ?? {} as Record<string, unknown>);
 
-  // Separate messages by type
+  // Sort messages by type
   const requests: Message[] = [];
   const kvResults: Message[] = [];
   const vecResults: Message[] = [];
@@ -31,7 +29,7 @@ export const handler: NodeHandler = async (ctx) => {
     else requests.push(msg);
   }
 
-  // === Phase 1: Handle backend results (we were waiting for them) ===
+  // === Handle backend results (we were waiting for them) ===
   if (kvResults.length > 0 || vecResults.length > 0) {
     const pendingQuery = ctx.state.pending_query as string | undefined;
     const pendingFrom = ctx.state.pending_from as string | undefined;
@@ -48,23 +46,22 @@ export const handler: NodeHandler = async (ctx) => {
       const hasKv = typeof ctx.state._kv_data === "string";
       const hasVec = typeof ctx.state._vec_data === "string";
 
-      // Wait for both backends — re-sleep if only one responded (max 3 attempts)
+      // Wait for both backends (max 3 re-sleeps of 3s)
       if (!hasKv || !hasVec) {
         const waited = (ctx.state._wait_count as number | undefined) ?? 0;
         if (waited < 3) {
           ctx.state._wait_count = waited + 1;
-          const missing = !hasKv ? "KV" : "vector";
-          ctx.log("info", `Waiting for ${missing} results (${waited + 1}/3)`);
+          ctx.log("info", `Waiting for ${!hasKv ? "KV" : "vector"} results (${waited + 1}/3)`);
           ctx.sleep([
             { type: "topic", value: !hasKv ? "memory.result" : "memory-vector.result" },
             { type: "timer", value: "3s" },
           ]);
           return;
         }
-        ctx.log("info", "Proceeding with partial results after waiting");
+        ctx.log("info", "Proceeding with partial results");
       }
 
-      // Synthesize with what we have
+      // Synthesize
       const kvData = (ctx.state._kv_data as string | undefined) ?? "";
       const vecData = (ctx.state._vec_data as string | undefined) ?? "";
       ctx.log("info", `Synthesizing: KV=${kvData.length}chars Vec=${vecData.length}chars`);
@@ -99,16 +96,13 @@ export const handler: NodeHandler = async (ctx) => {
     }
   }
 
-  // === Phase 2: Handle new requests ===
+  // === Handle new requests ===
   for (const req of requests) {
-    const p = req.payload as TextPayload;
-    const content = p.content;
+    const content = (req.payload as TextPayload).content;
 
     if (req.topic === "mem.store") {
-      // STORE: write to BOTH backends deterministically
       ctx.log("info", `Storing: ${content.slice(0, 80)}`);
 
-      // Try to parse as JSON for KV, otherwise use content as value
       let key: string;
       let value: string;
       let tags: string[] = [];
@@ -119,29 +113,21 @@ export const handler: NodeHandler = async (ctx) => {
         value = parsed.value ? String(parsed.value) : content;
         tags = Array.isArray(parsed.tags) ? parsed.tags as string[] : [];
       } catch {
-        // Natural language store — generate a key
         key = `fact_${Date.now()}`;
         value = content;
       }
 
-      // Write to KV
       ctx.publish("memory.store", {
-        type: "text",
-        criticality: 2,
+        type: "text", criticality: 2,
         payload: { content: JSON.stringify({ key, value, tags }) },
       });
-
-      // Write to vector (for semantic search later)
       ctx.publish("memory-vector.store", {
-        type: "text",
-        criticality: 2,
+        type: "text", criticality: 2,
         payload: { content: JSON.stringify({ text: `${key}: ${value}`, tags }) },
       });
-
       ctx.respond(`Stored: "${key}" = "${value.slice(0, 80)}"`);
 
     } else if (req.topic === "mem.ask") {
-      // ASK: LLM reformulates the question into search keywords, then broadcast
       ctx.log("info", `Query: ${content.slice(0, 80)}`);
 
       let kvQuery = content;
@@ -154,7 +140,7 @@ export const handler: NodeHandler = async (ctx) => {
 
         const reformulation = await generateText({
           model,
-          system: "Extract search keywords from the user question. ALWAYS produce keywords in English, even if the question is in another language. Keys and tags in the memory store are in English. Respond with ONLY a JSON object: {\"kv\": \"short english keywords for key-value search\", \"vec\": \"english natural language query for semantic vector search\"}. No explanation.",
+          system: "Extract search keywords from the user question. ALWAYS produce keywords in English. Respond with ONLY a JSON object: {\"kv\": \"short keywords\", \"vec\": \"natural language query\"}. No explanation.",
           messages: [{ role: "user", content }],
         });
 
@@ -169,23 +155,17 @@ export const handler: NodeHandler = async (ctx) => {
         ctx.log("warn", "Query reformulation failed, using raw query");
       }
 
-      ctx.log("info", `KV search: "${kvQuery}" | Vec search: "${vecQuery}"`);
+      ctx.log("info", `KV: "${kvQuery}" | Vec: "${vecQuery}"`);
 
-      // Search KV
       ctx.publish("memory.search", {
-        type: "text",
-        criticality: 2,
+        type: "text", criticality: 2,
         payload: { content: JSON.stringify({ query: kvQuery }) },
       });
-
-      // Search vector
       ctx.publish("memory-vector.search", {
-        type: "text",
-        criticality: 2,
+        type: "text", criticality: 2,
         payload: { content: JSON.stringify({ query: vecQuery, limit: 5 }) },
       });
 
-      // Save pending query and wait for both results
       ctx.state.pending_query = content;
       ctx.state.pending_from = req.from;
 
@@ -197,10 +177,4 @@ export const handler: NodeHandler = async (ctx) => {
       return;
     }
   }
-
-  // Sleep until next request
-  ctx.sleep([
-    { type: "topic", value: "mem.ask" },
-    { type: "topic", value: "mem.store" },
-  ]);
 };

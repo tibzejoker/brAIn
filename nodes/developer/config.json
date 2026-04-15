@@ -1,7 +1,7 @@
 {
   "name": "developer",
   "description": "Meta-node that creates new node types at runtime. Receives requests describing what node to build, writes the code, validates it compiles, and registers it as a new type available for spawning.",
-  "tags": ["meta", "developer", "llm", "code-generation"],
+  "tags": ["meta", "developer", "code-generation"],
   "default_authority": 2,
   "default_priority": 8,
   "default_subscriptions": [],

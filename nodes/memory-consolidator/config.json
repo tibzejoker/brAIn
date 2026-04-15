@@ -1,0 +1,12 @@
+{
+  "name": "memory-consolidator",
+  "description": "Autonomous memory maintenance agent. Periodically reviews, consolidates, and cleans up stored memories. Merges duplicates, removes stale entries, and improves memory organization.",
+  "tags": ["memory", "llm", "maintenance", "autonomous"],
+  "default_authority": 0,
+  "default_priority": 2,
+  "default_subscriptions": [
+    { "topic": "memory.result" }
+  ],
+  "default_publishes": ["memory.maintenance.log"],
+  "supports_transport": ["process"]
+}
