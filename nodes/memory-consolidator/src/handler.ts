@@ -152,39 +152,38 @@ export const handler: NodeHandler = async (ctx) => {
 
       case "delete":
         ctx.log("info", `Action: delete "${action.key}"`);
-        ctx.publish("memory.delete", {
-          type: "text", criticality: 1,
-          payload: { content: JSON.stringify({ key: action.key }) },
-        });
+        ctx.publish("memory.delete", { type: "text", criticality: 1, payload: { content: JSON.stringify({ key: action.key }) } });
         ctx.state._pending_action = "delete";
         ctx.state._progress = `deleted "${action.key}"`;
+        ctx.state._made_changes = true;
         ctx.respond(`Deleted memory: ${action.key}`, { action: "delete" });
         break;
 
       case "update":
         ctx.log("info", `Action: update "${action.key}"`);
-        ctx.publish("memory.update", {
-          type: "text", criticality: 1,
-          payload: { content: JSON.stringify({ key: action.key, value: action.value }) },
-        });
+        ctx.publish("memory.update", { type: "text", criticality: 1, payload: { content: JSON.stringify({ key: action.key, value: action.value }) } });
         ctx.state._pending_action = "update";
         ctx.state._progress = `updated "${action.key}"`;
+        ctx.state._made_changes = true;
         ctx.respond(`Updated memory: ${action.key}`, { action: "update" });
         break;
 
       case "store":
         ctx.log("info", `Action: store "${action.key}"`);
-        ctx.publish("memory.store", {
-          type: "text", criticality: 1,
-          payload: { content: JSON.stringify({ key: action.key, value: action.value, tags: action.tags ?? [] }) },
-        });
+        ctx.publish("memory.store", { type: "text", criticality: 1, payload: { content: JSON.stringify({ key: action.key, value: action.value, tags: action.tags ?? [] }) } });
         ctx.state._pending_action = "store";
         ctx.state._progress = `stored "${action.key}"`;
+        ctx.state._made_changes = true;
         ctx.respond(`Stored memory: ${action.key}`, { action: "store" });
         break;
 
       case "sleep":
         ctx.log("info", "Action: sleep (done consolidating)");
+        if (ctx.state._made_changes) {
+          ctx.log("info", "Triggering vector reindex");
+          ctx.publish("memory-vector.reindex", { type: "text", criticality: 1, payload: { content: "{}" } });
+          ctx.state._made_changes = false;
+        }
         ctx.state._progress = undefined;
         ctx.state._conversation = [];
         ctx.sleep([{ type: "timer", value: "1h" }, { type: "any" }]);

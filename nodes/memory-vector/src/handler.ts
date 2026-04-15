@@ -178,8 +178,60 @@ export const handler: NodeHandler = async (ctx) => {
           break;
         }
 
+        case "reindex": {
+          // Drop and rebuild all embeddings from the KV memory store
+          const memPath = path.join(path.dirname(dbPath), "memory.json");
+          if (!fs.existsSync(memPath)) {
+            result = { error: "memory.json not found, nothing to reindex" };
+            break;
+          }
+
+          const kvStore = JSON.parse(fs.readFileSync(memPath, "utf-8")) as Record<string, { key: string; value: string; tags?: string[] }>;
+          const entries = Object.values(kvStore);
+
+          if (entries.length === 0) {
+            result = { ok: true, indexed: 0, total: 0 };
+            break;
+          }
+
+          ctx.log("info", `Reindexing ${entries.length} entries from KV store...`);
+
+          // Drop existing table
+          const reDb = await lancedb.connect(dbPath);
+          try { await reDb.dropTable("memories"); } catch { /* may not exist */ }
+
+          // Rebuild all embeddings
+          const reDocs: Array<Record<string, unknown>> = [];
+          let reIndexed = 0;
+          for (const entry of entries) {
+            try {
+              const text = `${entry.key}: ${entry.value}`;
+              const vector = await embed(text);
+              reDocs.push({
+                id: Date.now() + reIndexed,
+                text,
+                tags: (entry.tags ?? []).join(","),
+                source: "reindex",
+                created_at: Date.now(),
+                vector,
+              });
+              reIndexed++;
+            } catch {
+              ctx.log("warn", `Failed to embed: ${entry.key}`);
+            }
+          }
+
+          if (reDocs.length > 0) {
+            await reDb.createTable("memories", reDocs);
+          }
+
+          ctx.log("info", `Reindexed ${reIndexed}/${entries.length} entries`);
+          result = { ok: true, indexed: reIndexed, total: entries.length };
+          break;
+        }
+
         default:
-          result = { error: `Unknown action: ${action}`, available: ["store", "search", "index"] };
+          result = { error: `Unknown action: ${action}`, available: ["store", "search", "index", "reindex"] };
       }
     } catch (err) {
       result = { error: err instanceof Error ? err.message : String(err) };
