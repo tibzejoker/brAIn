@@ -36,9 +36,12 @@ Respond with ONE JSON action at a time:
 
 ## Rules
 - Do ONE action at a time, wait for the result before deciding next
-- When you're done or have nothing to do, use {"action":"sleep"}
 - Be conservative — don't delete useful information
-- Prefer updating over deleting when information can be improved`;
+- Prefer updating over deleting when information can be improved
+- Use your full budget: keep working as long as there are things to improve
+- Only sleep when you have reviewed everything and there is genuinely nothing left to do
+- If contradictory entries exist, keep the most recent one and delete the older
+- If duplicate entries exist, merge them into one with the best key name`;
 
 interface Action {
   action: string;
