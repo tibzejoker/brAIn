@@ -79,15 +79,19 @@ export class SleepService {
 
     this.registry.updateState(nodeId, NodeState.SLEEPING);
 
-    // Persist to DB
+    // Persist to DB (best-effort — node may have been killed)
     if (this.db) {
-      saveSleepState(this.db, {
-        node_id: nodeId,
-        wake_at: wakeAt,
-        wake_topics: JSON.stringify(wakeTopics),
-        wake_on_any: wakeOnAny ? 1 : 0,
-        created_at: Date.now(),
-      });
+      try {
+        saveSleepState(this.db, {
+          node_id: nodeId,
+          wake_at: wakeAt,
+          wake_topics: JSON.stringify(wakeTopics),
+          wake_on_any: wakeOnAny ? 1 : 0,
+          created_at: Date.now(),
+        });
+      } catch {
+        logger.debug({ nodeId }, "Failed to persist sleep state (node may be gone)");
+      }
     }
   }
 

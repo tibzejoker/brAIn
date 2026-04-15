@@ -25,7 +25,8 @@ const TOPIC_ALIASES: Record<string, string> = {
 // Maps input topic → {responseTopic, timeout} by scanning node subscriptions + publishes
 
 function discoverResponseTopic(topic: string): { responseTopic: string; timeout: number } | null {
-  const brain = BrainService.current;
+  const brain = BrainService.current
+    ?? (globalThis as Record<string, unknown>).__brainService as BrainService | undefined;
   if (!brain) return null;
 
   // Find a node subscribed to this topic

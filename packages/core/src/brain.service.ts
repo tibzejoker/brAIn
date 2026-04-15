@@ -41,6 +41,7 @@ export class BrainService extends EventEmitter {
   constructor(dbPath?: string) {
     super();
     BrainService.current = this;
+    (globalThis as Record<string, unknown>).__brainService = this;
     this.db = getDb(dbPath);
     this.bus = new BusService();
     this.typeRegistry = new TypeRegistry();

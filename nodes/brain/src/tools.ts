@@ -9,10 +9,12 @@ export interface ToolResult {
 }
 
 function getBrain(): BrainService {
-  if (!BrainService.current) {
-    throw new Error("BrainService not initialized");
-  }
-  return BrainService.current;
+  // BrainService.current may be null in dual-package scenarios (vitest aliases
+  // vs compiled node_modules). Fall back to the globalThis singleton.
+  const instance = BrainService.current
+    ?? (globalThis as Record<string, unknown>).__brainService as BrainService | undefined;
+  if (!instance) throw new Error("BrainService not initialized");
+  return instance;
 }
 
 export async function executeBrainTool(
