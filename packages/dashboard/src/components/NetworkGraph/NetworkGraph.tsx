@@ -54,13 +54,9 @@ function snapshotToFlowNode(
   onOpenUi: (id: string) => void,
 ): Node {
   const typeConfig = typeMap.get(n.type);
-  const co = n.config_overrides ?? {} as Record<string, unknown>;
 
-  // Resolve publish topics: instance override > type default
-  const publishes: string[] = [];
-  if (typeof co.response_topic === "string") publishes.push(co.response_topic);
-  else if (typeof co.topic === "string") publishes.push(co.topic);
-  else if (typeConfig?.default_publishes) publishes.push(...typeConfig.default_publishes);
+  // Resolve all publish topics (instance overrides + type defaults)
+  const publishes = inferPublishTopics(n, typeMap);
 
   // Subscriptions from the node
   const subscribes = n.subscriptions.map((s) => s.pattern);
@@ -115,22 +111,20 @@ function matchWildcard(pattern: string, topic: string): boolean {
  * Purely data-driven — no hardcoded types.
  */
 function inferPublishTopics(n: NodeSnapshot, typeMap: Map<string, NodeTypeConfig>): string[] {
-  const topics: string[] = [];
+  const topics = new Set<string>();
   const co = n.config_overrides ?? {} as Record<string, unknown>;
 
-  // Instance-level overrides take priority
-  if (typeof co.response_topic === "string") topics.push(co.response_topic);
-  if (typeof co.topic === "string") topics.push(co.topic);
+  // Instance-level overrides
+  if (typeof co.response_topic === "string") topics.add(co.response_topic);
+  if (typeof co.topic === "string") topics.add(co.topic);
 
-  // Fall back to type defaults
-  if (topics.length === 0) {
-    const typeConfig = typeMap.get(n.type);
-    if (typeConfig?.default_publishes) {
-      topics.push(...typeConfig.default_publishes);
-    }
+  // Type defaults — always included (a node can publish to its response topic AND route to other services)
+  const typeConfig = typeMap.get(n.type);
+  if (typeConfig?.default_publishes) {
+    for (const t of typeConfig.default_publishes) topics.add(t);
   }
 
-  return topics;
+  return [...topics];
 }
 
 function buildEdges(snapshots: NodeSnapshot[], flows: Flow[], types: NodeTypeConfig[]): Edge[] {
@@ -207,13 +201,16 @@ export function NetworkGraph({
       const posMap = new Map(prev.map((n) => [n.id, n.position]));
       const newNodes = snapshots.map((snap) => {
         const flowNode = snapshotToFlowNode(snap, typeMap, onOpenNodeUi);
+        // Preserve existing positions — only layout truly new nodes
         const existing = posMap.get(snap.id);
         if (existing && (existing.x !== 0 || existing.y !== 0)) {
           flowNode.position = existing;
         }
         return flowNode;
       });
-      return layoutGraph(newNodes, []).nodes;
+      // Only run layout for nodes that still need placement (position 0,0)
+      const needsLayout = newNodes.some((n) => n.position.x === 0 && n.position.y === 0);
+      return needsLayout ? layoutGraph(newNodes, []).nodes : newNodes;
     });
   }, [snapshots, typeMap, onOpenNodeUi, setNodes]);
 
