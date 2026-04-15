@@ -47,6 +47,13 @@ describe("parseToolCall", () => {
     expect(result?.args.thought).toBe("ok");
   });
 
+  it("handles apostrophes in content values", () => {
+    const text = '{"tool": "publish_message", "args": {"topic": "mem.ask", "content": "Quelles infos sur l\'utilisateur?"}}';
+    const result = parseToolCall(text);
+    expect(result?.tool).toBe("publish_message");
+    expect(result?.args.content).toContain("utilisateur");
+  });
+
   it("returns null for plain text", () => {
     expect(parseToolCall("Hello, I'm thinking about what to do.")).toBeNull();
   });

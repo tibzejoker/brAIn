@@ -37,10 +37,36 @@ export const handler: NodeHandler = async (ctx) => {
     const pendingFrom = ctx.state.pending_from as string | undefined;
 
     if (pendingQuery) {
-      // Synthesize results with LLM
-      const kvData = kvResults.map((m) => (m.payload as TextPayload).content).join("\n");
-      const vecData = vecResults.map((m) => (m.payload as TextPayload).content).join("\n");
+      // Accumulate results across wakes (messages are read-once)
+      if (kvResults.length > 0) {
+        ctx.state._kv_data = kvResults.map((m) => (m.payload as TextPayload).content).join("\n");
+      }
+      if (vecResults.length > 0) {
+        ctx.state._vec_data = vecResults.map((m) => (m.payload as TextPayload).content).join("\n");
+      }
 
+      const hasKv = typeof ctx.state._kv_data === "string";
+      const hasVec = typeof ctx.state._vec_data === "string";
+
+      // Wait for both backends — re-sleep if only one responded (max 3 attempts)
+      if (!hasKv || !hasVec) {
+        const waited = (ctx.state._wait_count as number | undefined) ?? 0;
+        if (waited < 3) {
+          ctx.state._wait_count = waited + 1;
+          const missing = !hasKv ? "KV" : "vector";
+          ctx.log("info", `Waiting for ${missing} results (${waited + 1}/3)`);
+          ctx.sleep([
+            { type: "topic", value: !hasKv ? "memory.result" : "memory-vector.result" },
+            { type: "timer", value: "3s" },
+          ]);
+          return;
+        }
+        ctx.log("info", "Proceeding with partial results after waiting");
+      }
+
+      // Synthesize with what we have
+      const kvData = (ctx.state._kv_data as string | undefined) ?? "";
+      const vecData = (ctx.state._vec_data as string | undefined) ?? "";
       ctx.log("info", `Synthesizing: KV=${kvData.length}chars Vec=${vecData.length}chars`);
 
       try {
@@ -59,14 +85,17 @@ export const handler: NodeHandler = async (ctx) => {
 
         const text = typeof result.text === "string" ? result.text : "";
         ctx.log("info", `Response: ${text.slice(0, 120)}`);
-
         ctx.respond(text || "No relevant memories found.", { query: pendingQuery, requested_by: pendingFrom });
       } catch (err) {
         ctx.respond(`Memory synthesis error: ${err instanceof Error ? err.message : String(err)}`);
       }
 
+      // Cleanup
       ctx.state.pending_query = undefined;
       ctx.state.pending_from = undefined;
+      ctx.state._kv_data = undefined;
+      ctx.state._vec_data = undefined;
+      ctx.state._wait_count = undefined;
     }
   }
 
