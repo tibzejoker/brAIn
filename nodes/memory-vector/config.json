@@ -7,7 +7,8 @@
   "default_subscriptions": [
     { "topic": "memory-vector.store" },
     { "topic": "memory-vector.search" },
-    { "topic": "memory-vector.index" }
+    { "topic": "memory-vector.index" },
+    { "topic": "memory-vector.reindex" }
   ],
   "default_publishes": ["memory-vector.result"],
   "supports_transport": ["process"]
