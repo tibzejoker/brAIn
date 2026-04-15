@@ -7,92 +7,56 @@ interface HttpRequest {
   body?: string;
 }
 
-interface HttpConfig {
-  response_topic?: string;
-  default_url?: string;
-  default_method?: string;
-  default_headers?: Record<string, string>;
-}
+function parseRequest(content: string, overrides: Record<string, unknown>): HttpRequest | null {
+  const defaultUrl = overrides.default_url as string | undefined;
+  const defaultMethod = overrides.default_method as string | undefined;
+  const defaultHeaders = overrides.default_headers as Record<string, string> | undefined;
 
-function getConfig(overrides: Record<string, unknown>): HttpConfig {
-  return {
-    response_topic: overrides.response_topic as string | undefined,
-    default_url: overrides.default_url as string | undefined,
-    default_method: overrides.default_method as string | undefined,
-    default_headers: overrides.default_headers as Record<string, string> | undefined,
-  };
-}
-
-function parseRequest(content: string, config: HttpConfig): HttpRequest | null {
   // Try JSON first
   try {
     const parsed = JSON.parse(content) as Partial<HttpRequest>;
     if (parsed.url) {
       return {
         url: parsed.url,
-        method: parsed.method ?? config.default_method ?? "GET",
-        headers: { ...config.default_headers, ...parsed.headers },
+        method: parsed.method ?? defaultMethod ?? "GET",
+        headers: { ...defaultHeaders, ...parsed.headers },
         body: parsed.body,
       };
     }
-  } catch {
-    // Not JSON — treat content as URL
-  }
+  } catch { /* Not JSON — treat content as URL */ }
 
   // Plain text = just a URL
   const url = content.trim();
   if (url.startsWith("http://") || url.startsWith("https://")) {
-    return {
-      url,
-      method: config.default_method ?? "GET",
-      headers: config.default_headers,
-    };
+    return { url, method: defaultMethod ?? "GET", headers: defaultHeaders };
   }
 
   // If default_url configured, use content as body
-  if (config.default_url) {
-    return {
-      url: config.default_url,
-      method: config.default_method ?? "POST",
-      headers: config.default_headers,
-      body: content,
-    };
+  if (defaultUrl) {
+    return { url: defaultUrl, method: defaultMethod ?? "POST", headers: defaultHeaders, body: content };
   }
 
   return null;
 }
 
 export const handler: NodeHandler = async (ctx) => {
-  if (ctx.messages.length === 0) {
-    ctx.sleep([{ type: "any" }]);
-    return;
-  }
-
-  const config = getConfig(ctx.node.config_overrides ?? {} as Record<string, unknown>);
-  const responseTopic = config.response_topic ?? `http.response.${ctx.node.name}`;
+  const overrides = ctx.node.config_overrides ?? {} as Record<string, unknown>;
 
   for (const msg of ctx.messages) {
     const payload = msg.payload as TextPayload;
     if (!payload.content) continue;
 
-    const req = parseRequest(payload.content, config);
+    const req = parseRequest(payload.content, overrides);
     if (!req) {
-      ctx.publish(responseTopic, {
-        type: "text",
-        criticality: 3,
-        payload: {
-          content: JSON.stringify({
-            error: "Invalid HTTP request: payload must be a URL or JSON with a 'url' field",
-            received: payload.content.slice(0, 120),
-            expected_formats: [
-              "https://example.com",
-              '{"url":"https://example.com","method":"GET"}',
-              '{"url":"https://api.example.com/search","method":"POST","body":"query","headers":{"Authorization":"Bearer ..."}}',
-            ],
-            hint: "Send a valid URL or a JSON object with at least a 'url' field. Do NOT send a description of what you want — send the actual URL to fetch.",
-          }),
-        },
-      });
+      ctx.respond(JSON.stringify({
+        error: "Invalid HTTP request: payload must be a URL or JSON with a 'url' field",
+        received: payload.content.slice(0, 120),
+        expected_formats: [
+          "https://example.com",
+          '{"url":"https://example.com","method":"GET"}',
+        ],
+        hint: "Send a valid URL or a JSON object with at least a 'url' field.",
+      }));
       continue;
     }
 
@@ -102,36 +66,18 @@ export const handler: NodeHandler = async (ctx) => {
         headers: req.headers,
         body: req.body,
       });
-
       const responseBody = await response.text();
 
-      ctx.publish(responseTopic, {
-        type: "text",
-        criticality: msg.criticality,
-        payload: {
-          content: JSON.stringify({
-            status: response.status,
-            statusText: response.statusText,
-            headers: Object.fromEntries(response.headers.entries()),
-            body: responseBody.slice(0, 10000),
-          }),
-        },
-        metadata: {
-          original_topic: msg.topic,
-          original_message_id: msg.id,
-          url: req.url,
-          method: req.method,
-        },
-      });
+      ctx.respond(JSON.stringify({
+        status: response.status,
+        statusText: response.statusText,
+        headers: Object.fromEntries(response.headers.entries()),
+        body: responseBody.slice(0, 10000),
+      }), { url: req.url, method: req.method });
     } catch (err) {
-      ctx.publish(responseTopic, {
-        type: "alert",
-        criticality: 5,
-        payload: {
-          title: "HTTP request failed",
-          description: `${req.method} ${req.url}: ${err instanceof Error ? err.message : String(err)}`,
-        },
-      });
+      ctx.respond(JSON.stringify({
+        error: `${req.method} ${req.url}: ${err instanceof Error ? err.message : String(err)}`,
+      }));
     }
   }
 };

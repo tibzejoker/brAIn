@@ -58,10 +58,7 @@ function parseRequest(content: string): Request | null {
 }
 
 export const handler: NodeHandler = (ctx) => {
-  if (ctx.messages.length === 0) {
-    ctx.sleep([{ type: "any" }]);
-    return Promise.resolve();
-  }
+  if (ctx.messages.length === 0) return Promise.resolve();
 
   const storePath = resolveStorePath();
   const store = loadStore(storePath);

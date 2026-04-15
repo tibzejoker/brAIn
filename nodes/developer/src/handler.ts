@@ -8,14 +8,12 @@ import { v4 as uuid } from "uuid";
 
 interface DevConfig {
   cli: string;
-  response_topic: string;
   timeout_ms: number;
 }
 
 function getConfig(overrides: Record<string, unknown>): DevConfig {
   return {
     cli: (overrides.cli as string | undefined) ?? "claude",
-    response_topic: (overrides.response_topic as string | undefined) ?? "dev.result",
     timeout_ms: (overrides.timeout_ms as number | undefined) ?? 300000,
   };
 }
@@ -120,14 +118,10 @@ Do NOT explain, just create the files and build. Work entirely in ${workspacePat
 
     if (!cliRegistry.isAvailable(config.cli)) {
       ctx.log("error", `CLI ${config.cli} not available`);
-      ctx.publish(config.response_topic, {
-        type: "alert",
-        criticality: 5,
-        payload: {
-          title: "Developer: CLI unavailable",
-          description: `${config.cli} is not installed. Available: ${cliRegistry.getAvailableCLIs().join(", ") || "none"}`,
-        },
-      });
+      ctx.respond(JSON.stringify({
+        error: `CLI unavailable: ${config.cli}`,
+        available: cliRegistry.getAvailableCLIs(),
+      }));
       continue;
     }
 
@@ -175,21 +169,14 @@ Do NOT explain, just create the files and build. Work entirely in ${workspacePat
           }
         }
 
-        ctx.publish(config.response_topic, {
-          type: "text",
-          criticality: 5,
-          payload: {
-            content: JSON.stringify({
-              status: "success",
-              type_name: nodeConfig.name,
-              type_path: workspacePath,
-              registered: Boolean(brain),
-              spawned,
-              message: `Node type '${nodeConfig.name}' created${spawned ? " and running" : ""}.`,
-            }),
-          },
-          metadata: { workspace: workspacePath },
-        });
+        ctx.respond(JSON.stringify({
+          status: "success",
+          type_name: nodeConfig.name,
+          type_path: workspacePath,
+          registered: Boolean(brain),
+          spawned,
+          message: `Node type '${nodeConfig.name}' created${spawned ? " and running" : ""}.`,
+        }), { workspace: workspacePath });
       } else {
         // List what was created for debugging
         const files = fs.existsSync(workspacePath)
@@ -197,27 +184,17 @@ Do NOT explain, just create the files and build. Work entirely in ${workspacePat
           : "empty";
 
         ctx.log("warn", `Build incomplete. Files: ${files}`);
-        ctx.publish(config.response_topic, {
-          type: "alert",
-          criticality: 4,
-          payload: {
-            title: "Node creation incomplete",
-            description: `Build did not produce dist/handler.js. Files: ${files}. CLI output: ${result.stdout.slice(0, 200)}`,
-          },
-          metadata: { workspace: workspacePath },
-        });
+        ctx.respond(JSON.stringify({
+          error: "Node creation incomplete",
+          details: `Build did not produce dist/handler.js. Files: ${files}`,
+          cli_output: result.stdout.slice(0, 200),
+        }), { workspace: workspacePath });
       }
     } catch (err) {
       ctx.log("error", `Failed: ${err instanceof Error ? err.message : String(err)}`);
-      ctx.publish(config.response_topic, {
-        type: "alert",
-        criticality: 5,
-        payload: {
-          title: "Developer node failed",
-          description: err instanceof Error ? err.message : String(err),
-        },
-        metadata: { workspace: workspacePath },
-      });
+      ctx.respond(JSON.stringify({
+        error: `Developer node failed: ${err instanceof Error ? err.message : String(err)}`,
+      }), { workspace: workspacePath });
     }
   }
 };
