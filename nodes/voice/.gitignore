@@ -1,0 +1,12 @@
+dist/
+node_modules/
+server/.venv/
+server/__pycache__/
+server/**/__pycache__/
+server/models/
+server/data/
+server/*.db
+web/node_modules/
+web/dist/
+.env
+.env.local

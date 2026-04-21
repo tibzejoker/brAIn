@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>voice — live diarization</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>voice</h1>
+      <div class="controls">
+        <button id="mic-toggle" data-state="idle">Start mic</button>
+        <span id="status" class="status">idle</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="speakers">
+        <h2>Speakers</h2>
+        <ul id="speakers-list"></ul>
+      </section>
+
+      <section class="timeline">
+        <h2>Timeline</h2>
+        <canvas id="timeline-canvas" width="1200" height="120"></canvas>
+      </section>
+
+      <section class="tuning">
+        <h2>Tuning</h2>
+        <div class="meter">
+          <span class="meter-label">Mic level</span>
+          <div class="meter-bar"><div id="meter-rms" class="meter-fill"></div></div>
+          <span id="meter-value" class="meter-value">--</span>
+          <button id="meter-reset" type="button" title="reset peak">⟲</button>
+        </div>
+        <label class="knob">
+          <span>Mic gain</span>
+          <input id="knob-gain" type="range" min="0.5" max="10" step="0.5" value="4" />
+          <output id="knob-gain-val">4.0×</output>
+        </label>
+        <label class="knob">
+          <span>VAD threshold</span>
+          <input id="knob-vad" type="range" min="0.05" max="0.95" step="0.05" value="0.5" />
+          <output id="knob-vad-val">0.50</output>
+        </label>
+        <label class="knob">
+          <span>Speaker match (cosine)</span>
+          <input id="knob-match" type="range" min="0.40" max="0.95" step="0.01" value="0.75" />
+          <output id="knob-match-val">0.75</output>
+        </label>
+        <label class="knob">
+          <span>Speaker uncertain (cosine)</span>
+          <input id="knob-uncertain" type="range" min="0.20" max="0.90" step="0.01" value="0.60" />
+          <output id="knob-uncertain-val">0.60</output>
+        </label>
+        <label class="knob">
+          <span>Min segment (ms)</span>
+          <input id="knob-minseg" type="range" min="100" max="2000" step="50" value="300" />
+          <output id="knob-minseg-val">300</output>
+        </label>
+        <button id="reset-profiles" type="button" class="danger">Reset all speakers</button>
+      </section>
+
+      <section class="transcript">
+        <h2>Transcript</h2>
+        <ol id="transcript-list"></ol>
+      </section>
+    </main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

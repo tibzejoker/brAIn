@@ -7,7 +7,7 @@ import {
 import type Database from "better-sqlite3";
 import EventEmitter from "eventemitter3";
 import { BusService } from "./bus";
-import { TypeRegistry, InstanceRegistry } from "./registry";
+import { TypeRegistry, InstanceRegistry, DynamicTypeScanner, type DynamicScannerOptions } from "./registry";
 import { AuthorityService } from "./authority";
 import { type BaseRunner, SleepService } from "./runner";
 import { logger } from "./logger";
@@ -31,6 +31,7 @@ export class BrainService extends EventEmitter {
   readonly instanceRegistry: InstanceRegistry;
   readonly authority: AuthorityService;
   readonly sleepService: SleepService;
+  private dynamicScanner: DynamicTypeScanner | null = null;
   private readonly runners = new Map<string, BaseRunner>();
   private readonly db: Database.Database;
   private seedsDir?: string;
@@ -86,6 +87,27 @@ export class BrainService extends EventEmitter {
     const types = this.typeRegistry.scanDirectory(nodesDir);
     logger.info({ count: types.length, types: types.map((t) => t.name) }, "Registered node types");
   }
+
+  startDynamicScanner(opts: Omit<DynamicScannerOptions, "bus" | "typeRegistry"> & Partial<Pick<DynamicScannerOptions, "bus" | "typeRegistry">>): DynamicTypeScanner {
+    if (this.dynamicScanner) return this.dynamicScanner;
+    this.dynamicScanner = new DynamicTypeScanner({
+      ...opts,
+      bus: opts.bus ?? this.bus,
+      typeRegistry: opts.typeRegistry ?? this.typeRegistry,
+    } as DynamicScannerOptions);
+    this.dynamicScanner.start();
+    logger.info({ dir: opts.dynamicDir }, "Dynamic scanner started");
+    return this.dynamicScanner;
+  }
+
+  stopDynamicScanner(): void {
+    if (this.dynamicScanner) {
+      this.dynamicScanner.stop();
+      this.dynamicScanner = null;
+    }
+  }
+
+  getDynamicScanner(): DynamicTypeScanner | null { return this.dynamicScanner; }
 
   async restore(): Promise<number> {
     const restored = await restoreNodes({

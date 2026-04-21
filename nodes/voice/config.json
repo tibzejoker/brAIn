@@ -1,0 +1,19 @@
+{
+  "name": "voice",
+  "description": "Proxy to a standalone real-time STT + diarization server (Python). Bridges audio control commands and forwards transcript/speaker events to the bus.",
+  "tags": ["service", "voice", "transcription", "diarization"],
+  "default_authority": 1,
+  "default_priority": 5,
+  "default_subscriptions": [
+    { "topic": "voice.control" },
+    { "topic": "voice.speaker.rename" },
+    { "topic": "voice.speaker.merge" }
+  ],
+  "default_publishes": [
+    "voice.transcript",
+    "voice.speaker.detected",
+    "voice.speaker.identified",
+    "voice.status"
+  ],
+  "supports_transport": ["process"]
+}

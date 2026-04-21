@@ -1,0 +1,12 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+.env
+data/
+models/
+*.db
+*.db-journal
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
