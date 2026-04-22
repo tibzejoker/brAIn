@@ -1,0 +1,20 @@
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+pydantic-settings==2.7.0
+python-multipart==0.0.20
+numpy>=1.26,<2.2
+pillow>=10.4,<12
+
+# Face detection + recognition (InsightFace + ONNX runtime)
+insightface==0.7.3
+onnxruntime==1.20.1
+
+# Gaze detection (Moondream2 via HuggingFace transformers; uses the 2025-01-09
+# revision — first one shipping detect_gaze). pyvips is required by that
+# revision's image-encoding path (`brew install vips` provides libvips on Mac).
+transformers>=4.44,<4.50
+einops>=0.8
+pyvips>=3.0
+# torch comes transitively (pinning minor to prevent accidental downgrade).
+torch>=2.2

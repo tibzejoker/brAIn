@@ -1,0 +1,83 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>gaze — live face + gaze tracking</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>gaze</h1>
+      <div class="controls">
+        <button id="cam-toggle" data-state="idle">Start webcam</button>
+        <label class="upload-btn" for="image-upload">Upload image</label>
+        <input id="image-upload" type="file" accept="image/*" hidden />
+        <label class="remember">
+          <input id="remember" type="checkbox" checked />
+          <span>Remember faces</span>
+        </label>
+        <span id="status" class="status">idle</span>
+      </div>
+    </header>
+
+    <main>
+      <section class="faces">
+        <h2>Faces</h2>
+        <ul id="faces-list"></ul>
+      </section>
+
+      <section class="viewport">
+        <div class="video-wrap">
+          <video id="video" autoplay playsinline muted></video>
+          <img id="still" alt="" />
+          <canvas id="overlay"></canvas>
+        </div>
+        <div class="perf" id="perf">—</div>
+      </section>
+
+      <section class="tuning">
+        <h2>Tuning</h2>
+
+        <label class="knob">
+          <span>Frame interval (ms)</span>
+          <input id="knob-interval" type="range" min="200" max="5000" step="100" value="1000" />
+          <output id="knob-interval-val">1000</output>
+        </label>
+        <p class="hint">Delay between webcam snapshots sent to the server. Lower = smoother but heavier CPU.</p>
+
+        <label class="knob">
+          <span>Face match (cosine)</span>
+          <input id="knob-match" type="range" min="0.30" max="0.80" step="0.01" value="0.42" />
+          <output id="knob-match-val">0.42</output>
+        </label>
+        <p class="hint">Cosine similarity above which a face is confidently matched to a known profile. Raise to be stricter (fewer wrong matches, more duplicates).</p>
+
+        <label class="knob">
+          <span>Face uncertain (cosine)</span>
+          <input id="knob-uncertain" type="range" min="0.15" max="0.70" step="0.01" value="0.30" />
+          <output id="knob-uncertain-val">0.30</output>
+        </label>
+        <p class="hint">Below this, a new profile is created. Between this and "match", face is assigned provisionally.</p>
+
+        <label class="knob">
+          <span>EMA decay</span>
+          <input id="knob-ema" type="range" min="0.05" max="0.5" step="0.01" value="0.15" />
+          <output id="knob-ema-val">0.15</output>
+        </label>
+        <p class="hint">How fast a profile's face centroid adapts to new confirmed frames.</p>
+
+        <label class="knob">
+          <span>Looking-at margin</span>
+          <input id="knob-margin" type="range" min="0.00" max="0.20" step="0.01" value="0.05" />
+          <output id="knob-margin-val">0.05</output>
+        </label>
+        <p class="hint">Inflation of target bbox (fraction of image) when resolving "A looks at B". Raise for more forgiving detection.</p>
+
+        <button id="reset-profiles" type="button" class="danger">Reset all faces</button>
+      </section>
+    </main>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
