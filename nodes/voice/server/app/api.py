@@ -49,6 +49,21 @@ def build_router(store: ProfileStore, hub: SessionHub) -> APIRouter:
             raise HTTPException(404, "target profile not found")
         return result
 
+    @router.get("/profiles/{profile_id}/voiceprints")
+    def list_voiceprints(profile_id: str) -> list[dict]:
+        return store.voiceprints_meta_for(profile_id)
+
+    @router.post("/voiceprints/{voiceprint_id}/extract")
+    def extract_voiceprint(voiceprint_id: str) -> dict:
+        result = store.extract_voiceprint(voiceprint_id)
+        if result is None:
+            raise HTTPException(404, "voiceprint not found")
+        return result
+
+    @router.delete("/voiceprints/{voiceprint_id}")
+    def delete_voiceprint(voiceprint_id: str) -> dict[str, bool]:
+        return {"deleted": store.delete_voiceprint(voiceprint_id)}
+
     @router.post("/control")
     async def control(body: ControlIn) -> dict[str, str]:
         if body.action == "start":

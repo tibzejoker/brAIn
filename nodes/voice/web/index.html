@@ -22,8 +22,14 @@
       </section>
 
       <section class="timeline">
-        <h2>Timeline</h2>
-        <canvas id="timeline-canvas" width="1200" height="120"></canvas>
+        <div class="timeline-header">
+          <h2>Timeline</h2>
+          <div class="timeline-actions">
+            <button id="timeline-fit" type="button" class="ghost" title="Fit all">⤢</button>
+            <button id="timeline-clear" type="button" class="ghost danger-text" title="Clear timeline">Clear</button>
+          </div>
+        </div>
+        <div id="timeline-container"></div>
       </section>
 
       <section class="tuning">
@@ -34,31 +40,43 @@
           <span id="meter-value" class="meter-value">--</span>
           <button id="meter-reset" type="button" title="reset peak">⟲</button>
         </div>
+        <p class="hint">Mic level shows current RMS (0–6000). Aim for green/yellow zone when speaking.</p>
+
         <label class="knob">
           <span>Mic gain</span>
           <input id="knob-gain" type="range" min="0.5" max="10" step="0.5" value="4" />
           <output id="knob-gain-val">4.0×</output>
         </label>
+        <p class="hint">Boosts the captured signal before sending to server. Raise if mic level stays in red zone.</p>
+
         <label class="knob">
           <span>VAD threshold</span>
           <input id="knob-vad" type="range" min="0.05" max="0.95" step="0.05" value="0.5" />
           <output id="knob-vad-val">0.50</output>
         </label>
+        <p class="hint">How confident Silero must be to call audio "speech". Lower = more sensitive (catches whispers but also breath/noise).</p>
+
         <label class="knob">
           <span>Speaker match (cosine)</span>
           <input id="knob-match" type="range" min="0.40" max="0.95" step="0.01" value="0.75" />
           <output id="knob-match-val">0.75</output>
         </label>
+        <p class="hint">Cosine similarity required to confidently match a known speaker. Higher = stricter (fewer false matches, but same speaker may split into multiple profiles).</p>
+
         <label class="knob">
           <span>Speaker uncertain (cosine)</span>
           <input id="knob-uncertain" type="range" min="0.20" max="0.90" step="0.01" value="0.60" />
           <output id="knob-uncertain-val">0.60</output>
         </label>
+        <p class="hint">Below this similarity, a NEW speaker profile is created. Between this and "match" → assigned as "uncertain" to nearest profile. Raise to encourage new profiles for distinct voices.</p>
+
         <label class="knob">
           <span>Min segment (ms)</span>
           <input id="knob-minseg" type="range" min="100" max="2000" step="50" value="300" />
           <output id="knob-minseg-val">300</output>
         </label>
+        <p class="hint">Shorter segments are still transcribed but skipped for speaker identification (embedding too unreliable). Lower to capture quick "ok/oui" with degraded speaker accuracy.</p>
+
         <button id="reset-profiles" type="button" class="danger">Reset all speakers</button>
       </section>
 

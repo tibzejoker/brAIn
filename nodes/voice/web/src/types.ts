@@ -35,6 +35,7 @@ export type Profile = {
   name: string;
   color: string;
   sample_count: number;
+  voiceprint_count: number;
   created_at: string;
   updated_at: string;
 };
