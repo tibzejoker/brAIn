@@ -64,6 +64,17 @@ export class FacesPanel {
     return this.profiles.get(id)?.color ?? null;
   }
 
+  getName(id: string | null): string | null {
+    if (!id) return null;
+    return this.profiles.get(id)?.name ?? null;
+  }
+
+  onProfilesChanged(fn: () => void): void {
+    this._profilesChanged = fn;
+  }
+
+  private _profilesChanged: (() => void) | null = null;
+
   private async handleMergeClick(targetId: string): Promise<void> {
     if (!this.mergeSource) {
       this.mergeSource = targetId;
@@ -135,6 +146,7 @@ export class FacesPanel {
       (a, b) => a.created_at.localeCompare(b.created_at),
     );
     this.root.innerHTML = "";
+    this._profilesChanged?.();
     const merging = this.mergeSource !== null;
     for (const p of sorted) {
       const li = document.createElement("li");

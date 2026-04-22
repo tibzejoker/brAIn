@@ -26,8 +26,11 @@ export type DetectedFace = {
   name: string | null;
   color: string | null;
   bbox: Bbox;
+  eye_center: GazePoint | null;
   gaze: GazePoint | null;
   looking_at: string | null;
+  looking_at_camera: boolean;
+  looking_at_description: string | null;
   match_confidence: number;
   provisional: boolean;
 };
@@ -36,7 +39,13 @@ export type DetectResponse = {
   width: number;
   height: number;
   faces: DetectedFace[];
-  elapsed_ms: { detect: number; match: number; gaze: number };
+  elapsed_ms: {
+    detect: number;
+    match: number;
+    encode: number;
+    gaze: number;
+    describe: number;
+  };
 };
 
 export type Tuning = {
@@ -44,6 +53,7 @@ export type Tuning = {
   uncertain_threshold: number;
   ema_decay: number;
   looking_at_margin: number;
+  looking_at_camera_threshold: number;
 };
 
 export type Faceprint = {
@@ -51,4 +61,15 @@ export type Faceprint = {
   sample_count: number;
   created_at: string;
   updated_at: string;
+};
+
+export type GazeEvent = {
+  id: number;
+  ts: string;
+  source_profile_id: string | null;
+  target_type: "profile" | "camera" | "scene";
+  target_profile_id: string | null;
+  description: string | null;
+  gaze_x: number | null;
+  gaze_y: number | null;
 };

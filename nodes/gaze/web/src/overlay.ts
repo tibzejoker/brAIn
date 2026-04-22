@@ -48,9 +48,19 @@ export class Overlay {
       ctx.strokeRect(x, y, w, h);
       ctx.setLineDash([]);
 
+      if (face.looking_at_camera) {
+        // Bright cyan ring = "eye contact with the camera/viewer".
+        ctx.strokeStyle = "#22d3ee";
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(x + w / 2, y + h / 2, Math.max(w, h) * 0.62, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+
       const label = face.name ?? `Face ${face.face_index}`;
       const conf = face.match_confidence > 0 ? ` ${(face.match_confidence * 100).toFixed(0)}%` : "";
-      const text = `${label}${conf}${face.provisional ? " ?" : ""}`;
+      const eye = face.looking_at_camera ? " 👁" : "";
+      const text = `${label}${conf}${face.provisional ? " ?" : ""}${eye}`;
       ctx.font = "12px ui-sans-serif, system-ui, sans-serif";
       const metrics = ctx.measureText(text);
       const padX = 4;
@@ -62,21 +72,24 @@ export class Overlay {
       ctx.fillStyle = "#0f172a";
       ctx.fillText(text, x + padX, y - padY);
 
-      if (face.gaze) {
+      const eyeX = face.eye_center
+        ? face.eye_center.x * displayWidth
+        : x + w / 2;
+      const eyeY = face.eye_center
+        ? face.eye_center.y * displayHeight
+        : y + h * 0.4;
+
+      if (face.gaze && !face.looking_at_camera) {
         const gx = face.gaze.x * displayWidth;
         const gy = face.gaze.y * displayHeight;
-        const cx = x + w / 2;
-        const cy = y + h / 2;
-        // Gaze arrow: from face center to gaze point.
         ctx.strokeStyle = color;
         ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.moveTo(cx, cy);
+        ctx.moveTo(eyeX, eyeY);
         ctx.lineTo(gx, gy);
         ctx.stroke();
-        // Arrowhead.
-        const angle = Math.atan2(gy - cy, gx - cx);
-        const head = 8;
+        const angle = Math.atan2(gy - eyeY, gx - eyeX);
+        const head = 9;
         ctx.beginPath();
         ctx.moveTo(gx, gy);
         ctx.lineTo(gx - head * Math.cos(angle - Math.PI / 6), gy - head * Math.sin(angle - Math.PI / 6));
@@ -84,14 +97,17 @@ export class Overlay {
         ctx.closePath();
         ctx.fillStyle = color;
         ctx.fill();
-        // Gaze target dot.
         ctx.beginPath();
-        ctx.arc(gx, gy, 5, 0, Math.PI * 2);
+        ctx.arc(gx, gy, 6, 0, Math.PI * 2);
         ctx.fillStyle = color;
         ctx.fill();
         ctx.strokeStyle = "#0f172a";
         ctx.lineWidth = 1;
         ctx.stroke();
+
+        if (face.looking_at_description) {
+          this._drawTextTag(face.looking_at_description, gx, gy + 10, color);
+        }
       }
 
       if (face.looking_at) {
@@ -114,5 +130,27 @@ export class Overlay {
         }
       }
     }
+  }
+
+  private _drawTextTag(text: string, anchorX: number, anchorY: number, color: string): void {
+    const ctx = this.ctx;
+    ctx.font = "12px ui-sans-serif, system-ui, sans-serif";
+    const metrics = ctx.measureText(text);
+    const padX = 6;
+    const padY = 4;
+    const boxW = metrics.width + padX * 2;
+    const boxH = 18;
+    const x = Math.max(4, anchorX - boxW / 2);
+    const y = anchorY + 8;
+    ctx.fillStyle = "rgba(15, 23, 42, 0.92)";
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    if (ctx.roundRect) ctx.roundRect(x, y, boxW, boxH, 4);
+    else ctx.rect(x, y, boxW, boxH);
+    ctx.fill();
+    ctx.stroke();
+    ctx.fillStyle = "#e2e8f0";
+    ctx.fillText(text, x + padX, y + boxH - padY - 1);
   }
 }

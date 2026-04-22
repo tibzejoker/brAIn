@@ -1,8 +1,8 @@
-"""Moondream 2 wrapper for per-face gaze direction.
+"""Moondream 2 wrapper — gaze direction + optional gaze-target description.
 
-Uses the HuggingFace revision 2025-01-09 which first shipped `detect_gaze`.
-Given a PIL image + a face bbox (normalized 0-1), returns a normalized (x,y)
-gaze point in image coordinates, or None if Moondream can't determine a target.
+The 2025-01-09 revision's `encode_image` returns an `EncodedImage` that can be
+reused across `_detect_gaze` and `query` calls; this lets us pay the encoding
+cost once per frame instead of per face, which dominates latency on MPS.
 """
 from __future__ import annotations
 
@@ -57,64 +57,69 @@ class GazeModel:
         model = model.to(resolved_device)
         model.eval()
         self._model = model
+        # HfMoondream wraps the real model in `.model`; `_detect_gaze` lives
+        # on the inner MoondreamModel and isn't proxied.
+        self._inner = getattr(model, "model", model)
         self._device = resolved_device
         log.info("moondream ready on %s", resolved_device)
 
+    def encode_image(self, image: Any) -> Any:
+        """Return an EncodedImage reusable across detect_gaze / query calls."""
+        import torch  # type: ignore[import-not-found]
+
+        with torch.inference_mode():
+            return self._model.encode_image(image)
+
     def detect_gaze(
         self,
-        image: Any,  # PIL.Image.Image
-        face_bbox_norm: tuple[float, float, float, float],
-        accurate: bool = False,
+        encoded_image: Any,
+        eye_xy: tuple[float, float],
+        force_detect: bool = False,
     ) -> tuple[float, float] | None:
-        """Return a normalized gaze point, or None.
+        import torch  # type: ignore[import-not-found]
 
-        `accurate=True` uses Moondream's multi-sample averaging path (20 forward
-        passes, slower but more robust); the default fast path does a single
-        inference at a synthesized eye position derived from the face bbox
-        (eyes sit at ~35% of face height from the top).
-        """
-        x_min, y_min, x_max, y_max = face_bbox_norm
-        face_arg = {
-            "x_min": float(x_min),
-            "y_min": float(y_min),
-            "x_max": float(x_max),
-            "y_max": float(y_max),
-        }
-        eye_xy = (
-            (x_min + x_max) / 2.0,
-            y_min + 0.35 * (y_max - y_min),
-        )
         try:
-            import torch  # type: ignore[import-not-found]
-
             with torch.inference_mode():
-                if accurate:
-                    result = self._model.detect_gaze(
-                        image, face=face_arg,
-                        unstable_settings={
-                            "prioritize_accuracy": True,
-                            "force_detect": True,
-                        },
-                    )
-                else:
-                    # force_detect=True bypasses Moondream's internal EOS short-circuit
-                    # so we always get a direction even when the target isn't clearly
-                    # in frame (useful as a visual indicator for "approximate gaze").
-                    result = self._model.detect_gaze(
-                        image, eye=eye_xy,
-                        unstable_settings={"force_detect": True},
-                    )
+                raw = self._inner._detect_gaze(
+                    encoded_image, (float(eye_xy[0]), float(eye_xy[1])),
+                    force_detect=force_detect,
+                )
         except Exception as e:
-            log.warning("moondream.detect_gaze failed: %s", e)
+            log.warning("_detect_gaze failed: %s", e)
             return None
 
-        gaze = _extract_gaze(result)
+        gaze = _extract_gaze(raw)
         if gaze is None:
-            log.debug("moondream returned no gaze for face %s", face_arg)
             return None
         gx = max(0.0, min(1.0, gaze[0]))
         gy = max(0.0, min(1.0, gaze[1]))
         return (gx, gy)
+
+    def describe_at(
+        self,
+        encoded_image: Any,
+        gaze_point: tuple[float, float],
+    ) -> str | None:
+        """Short natural-language description of what sits at the gaze point."""
+        import torch  # type: ignore[import-not-found]
+
+        prompt = (
+            "In a few words, describe what is at coordinate "
+            f"({gaze_point[0]:.2f}, {gaze_point[1]:.2f}) "
+            "of the image. Be concrete and concise (3-6 words)."
+        )
+        try:
+            with torch.inference_mode():
+                result = self._model.query(encoded_image, prompt)
+        except Exception as e:
+            log.warning("moondream.query failed: %s", e)
+            return None
+
+        answer = _extract_answer(result)
+        if not answer:
+            return None
+        # Collapse whitespace and trim trailing punctuation.
+        return " ".join(answer.strip().split()).rstrip(".!?,")
 
 
 def _extract_gaze(raw: Any) -> tuple[float, float] | None:
@@ -133,4 +138,17 @@ def _extract_gaze(raw: Any) -> tuple[float, float] | None:
             return (float(node[0]), float(node[1]))
     if isinstance(raw, (list, tuple)) and len(raw) >= 2:
         return (float(raw[0]), float(raw[1]))
+    return None
+
+
+def _extract_answer(raw: Any) -> str | None:
+    if raw is None:
+        return None
+    if isinstance(raw, str):
+        return raw
+    if isinstance(raw, dict):
+        for key in ("answer", "response", "text"):
+            value = raw.get(key)
+            if isinstance(value, str):
+                return value
     return None

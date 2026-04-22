@@ -85,11 +85,20 @@ def build_router(store: ProfileStore, engine: GazeEngine) -> APIRouter:
     async def detect_multipart(
         image: UploadFile = File(...),
         remember: bool = True,
+        describe: bool = False,
     ) -> DetectResponse:
         data = await image.read()
         if not data:
             raise HTTPException(400, "empty image")
-        return engine.analyze(data, remember=remember)
+        return engine.analyze(data, remember=remember, describe=describe)
+
+    @router.get("/events")
+    def list_events(limit: int = 200, since_id: int | None = None) -> list[dict]:
+        return store.list_events(limit=limit, since_id=since_id)
+
+    @router.delete("/events")
+    def clear_events() -> dict[str, int]:
+        return {"deleted": store.clear_events()}
 
     @router.post("/detect/base64", response_model=DetectResponse)
     def detect_base64(body: DetectBase64In) -> DetectResponse:
@@ -102,6 +111,6 @@ def build_router(store: ProfileStore, engine: GazeEngine) -> APIRouter:
             raise HTTPException(400, f"invalid base64: {e}") from e
         if not data:
             raise HTTPException(400, "empty image")
-        return engine.analyze(data, remember=body.remember)
+        return engine.analyze(data, remember=body.remember, describe=body.describe)
 
     return router

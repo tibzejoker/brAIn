@@ -62,6 +62,21 @@ class ProfileStore:
                 FOREIGN KEY (profile_id) REFERENCES profiles(id) ON DELETE CASCADE
             );
             CREATE INDEX IF NOT EXISTS idx_faceprints_profile ON faceprints(profile_id);
+
+            CREATE TABLE IF NOT EXISTS gaze_events (
+                id                 INTEGER PRIMARY KEY AUTOINCREMENT,
+                ts                 TEXT NOT NULL,
+                source_profile_id  TEXT,
+                target_type        TEXT NOT NULL,  -- 'profile' | 'camera' | 'scene'
+                target_profile_id  TEXT,
+                description        TEXT,
+                gaze_x             REAL,
+                gaze_y             REAL,
+                FOREIGN KEY (source_profile_id) REFERENCES profiles(id) ON DELETE SET NULL,
+                FOREIGN KEY (target_profile_id) REFERENCES profiles(id) ON DELETE SET NULL
+            );
+            CREATE INDEX IF NOT EXISTS idx_events_ts ON gaze_events(ts);
+            CREATE INDEX IF NOT EXISTS idx_events_source ON gaze_events(source_profile_id);
             """
         )
         self._conn.commit()
@@ -157,6 +172,15 @@ class ProfileStore:
             "UPDATE faceprints SET profile_id = ?, updated_at = ? WHERE profile_id = ?",
             (target_id, _now(), source_id),
         )
+        # Re-parent historical events so they survive the merge.
+        self._conn.execute(
+            "UPDATE gaze_events SET source_profile_id = ? WHERE source_profile_id = ?",
+            (target_id, source_id),
+        )
+        self._conn.execute(
+            "UPDATE gaze_events SET target_profile_id = ? WHERE target_profile_id = ?",
+            (target_id, source_id),
+        )
         self._conn.execute(
             "UPDATE profiles SET sample_count = sample_count + ?, updated_at = ? WHERE id = ?",
             (source["sample_count"], _now(), target_id),
@@ -245,6 +269,62 @@ class ProfileStore:
         cur = self._conn.execute("DELETE FROM faceprints WHERE id = ?", (faceprint_id,))
         self._conn.commit()
         return cur.rowcount > 0
+
+    # ---------------------- events ---------------------- #
+
+    def record_event(
+        self,
+        source_profile_id: str | None,
+        target_type: str,
+        target_profile_id: str | None = None,
+        description: str | None = None,
+        gaze_xy: tuple[float, float] | None = None,
+    ) -> dict[str, Any]:
+        now = _now()
+        cur = self._conn.execute(
+            "INSERT INTO gaze_events "
+            "(ts, source_profile_id, target_type, target_profile_id, description, gaze_x, gaze_y)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (
+                now, source_profile_id, target_type, target_profile_id, description,
+                gaze_xy[0] if gaze_xy else None,
+                gaze_xy[1] if gaze_xy else None,
+            ),
+        )
+        self._conn.commit()
+        event_id = cur.lastrowid
+        return {
+            "id": event_id,
+            "ts": now,
+            "source_profile_id": source_profile_id,
+            "target_type": target_type,
+            "target_profile_id": target_profile_id,
+            "description": description,
+            "gaze_x": gaze_xy[0] if gaze_xy else None,
+            "gaze_y": gaze_xy[1] if gaze_xy else None,
+        }
+
+    def list_events(self, limit: int = 200, since_id: int | None = None) -> list[dict[str, Any]]:
+        if since_id is None:
+            rows = self._conn.execute(
+                "SELECT id, ts, source_profile_id, target_type, target_profile_id,"
+                " description, gaze_x, gaze_y FROM gaze_events"
+                " ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            return [dict(r) for r in reversed(rows)]
+        rows = self._conn.execute(
+            "SELECT id, ts, source_profile_id, target_type, target_profile_id,"
+            " description, gaze_x, gaze_y FROM gaze_events"
+            " WHERE id > ? ORDER BY id ASC LIMIT ?",
+            (since_id, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+    def clear_events(self) -> int:
+        cur = self._conn.execute("DELETE FROM gaze_events")
+        self._conn.commit()
+        return cur.rowcount
 
     def close(self) -> None:
         self._conn.close()
