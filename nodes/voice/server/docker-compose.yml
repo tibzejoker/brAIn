@@ -1,0 +1,52 @@
+services:
+  voice-cpu:
+    profiles: ["cpu"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: base
+    container_name: voice-server-cpu
+    ports:
+      - "${VOICE_PORT:-8765}:8765"
+    environment:
+      VOICE_ENGINE: ${VOICE_ENGINE:-stub}
+      VOICE_STT_MODEL: ${VOICE_STT_MODEL:-tiny}
+      VOICE_STT_BACKEND: ${VOICE_STT_BACKEND:-faster-whisper}
+      VOICE_LANGUAGE: ${VOICE_LANGUAGE:-fr}
+      VOICE_DB_PATH: /app/data/voice.db
+      VOICE_MODELS_DIR: /app/models
+      HF_HOME: /app/models/hf
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+    restart: unless-stopped
+
+  voice-cuda:
+    profiles: ["cuda"]
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: cuda
+    container_name: voice-server-cuda
+    ports:
+      - "${VOICE_PORT:-8765}:8765"
+    environment:
+      VOICE_ENGINE: ${VOICE_ENGINE:-real}
+      VOICE_STT_MODEL: ${VOICE_STT_MODEL:-large-v3}
+      VOICE_STT_BACKEND: ${VOICE_STT_BACKEND:-faster-whisper}
+      VOICE_LANGUAGE: ${VOICE_LANGUAGE:-fr}
+      VOICE_DB_PATH: /app/data/voice.db
+      VOICE_MODELS_DIR: /app/models
+      HF_HOME: /app/models/hf
+      NVIDIA_VISIBLE_DEVICES: all
+    volumes:
+      - ./data:/app/data
+      - ./models:/app/models
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped

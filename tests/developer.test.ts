@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { BrainService, LLMRegistry } from "@brain/core";
+import { BrainService, CLIRegistry } from "@brain/core";
 import type { Message } from "@brain/sdk";
 import * as path from "path";
 import * as fs from "fs";
@@ -13,8 +13,7 @@ describe("Developer node: creates a new node type", () => {
     const nodesDir = path.resolve(__dirname, "../nodes");
     brain.bootstrap(nodesDir);
 
-    LLMRegistry.resetInstance();
-    await LLMRegistry.getInstance().initialize();
+    await CLIRegistry.getInstance().initialize();
   }, 60000);
 
   afterAll(() => {
@@ -27,7 +26,7 @@ describe("Developer node: creates a new node type", () => {
   });
 
   it("receives a request and creates a compilable node type", async () => {
-    if (!LLMRegistry.getInstance().isAvailable("ollama")) {
+    if (!CLIRegistry.getInstance().isAvailable("claude")) {
       return;
     }
 
@@ -41,11 +40,15 @@ describe("Developer node: creates a new node type", () => {
     const devNode = await brain.spawnNode({
       type: "developer",
       name: "test-developer",
-      subscriptions: [{ topic: "test.dev.request" }],
+      subscriptions: [
+        { topic: "test.dev.request" },
+        { topic: "types.validation_failed" },
+        { topic: "types.registered" },
+      ],
       config_overrides: {
-        model: "ollama/gemma4:e4b",
+        cli: "claude",
         response_topic: "test.dev.result",
-        max_steps: 12,
+        max_attempts: 2,
       },
     });
 
@@ -85,27 +88,25 @@ describe("Developer node: creates a new node type", () => {
       // Success — verify the created type
       const payload = JSON.parse((response.payload as { content: string }).content) as {
         status: string;
-        type_name: string;
-        type_path: string;
+        type_name?: string;
+        path?: string;
       };
 
-      expect(payload.status).toBe("success");
+      if (payload.status !== "success") {
+        expect(payload.status).toBe("success"); // surface the real status on failure
+      }
       expect(payload.type_name).toBeDefined();
-      expect(payload.type_path).toBeDefined();
+      expect(payload.path).toBeDefined();
 
-      createdWorkspace = payload.type_path;
+      createdWorkspace = payload.path;
 
-      // Verify files exist
-      expect(fs.existsSync(path.join(payload.type_path, "config.json"))).toBe(true);
-      expect(fs.existsSync(path.join(payload.type_path, "dist", "handler.js"))).toBe(true);
-      expect(fs.existsSync(path.join(payload.type_path, "package.json"))).toBe(true);
-
-      // Verify the config is valid JSON
-      const config = JSON.parse(
-        fs.readFileSync(path.join(payload.type_path, "config.json"), "utf-8"),
-      ) as { name: string; description: string };
-      expect(config.name).toBeDefined();
-      expect(config.description).toBeDefined();
+      // Verify files exist (framework only emits success once build+tests passed)
+      if (payload.path) {
+        expect(fs.existsSync(path.join(payload.path, "config.json"))).toBe(true);
+        expect(fs.existsSync(path.join(payload.path, "dist", "handler.js"))).toBe(true);
+        expect(fs.existsSync(path.join(payload.path, "tests"))).toBe(true);
+        expect(fs.existsSync(path.join(payload.path, ".brain-state.json"))).toBe(true);
+      }
     }
 
     brain.killNode(devNode.id);

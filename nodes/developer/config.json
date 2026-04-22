@@ -1,10 +1,14 @@
 {
   "name": "developer",
-  "description": "Meta-node that creates new node types at runtime. Receives requests describing what node to build, writes the code, validates it compiles, and registers it as a new type available for spawning.",
+  "description": "Meta-node that authors new node packages at runtime. Writes code + tests in nodes/_dynamic/<slug>/, builds them, and iterates on framework feedback (types.validation_failed). The framework — not this node — handles validation and registration.",
   "tags": ["meta", "developer", "code-generation"],
   "default_authority": 2,
   "default_priority": 8,
-  "default_subscriptions": [],
+  "default_subscriptions": [
+    { "topic": "types.validation_failed" },
+    { "topic": "types.registered" },
+    { "topic": "types.updated" }
+  ],
   "default_publishes": ["dev.result"],
   "supports_transport": ["process"]
 }

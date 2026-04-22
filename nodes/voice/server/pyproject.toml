@@ -1,0 +1,13 @@
+[project]
+name = "voice-server"
+version = "0.1.0"
+description = "Real-time STT + speaker diarization with persistent identity"
+requires-python = ">=3.11"
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+ignore = ["E501"]

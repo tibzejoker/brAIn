@@ -25,6 +25,7 @@ const brainServiceProvider = {
 
     const nodesDir = resolveFromRoot(process.env.BRAIN_NODES_DIR, "nodes");
     brain.bootstrap(nodesDir);
+    brain.startDynamicScanner({ dynamicDir: path.join(nodesDir, "_dynamic") });
 
     const seedsDir = resolveFromRoot(process.env.BRAIN_SEEDS_DIR, "seeds");
     brain.setSeedsDir(seedsDir);

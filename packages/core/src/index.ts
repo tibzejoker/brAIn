@@ -1,6 +1,14 @@
 export { BrainService } from "./brain.service";
 export { BusService, Mailbox, matchTopic } from "./bus";
-export { TypeRegistry, InstanceRegistry } from "./registry";
+export {
+  TypeRegistry, InstanceRegistry,
+  TypeValidatorService, DynamicTypeScanner,
+  computeWorkspaceHashes, hashDir, readState,
+} from "./registry";
+export type {
+  ValidationResult, ValidationPhase, BrainState, ValidatorOptions,
+  DynamicScannerOptions, WorkspaceHashes,
+} from "./registry";
 export { AuthorityService } from "./authority";
 export { NodeRunner, SleepService, IdleThrottle } from "./runner";
 export type { LogEntry } from "./runner";
