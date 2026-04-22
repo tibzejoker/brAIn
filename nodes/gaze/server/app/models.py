@@ -46,6 +46,8 @@ class DetectedFace(BaseModel):
     bbox: Bbox
     eye_center: GazePoint | None = None
     gaze: GazePoint | None = None
+    inout_score: float | None = None  # Gazelle: in-frame probability
+    gaze_peak: float | None = None    # Gazelle: heatmap peak confidence
     looking_at: str | None = None
     looking_at_camera: bool = False
     looking_at_description: str | None = None

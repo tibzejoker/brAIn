@@ -60,7 +60,10 @@ export class Overlay {
       const label = face.name ?? `Face ${face.face_index}`;
       const conf = face.match_confidence > 0 ? ` ${(face.match_confidence * 100).toFixed(0)}%` : "";
       const eye = face.looking_at_camera ? " 👁" : "";
-      const text = `${label}${conf}${face.provisional ? " ?" : ""}${eye}`;
+      const io = face.inout_score !== null
+        ? ` io=${face.inout_score.toFixed(2)}`
+        : "";
+      const text = `${label}${conf}${face.provisional ? " ?" : ""}${eye}${io}`;
       ctx.font = "12px ui-sans-serif, system-ui, sans-serif";
       const metrics = ctx.measureText(text);
       const padX = 4;
