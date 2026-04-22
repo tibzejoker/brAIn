@@ -1,13 +1,10 @@
 """Persistent speaker identity layer.
 
-Sortformer assigns ephemeral spk_0..3 labels per chunk. We turn those into
-stable speaker IDs by:
-  1. Computing a WeSpeaker embedding for each "long enough" segment.
-  2. Cosine-matching it against stored profile centroids.
-  3. Either updating the matched centroid (EMA) or creating a new profile.
+Each profile owns 1+ voiceprints (centroids). Matching scans every voiceprint
+across every profile and the best one wins — its parent profile is the result.
 
-This module is intentionally engine-agnostic: feed it (audio_pcm, sr) +
-metadata, it returns a resolved speaker_id.
+This lets a single profile cover several distinct vocal modes (normal voice,
+shouting, whispered) without averaging them into a useless mean centroid.
 """
 from __future__ import annotations
 
@@ -49,10 +46,7 @@ class IdentityResolver:
         sample_rate: int,
         diar_label: str,
     ) -> IdentityResult | None:
-        if self._embedder is None:
-            return self._resolve_by_label(diar_label)
-
-        if segment_pcm is None:
+        if self._embedder is None or segment_pcm is None:
             return self._resolve_by_label(diar_label)
 
         duration_ms = (len(segment_pcm) / sample_rate) * 1000
@@ -61,38 +55,46 @@ class IdentityResolver:
 
         embedding = self._embedder.embed(segment_pcm, sample_rate)
         embedding = _l2_normalize(embedding)
-        emb_norm = float(np.linalg.norm(embedding))
 
-        candidates = self._store.all_centroids()
-        if not candidates:
+        voiceprints = self._store.all_voiceprints()
+        if not voiceprints:
             profile = self._store.create(centroid=embedding)
-            log.info("identity: first profile created %s (norm=%.3f)", profile["id"], emb_norm)
+            log.info("identity: first profile created %s", profile["id"])
             return IdentityResult(profile["id"], profile["name"], 1.0, True, False)
 
-        sims: list[tuple[str, float]] = []
-        for pid, centroid in candidates:
+        # Best voiceprint across all profiles wins.
+        best_vp_id, best_pid, best_sim = "", "", -1.0
+        # For logging: best per profile.
+        per_profile_best: dict[str, float] = {}
+        for vp_id, pid, centroid in voiceprints:
             sim = float(np.dot(embedding, centroid))
-            sims.append((pid, sim))
-        sims.sort(key=lambda x: x[1], reverse=True)
-        best_id, best_sim = sims[0]
-        sims_str = ", ".join(f"{pid[:12]}={sim:+.3f}" for pid, sim in sims[:5])
+            if sim > per_profile_best.get(pid, -1.0):
+                per_profile_best[pid] = sim
+            if sim > best_sim:
+                best_vp_id, best_pid, best_sim = vp_id, pid, sim
+
+        sims_str = ", ".join(
+            f"{pid[:12]}={sim:+.3f}"
+            for pid, sim in sorted(per_profile_best.items(), key=lambda x: -x[1])[:5]
+        )
         log.info(
-            "identity: emb_norm=%.3f thresholds(match=%.2f uncertain=%.2f) sims=[%s]",
-            emb_norm, settings.match_threshold, settings.uncertain_threshold, sims_str,
+            "identity: thresholds(match=%.2f uncertain=%.2f) per-profile=[%s]",
+            settings.match_threshold, settings.uncertain_threshold, sims_str,
         )
 
         if best_sim >= settings.match_threshold:
-            updated = _ema_update(
-                self._store.get_centroid(best_id), embedding, settings.ema_decay
-            )
-            self._store.update_centroid(best_id, updated)
-            profile = self._store.get(best_id)
+            prev = self._store.voiceprints_for(best_pid)
+            prev_centroid = next((c for vid, c in prev if vid == best_vp_id), None)
+            updated = _ema_update(prev_centroid, embedding, settings.ema_decay)
+            self._store.update_voiceprint(best_vp_id, updated)
+            profile = self._store.get(best_pid)
             assert profile is not None
-            log.info("identity: MATCH → %s (%s) sim=%.3f", profile["id"], profile["name"], best_sim)
+            log.info("identity: MATCH → %s (%s) sim=%.3f vp=%s",
+                     profile["id"], profile["name"], best_sim, best_vp_id)
             return IdentityResult(profile["id"], profile["name"], best_sim, False, False)
 
         if best_sim >= settings.uncertain_threshold:
-            profile = self._store.get(best_id)
+            profile = self._store.get(best_pid)
             assert profile is not None
             log.info("identity: UNCERTAIN → %s (%s) sim=%.3f", profile["id"], profile["name"], best_sim)
             return IdentityResult(profile["id"], profile["name"], best_sim, False, True)
@@ -103,29 +105,19 @@ class IdentityResolver:
         return IdentityResult(profile["id"], profile["name"], 1.0, True, False)
 
     def _resolve_by_label(self, diar_label: str) -> IdentityResult:
-        """Used when no embedder is available: map ephemeral diar labels to
-        stable profile IDs for the lifetime of the resolver. Good enough for
-        UI validation until Phase 3 plugs in a real embedder."""
         existing_id = self._label_to_profile.get(diar_label)
         if existing_id is not None:
             profile = self._store.get(existing_id)
             if profile is not None:
                 return IdentityResult(
-                    speaker_id=profile["id"],
-                    name=profile["name"],
-                    confidence=1.0,
-                    is_new=False,
-                    provisional=True,
+                    speaker_id=profile["id"], name=profile["name"],
+                    confidence=1.0, is_new=False, provisional=True,
                 )
-
         profile = self._store.create()
         self._label_to_profile[diar_label] = profile["id"]
         return IdentityResult(
-            speaker_id=profile["id"],
-            name=profile["name"],
-            confidence=1.0,
-            is_new=True,
-            provisional=True,
+            speaker_id=profile["id"], name=profile["name"],
+            confidence=1.0, is_new=True, provisional=True,
         )
 
 
@@ -142,7 +134,5 @@ def _ema_update(prev: np.ndarray | None, new: np.ndarray, decay: float) -> np.nd
 
 
 class Embedder:
-    """Interface — concrete impl will load WeSpeaker ONNX in Phase 3."""
-
     def embed(self, pcm: np.ndarray, sample_rate: int) -> np.ndarray:  # noqa: ARG002
         raise NotImplementedError("Embedder not implemented yet (Phase 3)")

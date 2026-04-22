@@ -7,18 +7,70 @@ export async function listProfiles(): Promise<Profile[]> {
 }
 
 export async function renameProfile(id: string, name: string): Promise<Profile> {
+  return patchProfile(id, { name });
+}
+
+export async function recolorProfile(id: string, color: string): Promise<Profile> {
+  return patchProfile(id, { color });
+}
+
+export async function patchProfile(
+  id: string,
+  body: Partial<Pick<Profile, "name" | "color">>,
+): Promise<Profile> {
   const res = await fetch(`/api/profiles/${id}`, {
     method: "PATCH",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ name }),
+    body: JSON.stringify(body),
   });
-  if (!res.ok) throw new Error(`renameProfile: ${res.status}`);
+  if (!res.ok) throw new Error(`patchProfile: ${res.status}`);
   return res.json();
 }
 
 export async function deleteAllProfiles(): Promise<{ deleted: number }> {
   const res = await fetch("/api/profiles", { method: "DELETE" });
   if (!res.ok) throw new Error(`deleteAllProfiles: ${res.status}`);
+  return res.json();
+}
+
+export async function deleteProfile(id: string): Promise<{ deleted: boolean }> {
+  const res = await fetch(`/api/profiles/${id}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`deleteProfile: ${res.status}`);
+  return res.json();
+}
+
+export async function mergeProfiles(sourceId: string, targetId: string): Promise<Profile> {
+  const res = await fetch("/api/profiles/merge", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ source_id: sourceId, target_id: targetId }),
+  });
+  if (!res.ok) throw new Error(`mergeProfiles: ${res.status}`);
+  return res.json();
+}
+
+export type Voiceprint = {
+  id: string;
+  sample_count: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export async function listVoiceprints(profileId: string): Promise<Voiceprint[]> {
+  const res = await fetch(`/api/profiles/${profileId}/voiceprints`);
+  if (!res.ok) throw new Error(`listVoiceprints: ${res.status}`);
+  return res.json();
+}
+
+export async function extractVoiceprint(voiceprintId: string): Promise<Profile> {
+  const res = await fetch(`/api/voiceprints/${voiceprintId}/extract`, { method: "POST" });
+  if (!res.ok) throw new Error(`extractVoiceprint: ${res.status}`);
+  return res.json();
+}
+
+export async function deleteVoiceprint(voiceprintId: string): Promise<{ deleted: boolean }> {
+  const res = await fetch(`/api/voiceprints/${voiceprintId}`, { method: "DELETE" });
+  if (!res.ok) throw new Error(`deleteVoiceprint: ${res.status}`);
   return res.json();
 }
 

@@ -1,16 +1,24 @@
-import { controlEngine, deleteAllProfiles, getTuning, patchTuning } from "./api";
+import {
+  controlEngine,
+  deleteAllProfiles,
+  getTuning,
+  patchTuning,
+} from "./api";
 import { startMic, type MicHandle } from "./audio";
+import { clearSession, loadSession, saveSession, type StoredSession } from "./persist";
 import { SpeakersPanel } from "./speakers";
 import { Timeline } from "./timeline";
 import { Transcript } from "./transcript";
-import type { VoiceEvent } from "./types";
+import type { SegmentEvent, VoiceEvent } from "./types";
 
 const SESSION_ID = "default";
 
 const $btn = document.getElementById("mic-toggle") as HTMLButtonElement;
 const $status = document.getElementById("status") as HTMLSpanElement;
 const $speakers = document.getElementById("speakers-list") as HTMLUListElement;
-const $canvas = document.getElementById("timeline-canvas") as HTMLCanvasElement;
+const $tlContainer = document.getElementById("timeline-container") as HTMLDivElement;
+const $tlFit = document.getElementById("timeline-fit") as HTMLButtonElement;
+const $tlClear = document.getElementById("timeline-clear") as HTMLButtonElement;
 const $transcript = document.getElementById("transcript-list") as HTMLOListElement;
 
 const $meterFill = document.getElementById("meter-rms") as HTMLDivElement;
@@ -28,14 +36,34 @@ const $knobMinSeg = document.getElementById("knob-minseg") as HTMLInputElement;
 const $knobMinSegVal = document.getElementById("knob-minseg-val") as HTMLOutputElement;
 const $resetBtn = document.getElementById("reset-profiles") as HTMLButtonElement;
 
+const stored: StoredSession = loadSession(SESSION_ID) ?? {
+  segments: [],
+  startedAt: Date.now(),
+};
+
 const speakers = new SpeakersPanel($speakers);
-const timeline = new Timeline($canvas);
+const timeline = new Timeline($tlContainer, stored.startedAt);
+timeline.setColorResolver((id) => speakers.getColor(id));
 const transcript = new Transcript($transcript);
+
+speakers.setColorChangeHandler((id, color) => {
+  // Re-style every existing item that belongs to this speaker.
+  const profile = { id, name: "", color };
+  void profile;
+  // Rebuild groups + items for that speaker.
+  const segments = stored.segments.filter((s) => s.speaker_id === id);
+  timeline.removeGroup(id);
+  for (const seg of segments) timeline.add(seg);
+});
 
 let mic: MicHandle | null = null;
 let audioWs: WebSocket | null = null;
 let eventsWs: WebSocket | null = null;
 let peakRms = 0;
+
+function persist(): void {
+  saveSession(SESSION_ID, stored);
+}
 
 function setStatus(state: "idle" | "listening" | "error", message?: string): void {
   $status.dataset.state = state;
@@ -57,6 +85,11 @@ function connectEvents(): WebSocket {
   return ws;
 }
 
+function recordSegment(event: SegmentEvent): void {
+  stored.segments.push(event);
+  persist();
+}
+
 function handleEvent(event: VoiceEvent): void {
   switch (event.type) {
     case "speaker_new":
@@ -65,13 +98,15 @@ function handleEvent(event: VoiceEvent): void {
       break;
     case "speaker_renamed":
       speakers.upsert({ id: event.speaker_id, name: event.name });
+      timeline.renameGroup(event.speaker_id, event.name);
       break;
     case "segment": {
       speakers.upsert({ id: event.speaker_id, name: event.name });
       const color = speakers.getColor(event.speaker_id);
-      timeline.add(event, color);
+      timeline.add(event);
       transcript.add(event, color);
       speakers.bumpSampleCount(event.speaker_id);
+      recordSegment(event);
       break;
     }
     case "status":
@@ -81,7 +116,6 @@ function handleEvent(event: VoiceEvent): void {
 }
 
 function updateMeter(rms: number, peak: number): void {
-  // Display range: 0–6000 (Int16 RMS). Above ~3000 = strong speech.
   const norm = Math.min(1, rms / 6000);
   $meterFill.style.width = `${(norm * 100).toFixed(1)}%`;
   $meterValue.textContent = `${Math.round(rms)}`;
@@ -132,9 +166,7 @@ $btn.addEventListener("click", () => {
   else void start();
 });
 
-$meterReset.addEventListener("click", () => {
-  peakRms = 0;
-});
+$meterReset.addEventListener("click", () => { peakRms = 0; });
 
 $knobGain.addEventListener("input", () => {
   const v = parseFloat($knobGain.value);
@@ -147,9 +179,7 @@ $knobVad.addEventListener("input", () => {
   const v = parseFloat($knobVad.value);
   $knobVadVal.value = v.toFixed(2);
   if (vadDebounce) window.clearTimeout(vadDebounce);
-  vadDebounce = window.setTimeout(() => {
-    void patchTuning({ vad_speech_threshold: v });
-  }, 150);
+  vadDebounce = window.setTimeout(() => { void patchTuning({ vad_speech_threshold: v }); }, 150);
 });
 
 let matchDebounce: number | undefined;
@@ -157,9 +187,7 @@ $knobMatch.addEventListener("input", () => {
   const v = parseFloat($knobMatch.value);
   $knobMatchVal.value = v.toFixed(2);
   if (matchDebounce) window.clearTimeout(matchDebounce);
-  matchDebounce = window.setTimeout(() => {
-    void patchTuning({ match_threshold: v });
-  }, 150);
+  matchDebounce = window.setTimeout(() => { void patchTuning({ match_threshold: v }); }, 150);
 });
 
 let uncertainDebounce: number | undefined;
@@ -167,9 +195,7 @@ $knobUncertain.addEventListener("input", () => {
   const v = parseFloat($knobUncertain.value);
   $knobUncertainVal.value = v.toFixed(2);
   if (uncertainDebounce) window.clearTimeout(uncertainDebounce);
-  uncertainDebounce = window.setTimeout(() => {
-    void patchTuning({ uncertain_threshold: v });
-  }, 150);
+  uncertainDebounce = window.setTimeout(() => { void patchTuning({ uncertain_threshold: v }); }, 150);
 });
 
 let minsegDebounce: number | undefined;
@@ -177,21 +203,46 @@ $knobMinSeg.addEventListener("input", () => {
   const v = parseInt($knobMinSeg.value, 10);
   $knobMinSegVal.value = String(v);
   if (minsegDebounce) window.clearTimeout(minsegDebounce);
-  minsegDebounce = window.setTimeout(() => {
-    void patchTuning({ min_segment_ms: v });
-  }, 150);
+  minsegDebounce = window.setTimeout(() => { void patchTuning({ min_segment_ms: v }); }, 150);
 });
 
 $resetBtn.addEventListener("click", async () => {
-  if (!confirm("Delete ALL speaker profiles? This cannot be undone.")) return;
+  if (!confirm("Delete ALL speaker profiles AND clear timeline? This cannot be undone.")) return;
   await deleteAllProfiles();
-  await speakers.refresh();
+  clearSession(SESSION_ID);
+  stored.segments = [];
+  stored.startedAt = Date.now();
   timeline.reset();
+  $transcript.innerHTML = "";
+  await speakers.refresh();
 });
+
+$tlClear.addEventListener("click", () => {
+  if (!confirm("Clear timeline + transcript? Speaker profiles stay.")) return;
+  clearSession(SESSION_ID);
+  stored.segments = [];
+  stored.startedAt = Date.now();
+  timeline.reset();
+  $transcript.innerHTML = "";
+});
+
+$tlFit.addEventListener("click", () => timeline.fit());
 
 async function bootstrap(): Promise<void> {
   await speakers.refresh();
   setStatus("idle");
+
+  // Restore persisted segments into the new timeline + transcript.
+  for (const ev of stored.segments) {
+    speakers.upsert({ id: ev.speaker_id, name: ev.name });
+  }
+  for (const ev of stored.segments) {
+    const color = speakers.getColor(ev.speaker_id);
+    timeline.add(ev);
+    transcript.add(ev, color);
+  }
+  if (stored.segments.length > 0) timeline.fit();
+
   try {
     const t = await getTuning();
     if (typeof t.vad_speech_threshold === "number") {
