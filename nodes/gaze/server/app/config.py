@@ -26,6 +26,14 @@ class Settings(BaseSettings):
     # Moondream's accurate path runs 20 samples per face — ~10-20x slower but
     # more stable. Off by default (fine for 1-2 FPS realtime).
     gaze_accurate: bool = False
+    # With force_detect=True, Moondream always emits a coordinate even when its
+    # model would otherwise say "no visible target" (EOS). Useful as a rough
+    # visual indicator; prefer False when you need honest "don't know" signal.
+    gaze_force_detect: bool = True
+    # If the gaze point falls within this normalized distance of the eye
+    # midpoint, the person is considered to be looking at the camera
+    # (self-referential gaze). 0.08 ≈ 8% of image width.
+    looking_at_camera_threshold: float = 0.08
 
     # ArcFace cosine-similarity thresholds. 0.42 is the classic safe default on
     # L2-normalized embeddings; raise for stricter matching (more new profiles).

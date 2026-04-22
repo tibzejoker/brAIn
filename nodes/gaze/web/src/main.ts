@@ -5,6 +5,7 @@ import {
   patchTuning,
 } from "./api";
 import { FacesPanel } from "./faces";
+import { HistoryPanel } from "./history";
 import { Overlay } from "./overlay";
 import type { DetectResponse, Tuning } from "./types";
 import { startWebcam, type WebcamHandle } from "./webcam";
@@ -12,6 +13,7 @@ import { startWebcam, type WebcamHandle } from "./webcam";
 const $btn = document.getElementById("cam-toggle") as HTMLButtonElement;
 const $upload = document.getElementById("image-upload") as HTMLInputElement;
 const $remember = document.getElementById("remember") as HTMLInputElement;
+const $describe = document.getElementById("describe") as HTMLInputElement;
 const $status = document.getElementById("status") as HTMLSpanElement;
 const $video = document.getElementById("video") as HTMLVideoElement;
 const $still = document.getElementById("still") as HTMLImageElement;
@@ -30,9 +32,15 @@ const $knobEma = document.getElementById("knob-ema") as HTMLInputElement;
 const $knobEmaVal = document.getElementById("knob-ema-val") as HTMLOutputElement;
 const $knobMargin = document.getElementById("knob-margin") as HTMLInputElement;
 const $knobMarginVal = document.getElementById("knob-margin-val") as HTMLOutputElement;
+const $knobCamGaze = document.getElementById("knob-camgaze") as HTMLInputElement;
+const $knobCamGazeVal = document.getElementById("knob-camgaze-val") as HTMLOutputElement;
 const $resetBtn = document.getElementById("reset-profiles") as HTMLButtonElement;
+const $historyList = document.getElementById("history-list") as HTMLOListElement;
+const $historyClear = document.getElementById("history-clear") as HTMLButtonElement;
 
 const facesPanel = new FacesPanel($facesList);
+const historyPanel = new HistoryPanel($historyList, $historyClear, facesPanel);
+facesPanel.onProfilesChanged(() => historyPanel.refresh());
 const overlay = new Overlay($overlay);
 
 let webcam: WebcamHandle | null = null;
@@ -77,14 +85,20 @@ function renderResult(result: DetectResponse): void {
   const heightCss = parseFloat($overlay.style.height || "0") || $overlay.clientHeight;
   overlay.draw(result, widthCss, heightCss);
   facesPanel.upsertLive(result.faces);
-  const { detect, match, gaze } = result.elapsed_ms;
-  $perf.textContent = `${result.faces.length} face(s) · detect ${detect}ms · match ${match}ms · gaze ${gaze}ms`;
+  const { detect, match, encode, gaze, describe } = result.elapsed_ms;
+  const cam = result.faces.filter((f) => f.looking_at_camera).length;
+  $perf.textContent =
+    `${result.faces.length} face(s) · ${cam} @cam · ` +
+    `detect ${detect}ms · encode ${encode}ms · gaze ${gaze}ms` +
+    (describe ? ` · desc ${describe}ms` : "") +
+    ` · match ${match}ms`;
 }
 
 async function detectOnce(dataUrl: string): Promise<void> {
   try {
-    const result = await detectBase64(dataUrl, $remember.checked);
+    const result = await detectBase64(dataUrl, $remember.checked, $describe.checked);
     renderResult(result);
+    void historyPanel.poll();
   } catch (e) {
     setStatus("error", String(e));
   }
@@ -198,10 +212,22 @@ $knobMargin.addEventListener("input", () => {
   marginDebounce = window.setTimeout(() => { void patchTuning({ looking_at_margin: v }); }, 150);
 });
 
+let camGazeDebounce: number | undefined;
+$knobCamGaze.addEventListener("input", () => {
+  const v = parseFloat($knobCamGaze.value);
+  $knobCamGazeVal.value = v.toFixed(2);
+  if (camGazeDebounce) window.clearTimeout(camGazeDebounce);
+  camGazeDebounce = window.setTimeout(
+    () => { void patchTuning({ looking_at_camera_threshold: v }); },
+    150,
+  );
+});
+
 $resetBtn.addEventListener("click", async () => {
   if (!confirm("Delete ALL face profiles? This cannot be undone.")) return;
   await deleteAllProfiles();
   await facesPanel.refresh();
+  historyPanel.refresh();
 });
 
 window.addEventListener("resize", () => {
@@ -225,6 +251,10 @@ function applyTuning(t: Partial<Tuning>): void {
     $knobMargin.value = String(t.looking_at_margin);
     $knobMarginVal.value = t.looking_at_margin.toFixed(2);
   }
+  if (typeof t.looking_at_camera_threshold === "number") {
+    $knobCamGaze.value = String(t.looking_at_camera_threshold);
+    $knobCamGazeVal.value = t.looking_at_camera_threshold.toFixed(2);
+  }
 }
 
 async function bootstrap(): Promise<void> {
@@ -235,6 +265,7 @@ async function bootstrap(): Promise<void> {
     /* tuning endpoint may be missing briefly during server startup */
   }
   await facesPanel.refresh();
+  await historyPanel.bootstrap();
   setStatus("idle");
 }
 

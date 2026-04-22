@@ -44,8 +44,11 @@ class DetectedFace(BaseModel):
     name: str | None = None
     color: str | None = None
     bbox: Bbox
+    eye_center: GazePoint | None = None
     gaze: GazePoint | None = None
     looking_at: str | None = None
+    looking_at_camera: bool = False
+    looking_at_description: str | None = None
     match_confidence: float = 0.0
     provisional: bool = False
 
@@ -60,3 +63,15 @@ class DetectResponse(BaseModel):
 class DetectBase64In(BaseModel):
     image: str  # data URL or bare base64
     remember: bool = True  # whether to update/create profiles from this frame
+    describe: bool = False  # call Moondream.query to label each gaze target
+
+
+class GazeEvent(BaseModel):
+    id: int
+    ts: str
+    source_profile_id: str | None = None
+    target_type: str  # 'profile' | 'camera' | 'scene'
+    target_profile_id: str | None = None
+    description: str | None = None
+    gaze_x: float | None = None
+    gaze_y: float | None = None

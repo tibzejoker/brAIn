@@ -17,6 +17,9 @@ log = logging.getLogger(__name__)
 class DetectedFace:
     index: int
     bbox: tuple[int, int, int, int]  # x1, y1, x2, y2 in pixel coords
+    # 5 landmarks from SCRFD: left_eye, right_eye, nose, left_mouth, right_mouth
+    # in pixel coordinates.
+    landmarks: np.ndarray  # shape (5, 2), dtype float32
     embedding: np.ndarray  # 512d, L2-normalized
     det_score: float
 
@@ -43,9 +46,11 @@ class Recognizer:
         for i, f in enumerate(faces):
             x1, y1, x2, y2 = (int(v) for v in f.bbox)
             emb = f.normed_embedding.astype(np.float32)
+            kps = np.asarray(f.kps, dtype=np.float32)  # (5, 2) pixel coords
             result.append(DetectedFace(
                 index=i,
                 bbox=(x1, y1, x2, y2),
+                landmarks=kps,
                 embedding=emb,
                 det_score=float(f.det_score),
             ))

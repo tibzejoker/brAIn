@@ -1,4 +1,4 @@
-import type { DetectResponse, Faceprint, Profile, Tuning } from "./types";
+import type { DetectResponse, Faceprint, GazeEvent, Profile, Tuning } from "./types";
 
 export async function listProfiles(): Promise<Profile[]> {
   const res = await fetch("/api/profiles");
@@ -83,14 +83,29 @@ export async function patchTuning(updates: Partial<Tuning>): Promise<Tuning> {
   return res.json();
 }
 
+export async function listEvents(since_id?: number, limit = 200): Promise<GazeEvent[]> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (since_id !== undefined) params.set("since_id", String(since_id));
+  const res = await fetch(`/api/events?${params.toString()}`);
+  if (!res.ok) throw new Error(`listEvents: ${res.status}`);
+  return res.json();
+}
+
+export async function clearEvents(): Promise<{ deleted: number }> {
+  const res = await fetch("/api/events", { method: "DELETE" });
+  if (!res.ok) throw new Error(`clearEvents: ${res.status}`);
+  return res.json();
+}
+
 export async function detectBase64(
   dataUrl: string,
   remember: boolean,
+  describe: boolean,
 ): Promise<DetectResponse> {
   const res = await fetch("/api/detect/base64", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ image: dataUrl, remember }),
+    body: JSON.stringify({ image: dataUrl, remember, describe }),
   });
   if (!res.ok) throw new Error(`detectBase64: ${res.status}`);
   return res.json();
@@ -99,10 +114,11 @@ export async function detectBase64(
 export async function detectMultipart(
   blob: Blob,
   remember: boolean,
+  describe: boolean,
 ): Promise<DetectResponse> {
   const form = new FormData();
   form.append("image", blob, "frame.jpg");
-  const res = await fetch(`/api/detect?remember=${remember}`, {
+  const res = await fetch(`/api/detect?remember=${remember}&describe=${describe}`, {
     method: "POST",
     body: form,
   });

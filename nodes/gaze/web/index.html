@@ -17,6 +17,10 @@
           <input id="remember" type="checkbox" checked />
           <span>Remember faces</span>
         </label>
+        <label class="remember">
+          <input id="describe" type="checkbox" />
+          <span>Describe gaze</span>
+        </label>
         <span id="status" class="status">idle</span>
       </div>
     </header>
@@ -34,6 +38,13 @@
           <canvas id="overlay"></canvas>
         </div>
         <div class="perf" id="perf">—</div>
+        <div class="history">
+          <div class="history-header">
+            <h2>History</h2>
+            <button id="history-clear" type="button" class="ghost danger-text">Clear</button>
+          </div>
+          <ol id="history-list"></ol>
+        </div>
       </section>
 
       <section class="tuning">
@@ -73,6 +84,13 @@
           <output id="knob-margin-val">0.05</output>
         </label>
         <p class="hint">Inflation of target bbox (fraction of image) when resolving "A looks at B". Raise for more forgiving detection.</p>
+
+        <label class="knob">
+          <span>Camera-gaze threshold</span>
+          <input id="knob-camgaze" type="range" min="0.02" max="0.20" step="0.01" value="0.08" />
+          <output id="knob-camgaze-val">0.08</output>
+        </label>
+        <p class="hint">Max distance (fraction of image) between eye and gaze point for "looking at camera". Raise to be more permissive.</p>
 
         <button id="reset-profiles" type="button" class="danger">Reset all faces</button>
       </section>
