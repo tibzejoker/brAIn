@@ -28,6 +28,8 @@ export type DetectedFace = {
   bbox: Bbox;
   eye_center: GazePoint | null;
   gaze: GazePoint | null;
+  inout_score: number | null;
+  gaze_peak: number | null;
   looking_at: string | null;
   looking_at_camera: boolean;
   looking_at_description: string | null;

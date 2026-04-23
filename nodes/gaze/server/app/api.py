@@ -20,7 +20,8 @@ def build_router(store: ProfileStore, engine: GazeEngine) -> APIRouter:
     def health() -> dict[str, object]:
         return {
             "status": "ok",
-            "gaze_model": engine._gaze is not None,  # noqa: SLF001
+            "gazelle": engine._gazelle is not None,  # noqa: SLF001
+            "moondream": engine._moondream is not None,  # noqa: SLF001
             "profiles": len(store.list()),
         }
 

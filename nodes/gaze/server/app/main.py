@@ -12,6 +12,7 @@ from .api import build_router
 from .config import settings
 from .engine import GazeEngine
 from .gaze import GazeModel
+from .gazelle import GazelleModel
 from .profiles import ProfileStore
 from .recognizer import Recognizer
 
@@ -21,11 +22,13 @@ log = logging.getLogger("gaze")
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    disable_gaze = os.environ.get("GAZE_DISABLE_GAZE_MODEL", "0") == "1"
+    disable_describe = os.environ.get("GAZE_DISABLE_DESCRIBE", "0") == "1"
+    disable_gazelle = os.environ.get("GAZE_DISABLE_GAZELLE", "0") == "1"
     log.info(
-        "starting gaze-server (recognizer=%s moondream=%s db=%s)",
+        "starting gaze-server (recognizer=%s gazelle=%s moondream=%s db=%s)",
         settings.recognizer,
-        "off" if disable_gaze else f"{settings.moondream_repo}@{settings.moondream_revision}",
+        "off" if disable_gazelle else settings.gazelle_variant,
+        "off" if disable_describe else f"{settings.moondream_repo}@{settings.moondream_revision}",
         settings.db_path,
     )
 
@@ -36,19 +39,29 @@ async def lifespan(app: FastAPI):
         root=str(settings.models_dir),
     )
 
-    gaze_model: GazeModel | None = None
-    if not disable_gaze:
+    gazelle_model: GazelleModel | None = None
+    if not disable_gazelle:
         try:
-            gaze_model = GazeModel(
+            gazelle_model = GazelleModel(
+                variant=settings.gazelle_variant,
+                device=settings.gazelle_device,
+            )
+        except Exception as e:
+            log.exception("failed to load gazelle (%s) — gaze direction disabled", e)
+
+    moondream_model: GazeModel | None = None
+    if not disable_describe:
+        try:
+            moondream_model = GazeModel(
                 repo=settings.moondream_repo,
                 revision=settings.moondream_revision,
                 cache_dir=settings.models_dir,
                 device=settings.moondream_device,
             )
         except Exception as e:
-            log.exception("failed to load moondream (%s) — gaze detection disabled", e)
+            log.exception("failed to load moondream (%s) — describe disabled", e)
 
-    engine = GazeEngine(store, recognizer, gaze_model)
+    engine = GazeEngine(store, recognizer, gazelle_model, moondream_model)
 
     app.state.store = store
     app.state.engine = engine
