@@ -41,6 +41,11 @@ class CorrelatorConfig:
     # the last state forever. Matches the UI's OFFSCREEN_TIMEOUT_S so
     # the intent verdict and the timeline band agree visually.
     state_freshness_s: float = 2.0
+    # Gaze events lag behind the actual eye movement (detection FPS +
+    # stability frames). Shift intervals earlier by this to credit a
+    # transition to the moment the eye actually moved, not the moment
+    # the gaze engine committed.
+    state_lag_s: float = 1.0
 
 
 class IntentCorrelator:
@@ -83,13 +88,20 @@ class IntentCorrelator:
         # Turn events into (start, end, event) intervals capped by
         # `state_freshness_s` so a committed state doesn't extend forever
         # when the subject goes offscreen.
+        # Each interval is backdated by `state_lag_s` to account for the
+        # detection-plus-stability delay: a transition committed at T was
+        # physically in place by roughly T − state_lag_s.
         freshness = self._cfg.state_freshness_s
+        lag = self._cfg.state_lag_s
         intervals: list[tuple[float, float, object]] = []
         now_ts = time_mod.time()
         for i, ev in enumerate(all_events):
             next_ts = all_events[i + 1].ts if i + 1 < len(all_events) else now_ts
-            fresh_end = ev.ts + freshness
-            intervals.append((ev.ts, min(next_ts, fresh_end), ev))
+            start = ev.ts - lag
+            end = min(next_ts - lag, ev.ts + freshness)
+            if end <= start:
+                continue
+            intervals.append((start, end, ev))
 
         # Score by total overlap duration with the speech interval.
         overlap: dict[tuple[str, str | None], float] = defaultdict(float)
@@ -178,6 +190,19 @@ class IntentCorrelator:
         log.info(
             "intent #%d  %s → %s (%s conf=%.2f)  %r",
             intent_id, source_name, target_name or target_kind, target_kind, confidence, seg.text,
+        )
+        log.info(
+            "  corr  seg=[%.2f,%.2f] ref=%.2f (ts_end=%s) overlaps=%s",
+            seg_start, seg_end, ref,
+            seg.ts_end, dict(overlap),
+        )
+        log.info(
+            "  events in window: %s",
+            [
+                (round(ev.ts, 2), ev.target_kind, ev.target_gaze_profile_id or ev.target_person_id)
+                for iv_s, iv_e, ev in intervals
+                if iv_e >= seg_start and iv_s <= seg_end
+            ],
         )
         result = self._broadcast(intent)
         if asyncio.iscoroutine(result):

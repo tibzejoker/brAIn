@@ -34,7 +34,11 @@ async def lifespan(app: FastAPI):
     correlator = IntentCorrelator(
         store=store,
         timeline=timeline,
-        cfg=CorrelatorConfig(pre_s=settings.corr_pre_s, post_s=settings.corr_post_s),
+        cfg=CorrelatorConfig(
+            pre_s=settings.corr_pre_s,
+            post_s=settings.corr_post_s,
+            state_lag_s=settings.gaze_state_lag_s,
+        ),
         broadcast_cb=broadcaster.push,
     )
 

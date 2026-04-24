@@ -90,7 +90,7 @@ class Settings(BaseSettings):
     looking_at_min_distance: float = 0.10
     # Temporal smoothing: require this many consecutive frames pointing at the
     # same target (or camera) before emitting the event. 1 = no smoothing.
-    looking_at_stability_frames: int = 2
+    looking_at_stability_frames: int = 1
 
 
 settings = Settings()

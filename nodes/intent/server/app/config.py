@@ -23,6 +23,14 @@ class Settings(BaseSettings):
     corr_pre_s: float = 0.5
     corr_post_s: float = 0.3
 
+    # Gaze events lag behind the actual eye movement by the gaze engine's
+    # detection frame interval + stability check. We backdate each event's
+    # interval by this amount so a transition committed at 49.0s is
+    # attributed from roughly 48.0s onwards, matching the moment the
+    # subject actually moved their gaze. Tune up if your webcam fps is
+    # low or stability_frames is high.
+    gaze_state_lag_s: float = 1.0
+
     # Gaze poll cadence (seconds). Gaze node only records events during
     # webcam bursts so we don't need high frequency here.
     gaze_poll_interval_s: float = 0.5
