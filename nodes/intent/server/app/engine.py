@@ -1,28 +1,29 @@
 """Correlator: "who talks to whom?"
 
-Triggered by each finalized voice segment. Looks up gaze events from the
-same linked person in the correlation window around the segment, picks
-the dominant gaze target, and records an intent record.
+Each gaze event carries a state transition — the source person started
+looking at X at that timestamp, and stays on X until the next event
+(or, after `state_freshness_s` with no events, we stop trusting the
+state and consider them offscreen). When a voice segment finalises we
+compute the overlap duration of the segment with every "state interval"
+for the speaker and pick the target that covered the most time.
 
 Target resolution:
-    - If the dominant gaze event target was 'profile' and that face is
-      linked to a person → intent target = that person.
-    - If 'camera' was dominant → target_kind='camera' (speaker addresses
-      the viewer/camera directly).
-    - If 'scene' was dominant → target_kind='scene', carry the Moondream
-      description if any.
-    - Otherwise → target_kind='unknown' (we don't have a clean read on
-      where the speaker was looking during their segment).
+    - 'profile' target linked to a person → intent target = that person
+    - 'camera' → target_kind='camera'
+    - 'scene' → target_kind='scene' with Moondream description if any
+    - no state active during the segment (gaze webcam off, subject
+      offscreen, ...) → target_kind='unknown'
 
-The confidence is `count_dominant / count_total` over the gaze events in
-the window. Very conservative — one gaze event and we only emit if it
-was consistent across the segment.
+Confidence is `overlap_winner / total_overlap` — if 80% of the segment
+the subject looked at camera and 20% at a person, confidence=0.8 on
+'camera'.
 """
 from __future__ import annotations
 
 import asyncio
 import logging
-from collections import Counter
+import time as time_mod
+from collections import defaultdict
 from dataclasses import dataclass
 
 from .persons import PersonStore
@@ -35,6 +36,11 @@ log = logging.getLogger(__name__)
 class CorrelatorConfig:
     pre_s: float
     post_s: float
+    # If the latest gaze event for a speaker is older than this, we treat
+    # "no new transition" as "offscreen / unknown" rather than extending
+    # the last state forever. Matches the UI's OFFSCREEN_TIMEOUT_S so
+    # the intent verdict and the timeline band agree visually.
+    state_freshness_s: float = 2.0
 
 
 class IntentCorrelator:
@@ -56,16 +62,57 @@ class IntentCorrelator:
             log.debug("segment from unlinked voice profile %s — skipping", seg.voice_profile_id)
             return
 
-        # Use the voice engine's wall-clock `ts_end` (captured at VAD
-        # speech_end) as the reference, not our own delivery timestamp
-        # which trails by however long STT took. The correlation window
-        # widens backward by the segment duration so we cover the whole
-        # time the subject was speaking, not just the last few hundred ms.
+        # Voice engine's `ts_end` is the wall-clock when the audio ended
+        # (before STT latency). The speech interval is roughly [ts_end -
+        # duration, ts_end]; we pad with pre_s/post_s to absorb skew.
         duration = max(0.0, seg.t_end - seg.t_start)
         ref = seg.ts_end if seg.ts_end is not None else seg.ts
-        start = ref - duration - self._cfg.pre_s
-        end = ref + self._cfg.post_s
-        gaze_events = self._timeline.gaze_events_for(seg.person_id, start, end)
+        seg_start = ref - duration - self._cfg.pre_s
+        seg_end = ref + self._cfg.post_s
+
+        # Collect every gaze event for this speaker within a generous
+        # lookback — we need the latest transition that PRECEDED the
+        # speech to know the state at seg_start, even if no new event
+        # fired during the speech itself.
+        lookback_s = max(self._timeline.retention_s, 120.0)
+        all_events = sorted(
+            self._timeline.gaze_events_for(seg.person_id, ref - lookback_s, seg_end),
+            key=lambda e: e.ts,
+        )
+
+        # Turn events into (start, end, event) intervals capped by
+        # `state_freshness_s` so a committed state doesn't extend forever
+        # when the subject goes offscreen.
+        freshness = self._cfg.state_freshness_s
+        intervals: list[tuple[float, float, object]] = []
+        now_ts = time_mod.time()
+        for i, ev in enumerate(all_events):
+            next_ts = all_events[i + 1].ts if i + 1 < len(all_events) else now_ts
+            fresh_end = ev.ts + freshness
+            intervals.append((ev.ts, min(next_ts, fresh_end), ev))
+
+        # Score by total overlap duration with the speech interval.
+        overlap: dict[tuple[str, str | None], float] = defaultdict(float)
+        winning_ev: dict[tuple[str, str | None], object] = {}
+        for iv_start, iv_end, ev in intervals:
+            lo = max(iv_start, seg_start)
+            hi = min(iv_end, seg_end)
+            if hi <= lo:
+                continue
+            span = hi - lo
+            if ev.target_kind == "profile":
+                if ev.target_person_id:
+                    key: tuple[str, str | None] = ("person", ev.target_person_id)
+                else:
+                    key = ("face", ev.target_gaze_profile_id)
+            elif ev.target_kind == "camera":
+                key = ("camera", None)
+            elif ev.target_kind == "scene":
+                key = ("scene", None)
+            else:
+                continue
+            overlap[key] += span
+            winning_ev[key] = ev
 
         target_kind = "unknown"
         target_person_id = None
@@ -73,49 +120,28 @@ class IntentCorrelator:
         target_name = None
         description = None
         confidence = 0.0
+        seg_span = max(1e-6, seg_end - seg_start)
 
-        if gaze_events:
-            # Build a dominant-target vote. Each gaze event contributes a key:
-            #  person target → ('person', person_id)
-            #  camera      → ('camera', None)
-            #  scene       → ('scene', None)
-            keys: list[tuple[str, str | None]] = []
-            for e in gaze_events:
-                if e.target_kind == "profile":
-                    if e.target_person_id:
-                        keys.append(("person", e.target_person_id))
-                    else:
-                        # Unlinked face — still note the gaze target's face id so the
-                        # UI can surface it and the user can link on the fly.
-                        keys.append(("face", e.target_gaze_profile_id))
-                elif e.target_kind == "camera":
-                    keys.append(("camera", None))
-                elif e.target_kind == "scene":
-                    keys.append(("scene", None))
-            if keys:
-                (kind, ref), count = Counter(keys).most_common(1)[0]
-                confidence = count / len(keys)
-                if kind == "person":
-                    target_kind = "person"
-                    target_person_id = ref
-                    person = self._store.get(ref) if ref else None
-                    if person:
-                        target_name = person["name"]
-                        target_gaze_pid = person.get("gaze_profile_id")
-                elif kind == "face":
-                    # Unlinked face was the dominant gaze target.
-                    target_kind = "person"
-                    target_gaze_pid = ref
-                elif kind == "camera":
-                    target_kind = "camera"
-                elif kind == "scene":
-                    target_kind = "scene"
-                    # Grab the description from the most recent scene event in the
-                    # window (descriptions come from Moondream on gaze `describe=true`).
-                    for ev in reversed(gaze_events):
-                        if ev.target_kind == "scene" and ev.description:
-                            description = ev.description
-                            break
+        if overlap:
+            best_key = max(overlap, key=lambda k: overlap[k])
+            confidence = overlap[best_key] / seg_span
+            kind, ref_val = best_key
+            best_ev = winning_ev[best_key]
+            if kind == "person":
+                target_kind = "person"
+                target_person_id = ref_val
+                person = self._store.get(ref_val) if ref_val else None
+                if person:
+                    target_name = person["name"]
+                    target_gaze_pid = person.get("gaze_profile_id")
+            elif kind == "face":
+                target_kind = "person"
+                target_gaze_pid = ref_val
+            elif kind == "camera":
+                target_kind = "camera"
+            elif kind == "scene":
+                target_kind = "scene"
+                description = getattr(best_ev, "description", None)
 
         # Pull the speaker's display info from the linked person; fall back
         # to whatever the voice engine carries.

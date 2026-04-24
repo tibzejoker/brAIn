@@ -47,6 +47,7 @@ class _Tuning:
     camera_asym_threshold: float
     camera_yaw_threshold: float
     iris_to_head_scale: float
+    event_heartbeat_s: float
 
 
 class GazeEngine:
@@ -77,8 +78,15 @@ class GazeEngine:
             camera_asym_threshold=settings.camera_asym_threshold,
             camera_yaw_threshold=settings.camera_yaw_threshold,
             iris_to_head_scale=settings.iris_to_head_scale,
+            event_heartbeat_s=settings.event_heartbeat_s,
         )
         self._last_event: dict[str, tuple[str, str | None, str | None]] = {}
+        # Wall-clock (epoch seconds) of the last event we wrote for each
+        # source profile. We re-emit the current state as a "heartbeat"
+        # after `event_heartbeat_s` so downstream consumers (intent
+        # correlator) can always see a recent gaze timestamp, even when
+        # the subject holds the same state for a long time.
+        self._last_event_ts: dict[str, float] = {}
         self._pending: dict[str, tuple[tuple[str, str | None], int]] = {}
 
     def get_tuning(self) -> dict[str, float]:
@@ -353,9 +361,17 @@ class GazeEngine:
                 continue
 
             sig = (target_type, target_profile, description)
-            if self._last_event.get(f.profile_id) == sig:
+            now_ts = time.time()
+            last_sig = self._last_event.get(f.profile_id)
+            last_ts = self._last_event_ts.get(f.profile_id, 0.0)
+            state_changed = last_sig != sig
+            heartbeat_due = (
+                not state_changed and (now_ts - last_ts) >= self._tuning.event_heartbeat_s
+            )
+            if not state_changed and not heartbeat_due:
                 continue
             self._last_event[f.profile_id] = sig
+            self._last_event_ts[f.profile_id] = now_ts
             self._store.record_event(
                 source_profile_id=f.profile_id,
                 target_type=target_type,

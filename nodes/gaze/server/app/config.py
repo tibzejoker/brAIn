@@ -67,6 +67,13 @@ class Settings(BaseSettings):
     # 0.5 along the axis ≈ a head turn of 1.0, so iris * 2 ≈ head.
     iris_to_head_scale: float = 2.0
 
+    # Heartbeat period for persistent-state events — when a subject holds
+    # the same gaze state longer than this, we re-emit the same event as
+    # a keep-alive so downstream correlators (intent) never see a stale
+    # "gap" that really means "state held, no transition". Keep close to
+    # the intent correlator's state_freshness window (~2s).
+    event_heartbeat_s: float = 1.5
+
     # ArcFace cosine-similarity thresholds. 0.42 is the classic safe default on
     # L2-normalized embeddings; raise for stricter matching (more new profiles).
     match_threshold: float = 0.42
