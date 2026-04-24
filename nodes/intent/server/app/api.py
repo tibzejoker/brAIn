@@ -93,7 +93,8 @@ def build_router(
             "window_s": window_s,
             "voice": [
                 {
-                    "ts": s.ts, "person_id": s.person_id,
+                    "ts": s.ts, "ts_end": s.ts_end,
+                    "person_id": s.person_id,
                     "voice_profile_id": s.voice_profile_id,
                     "voice_name": s.voice_name, "text": s.text,
                     "t_start": s.t_start, "t_end": s.t_end,

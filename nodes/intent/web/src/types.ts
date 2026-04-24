@@ -38,6 +38,7 @@ export type Intent = {
 
 export type TimelineVoice = {
   ts: number;
+  ts_end: number | null;
   person_id: string | null;
   voice_profile_id: string;
   voice_name: string;

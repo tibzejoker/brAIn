@@ -191,14 +191,20 @@ class PersonStore:
         t_start: float,
         t_end: float,
         confidence: float,
+        speech_ts: str | None = None,
     ) -> int:
+        # `ts` is stored as the wall-clock when the speech ended (so the
+        # UI can place the intent bar at the moment the user was actually
+        # talking, not at pipeline-completion time). Fall back to "now"
+        # only if the caller couldn't provide a speech timestamp.
+        stored_ts = speech_ts or _now_iso()
         cur = self._conn.execute(
             "INSERT INTO intents (ts, source_person_id, source_voice_profile_id, "
             "source_name, target_kind, target_person_id, target_gaze_profile_id, "
             "target_name, text, t_start, t_end, confidence) "
             "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             (
-                _now_iso(), source_person_id, source_voice_profile_id, source_name,
+                stored_ts, source_person_id, source_voice_profile_id, source_name,
                 target_kind, target_person_id, target_gaze_profile_id, target_name,
                 text, t_start, t_end, confidence,
             ),

@@ -21,6 +21,7 @@ the subject looked at camera and 20% at a person, confidence=0.8 on
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import logging
 import time as time_mod
 from collections import defaultdict
@@ -160,6 +161,11 @@ class IntentCorrelator:
         source = self._store.get(seg.person_id)
         source_name = source["name"] if source else seg.voice_name or None
 
+        speech_ts: str | None = None
+        if seg.ts_end is not None:
+            speech_ts = dt.datetime.fromtimestamp(
+                seg.ts_end, tz=dt.UTC,
+            ).replace(microsecond=0).isoformat()
         intent_id = self._store.record_intent(
             source_person_id=seg.person_id,
             source_voice_profile_id=seg.voice_profile_id,
@@ -172,6 +178,7 @@ class IntentCorrelator:
             t_start=seg.t_start,
             t_end=seg.t_end,
             confidence=confidence,
+            speech_ts=speech_ts,
         )
         intent = {
             "id": intent_id,

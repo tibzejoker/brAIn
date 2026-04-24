@@ -187,7 +187,11 @@ export class TimelineView {
       }
     });
 
-    // Voice bars (top lane of each row)
+    // Voice bars (top lane of each row). Position uses ts_end (wall-clock
+    // when VAD detected speech_end, captured before STT runs) so the bar
+    // lands where the user actually spoke, not where the pipeline
+    // finished. Falls back to ts (delivery time) only if the voice
+    // engine didn't emit ts_end for backwards compat.
     for (const v of snap.voice) {
       if (!v.person_id) continue;
       const idx = persons.findIndex((p) => p.id === v.person_id);
@@ -195,9 +199,10 @@ export class TimelineView {
       const p = persons[idx];
       const yVoice = PADDING + idx * ROW_H + 4;
       const duration = Math.max(0.1, v.t_end - v.t_start);
-      const bar_ts_start = v.ts - duration;
-      const x0 = clampX(toX(bar_ts_start));
-      const x1 = clampX(toX(v.ts));
+      const bar_end = v.ts_end ?? v.ts;
+      const bar_start = bar_end - duration;
+      const x0 = clampX(toX(bar_start));
+      const x1 = clampX(toX(bar_end));
       if (x1 < LABEL_W + 1) continue;
       const bar = rect(x0, yVoice, Math.max(2, x1 - x0), VOICE_LANE_H - 4, p.color);
       bar.setAttribute("opacity", v.provisional ? "0.4" : "0.95");
