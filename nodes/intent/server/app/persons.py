@@ -99,6 +99,25 @@ class PersonStore:
         ).fetchone()
         return self._row_to_person(row) if row else None
 
+    def _steal_link(self, voice_profile_id: str | None, gaze_profile_id: str | None,
+                    exclude_person_id: str | None = None) -> None:
+        """Detach a voice / gaze profile from whatever person currently owns
+        it. Called before linking the profile somewhere else, so the UNIQUE
+        constraint doesn't blow up and the user sees a clean reassignment."""
+        now = _now_iso()
+        if voice_profile_id:
+            self._conn.execute(
+                "UPDATE persons SET voice_profile_id = NULL, updated_at = ? "
+                "WHERE voice_profile_id = ? AND id != COALESCE(?, '')",
+                (now, voice_profile_id, exclude_person_id or ""),
+            )
+        if gaze_profile_id:
+            self._conn.execute(
+                "UPDATE persons SET gaze_profile_id = NULL, updated_at = ? "
+                "WHERE gaze_profile_id = ? AND id != COALESCE(?, '')",
+                (now, gaze_profile_id, exclude_person_id or ""),
+            )
+
     def create(
         self,
         name: str,
@@ -106,6 +125,7 @@ class PersonStore:
         voice_profile_id: str | None = None,
         gaze_profile_id: str | None = None,
     ) -> dict:
+        self._steal_link(voice_profile_id, gaze_profile_id)
         pid = f"person_{uuid.uuid4().hex[:8]}"
         now = _now_iso()
         self._conn.execute(
@@ -129,6 +149,11 @@ class PersonStore:
         current = self.get(person_id)
         if current is None:
             return None
+        # Re-home any profile that's currently linked somewhere else before
+        # we try to link it here. Empty string = explicit unlink, so skip.
+        steal_voice = voice_profile_id if voice_profile_id else None
+        steal_gaze = gaze_profile_id if gaze_profile_id else None
+        self._steal_link(steal_voice, steal_gaze, exclude_person_id=person_id)
         fields: list[tuple[str, str | None]] = []
         if name is not None:
             fields.append(("name", name))
