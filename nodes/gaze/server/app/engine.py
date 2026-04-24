@@ -25,7 +25,7 @@ from .gaze import GazeModel
 from .gazelle import GazelleModel
 from .iris import IrisTracker
 from .models import Bbox, DetectedFace, DetectResponse, GazePoint
-from .profiles import ProfileStore
+from .profiles import ProfileStore, _now as _now_iso
 from .recognizer import DetectedFace as RawFace
 from .recognizer import Recognizer
 
@@ -118,6 +118,12 @@ class GazeEngine:
     def analyze(
         self, image_bytes: bytes, remember: bool = True, describe: bool = False,
     ) -> DetectResponse:
+        # Capture the frame's arrival wall-clock up front. Any event that
+        # comes out of this call will be stamped with this time so the
+        # downstream correlator sees the moment the subject's gaze was
+        # actually in that state — not the moment after Moondream /
+        # other slow per-frame inference finished.
+        frame_ts = _now_iso()
         pil = Image.open(BytesIO(image_bytes)).convert("RGB")
         width, height = pil.size
 
@@ -283,7 +289,7 @@ class GazeEngine:
         )
 
         self._apply_stability(faces_out)
-        self._record_events(faces_out)
+        self._record_events(faces_out, frame_ts)
 
         total_ms = t_detect + t_match + t_encode + t_gaze + t_describe + t_iris
         head_yaws = [_head_yaw_signed(rf) for rf in raw_faces]
@@ -338,7 +344,7 @@ class GazeEngine:
                 f.looking_at = None
                 f.looking_at_camera = False
 
-    def _record_events(self, faces: list[DetectedFace]) -> None:
+    def _record_events(self, faces: list[DetectedFace], frame_ts: str) -> None:
         for f in faces:
             if not f.profile_id:
                 continue
@@ -378,6 +384,7 @@ class GazeEngine:
                 target_profile_id=target_profile,
                 description=description,
                 gaze_xy=gaze_xy,
+                ts=frame_ts,
             )
 
     def _resolve_identity(

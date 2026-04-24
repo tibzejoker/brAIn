@@ -279,8 +279,14 @@ class ProfileStore:
         target_profile_id: str | None = None,
         description: str | None = None,
         gaze_xy: tuple[float, float] | None = None,
+        ts: str | None = None,
     ) -> dict[str, Any]:
-        now = _now()
+        # Accept an explicit `ts` so the engine can stamp the event with
+        # the frame's arrival wall-clock, not the insert time. Without
+        # this, enabling Moondream `describe` (multi-second latency per
+        # frame) drags every event's ts forward by however long the
+        # VLM took and breaks downstream time correlation.
+        now = ts or _now()
         cur = self._conn.execute(
             "INSERT INTO gaze_events "
             "(ts, source_profile_id, target_type, target_profile_id, description, gaze_x, gaze_y)"
