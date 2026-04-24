@@ -1,0 +1,12 @@
+{
+  "name": "intent",
+  "description": "Proxy over the voice and gaze servers that correlates speech + gaze to emit 'who is talking to whom' intent records.",
+  "tags": ["service", "intent", "correlator", "proxy"],
+  "default_authority": 1,
+  "default_priority": 5,
+  "default_subscriptions": [],
+  "default_publishes": [
+    "intent.detected"
+  ],
+  "supports_transport": ["process"]
+}

@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="fr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>intent — who talks to whom</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <header>
+      <h1>intent</h1>
+      <div id="health" class="health"></div>
+    </header>
+    <main>
+      <section class="panel persons">
+        <header>
+          <h2>Persons</h2>
+          <button id="person-new">+ new</button>
+        </header>
+        <div id="persons-list"></div>
+      </section>
+
+      <section class="panel timeline">
+        <header>
+          <h2>Timeline <span class="hint">(last <span id="tl-window">60</span>s)</span></h2>
+        </header>
+        <div id="timeline-svg"></div>
+      </section>
+
+      <section class="panel intents">
+        <header>
+          <h2>Live intents</h2>
+          <button id="intents-clear">clear</button>
+        </header>
+        <div id="intents-list"></div>
+      </section>
+    </main>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
