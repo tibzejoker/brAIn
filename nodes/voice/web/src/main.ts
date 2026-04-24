@@ -5,7 +5,6 @@ import {
   patchTuning,
 } from "./api";
 import { startMic, type MicHandle } from "./audio";
-import { clearSession, loadSession, saveSession, type StoredSession } from "./persist";
 import { SpeakersPanel } from "./speakers";
 import { Timeline } from "./timeline";
 import { Transcript } from "./transcript";
@@ -36,22 +35,20 @@ const $knobMinSeg = document.getElementById("knob-minseg") as HTMLInputElement;
 const $knobMinSegVal = document.getElementById("knob-minseg-val") as HTMLOutputElement;
 const $resetBtn = document.getElementById("reset-profiles") as HTMLButtonElement;
 
-const stored: StoredSession = loadSession(SESSION_ID) ?? {
-  segments: [],
-  startedAt: Date.now(),
-};
+// In-memory segment buffer — live-only, cleared on page reload. Persisting
+// to localStorage would keep "ghost" speakers visible (via their old
+// segments) even after the speaker has been deleted/merged server-side.
+const sessionSegments: SegmentEvent[] = [];
 
 const speakers = new SpeakersPanel($speakers);
-const timeline = new Timeline($tlContainer, stored.startedAt);
+const timeline = new Timeline($tlContainer, Date.now());
 timeline.setColorResolver((id) => speakers.getColor(id));
 const transcript = new Transcript($transcript);
 
 speakers.setColorChangeHandler((id, color) => {
-  // Re-style every existing item that belongs to this speaker.
   const profile = { id, name: "", color };
   void profile;
-  // Rebuild groups + items for that speaker.
-  const segments = stored.segments.filter((s) => s.speaker_id === id);
+  const segments = sessionSegments.filter((s) => s.speaker_id === id);
   timeline.removeGroup(id);
   for (const seg of segments) timeline.add(seg);
 });
@@ -60,10 +57,6 @@ let mic: MicHandle | null = null;
 let audioWs: WebSocket | null = null;
 let eventsWs: WebSocket | null = null;
 let peakRms = 0;
-
-function persist(): void {
-  saveSession(SESSION_ID, stored);
-}
 
 function setStatus(state: "idle" | "listening" | "error", message?: string): void {
   $status.dataset.state = state;
@@ -86,8 +79,7 @@ function connectEvents(): WebSocket {
 }
 
 function recordSegment(event: SegmentEvent): void {
-  stored.segments.push(event);
-  persist();
+  sessionSegments.push(event);
 }
 
 function handleEvent(event: VoiceEvent): void {
@@ -209,9 +201,7 @@ $knobMinSeg.addEventListener("input", () => {
 $resetBtn.addEventListener("click", async () => {
   if (!confirm("Delete ALL speaker profiles AND clear timeline? This cannot be undone.")) return;
   await deleteAllProfiles();
-  clearSession(SESSION_ID);
-  stored.segments = [];
-  stored.startedAt = Date.now();
+  sessionSegments.length = 0;
   timeline.reset();
   $transcript.innerHTML = "";
   await speakers.refresh();
@@ -219,9 +209,7 @@ $resetBtn.addEventListener("click", async () => {
 
 $tlClear.addEventListener("click", () => {
   if (!confirm("Clear timeline + transcript? Speaker profiles stay.")) return;
-  clearSession(SESSION_ID);
-  stored.segments = [];
-  stored.startedAt = Date.now();
+  sessionSegments.length = 0;
   timeline.reset();
   $transcript.innerHTML = "";
 });
@@ -231,17 +219,6 @@ $tlFit.addEventListener("click", () => timeline.fit());
 async function bootstrap(): Promise<void> {
   await speakers.refresh();
   setStatus("idle");
-
-  // Restore persisted segments into the new timeline + transcript.
-  for (const ev of stored.segments) {
-    speakers.upsert({ id: ev.speaker_id, name: ev.name });
-  }
-  for (const ev of stored.segments) {
-    const color = speakers.getColor(ev.speaker_id);
-    timeline.add(ev);
-    transcript.add(ev, color);
-  }
-  if (stored.segments.length > 0) timeline.fit();
 
   try {
     const t = await getTuning();
