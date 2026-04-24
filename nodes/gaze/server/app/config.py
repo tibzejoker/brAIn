@@ -41,6 +41,32 @@ class Settings(BaseSettings):
     # — the model hasn't localized anything confident enough to commit.
     gaze_peak_threshold: float = 0.15
 
+    # Ignore faces whose shorter side is less than this fraction of the image's
+    # shorter side. Filters out tiny background faces (group-photo crowds,
+    # crowd-scene memes) before they pollute gaze / matching / events.
+    min_face_fraction: float = 0.03
+
+    # Head-yaw magnitude fallback used ONLY when iris tracking isn't
+    # available (profile face, FaceLandmarker failed). In that case we
+    # can't tell whether the eyes compensate, so we require the head
+    # itself to be near-frontal. 0 = frontal, ~0.5 = 3/4 turn.
+    camera_asym_threshold: float = 0.25
+
+    # MediaPipe iris tracker lives at this path. Downloaded by
+    # `setup_models.py` from Google Cloud Storage; ~3.6 MB .task file.
+    face_landmarker_path: Path = Path("./models/face_landmarker.task")
+
+    # Max |world-frame gaze yaw| still considered "looking at camera".
+    # world_yaw = head_yaw + iris_compensation. 0 = exactly at camera.
+    # Both are expressed in half-eye-distance units. 0.30 ≈ ±15° gaze
+    # off the lens — tight enough to avoid flagging "head frontal but
+    # eyes reading a phone beside the camera" cases.
+    camera_yaw_threshold: float = 0.30
+    # Scaling between iris offset (measured along eye axis, ±0.5 extent)
+    # and head yaw (half-eye-distance units). Empirical: an iris shift of
+    # 0.5 along the axis ≈ a head turn of 1.0, so iris * 2 ≈ head.
+    iris_to_head_scale: float = 2.0
+
     # ArcFace cosine-similarity thresholds. 0.42 is the classic safe default on
     # L2-normalized embeddings; raise for stricter matching (more new profiles).
     match_threshold: float = 0.42

@@ -48,6 +48,7 @@ class DetectedFace(BaseModel):
     gaze: GazePoint | None = None
     inout_score: float | None = None  # Gazelle: in-frame probability
     gaze_peak: float | None = None    # Gazelle: heatmap peak confidence
+    iris_yaw: float | None = None     # MediaPipe: horizontal iris offset (−left / +right)
     looking_at: str | None = None
     looking_at_camera: bool = False
     looking_at_description: str | None = None

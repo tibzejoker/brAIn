@@ -43,3 +43,20 @@ Open http://localhost:5175 → click **Start webcam** (or drop an image).
 | `GAZE_UNCERTAIN_THRESHOLD` | `0.30` | cosine in [unc, match] → uncertain |
 | `GAZE_EMA_DECAY` | `0.15` | embedding EMA when match confirmed |
 | `GAZE_LOOKING_AT_MARGIN` | `0.05` | bbox inflation (frac of image) when resolving "A looks at B" |
+
+## Visual test harness
+
+`tests/fixtures.json` lists a handful of public meme / historic URLs with 1–3
+faces and known expected gaze relations. `tests/run_tests.py` downloads them
+(first run only), calls the running server, and re-renders the overlay into
+`tests/output/<name>.png` so you can eyeball whether detection matches reality.
+
+```bash
+# server must already be running on :8766
+server/.venv/bin/python tests/run_tests.py
+server/.venv/bin/python tests/run_tests.py --only distracted_boyfriend
+server/.venv/bin/python tests/run_tests.py --describe    # Moondream target labels (slower)
+```
+
+Downloads go to `tests/fixtures/` and renders to `tests/output/`, both
+gitignored — open either folder in Finder to review visually.

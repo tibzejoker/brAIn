@@ -1,0 +1,43 @@
+{
+  "fixtures": [
+    {
+      "name": "distracted_boyfriend",
+      "url": "https://upload.wikimedia.org/wikipedia/en/b/be/Disloyal_man_with_his_girlfriend_looking_at_another_girl.jpg",
+      "description": "Three people. A man walks hand-in-hand with his girlfriend but turns his head 180° to look back at another woman passing by. His girlfriend glares at him. The other woman looks straight ahead away from the couple.",
+      "expected_faces": 3,
+      "expected_relations": [
+        "man looks at passing woman (face on the left)",
+        "girlfriend looks at man",
+        "passing woman does not look at either of the other two"
+      ]
+    },
+    {
+      "name": "yalta_conference",
+      "url": "https://upload.wikimedia.org/wikipedia/commons/1/19/Yalta_Conference_1945_Churchill%2C_Stalin%2C_Roosevelt.jpg",
+      "description": "Historic 1945 photograph of Churchill, Roosevelt, and Stalin seated together, with aides/officers in the background. A group-photo stress test: every face should get its own gaze trajectory drawn.",
+      "expected_faces": 3,
+      "expected_relations": [
+        "Churchill, Roosevelt, Stalin (large bboxes at the front) should all read as frontal/out-of-frame (posed photograph)",
+        "background officers should each get a trajectory — not accurate ground truth, but useful to eyeball consistency"
+      ]
+    },
+    {
+      "name": "woman_yelling_at_cat",
+      "url": "https://upload.wikimedia.org/wikipedia/en/1/1f/WomanYellingAtACat_meme.jpg",
+      "description": "Composite meme. Left panel: one woman yelling and pointing, a second woman restraining her (both looking to the right). Right panel: a white cat at a dinner table looking slightly left.",
+      "expected_faces": 2,
+      "expected_relations": [
+        "the two human faces on the left both gaze toward the right side of the frame (toward the cat panel)"
+      ]
+    },
+    {
+      "name": "disaster_girl",
+      "url": "https://upload.wikimedia.org/wikipedia/en/1/11/Disaster_Girl.jpg",
+      "description": "A young girl smiling mischievously toward the lens while a house burns in the background. Often described as a 'looking at camera' meme, though in the original photo her eyes are actually turned to her right — she's watching people/firefighters off-frame.",
+      "expected_faces": 1,
+      "expected_relations": [
+        "single face; gaze direction ambiguous — could reasonably read as 'looking at camera' (due to smile/framing) or 'looking off to the side' (the true eye direction)"
+      ]
+    }
+  ]
+}

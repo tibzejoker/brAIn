@@ -18,3 +18,9 @@ einops>=0.8
 pyvips>=3.0
 # torch comes transitively (pinning minor to prevent accidental downgrade).
 torch>=2.2
+
+# MediaPipe FaceLandmarker (tasks API) + OpenCV for iris tracking. Combined
+# with the InsightFace head-pose signal, this gives a clean "looking at
+# camera" verdict: both head frontality and iris centering must agree.
+mediapipe==0.10.33
+opencv-python>=4.8

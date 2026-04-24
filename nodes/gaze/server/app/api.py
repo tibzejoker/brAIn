@@ -22,6 +22,7 @@ def build_router(store: ProfileStore, engine: GazeEngine) -> APIRouter:
             "status": "ok",
             "gazelle": engine._gazelle is not None,  # noqa: SLF001
             "moondream": engine._moondream is not None,  # noqa: SLF001
+            "iris": engine._iris is not None,  # noqa: SLF001
             "profiles": len(store.list()),
         }
 

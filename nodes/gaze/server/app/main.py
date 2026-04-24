@@ -13,6 +13,7 @@ from .config import settings
 from .engine import GazeEngine
 from .gaze import GazeModel
 from .gazelle import GazelleModel
+from .iris import IrisTracker
 from .profiles import ProfileStore
 from .recognizer import Recognizer
 
@@ -24,6 +25,7 @@ log = logging.getLogger("gaze")
 async def lifespan(app: FastAPI):
     disable_describe = os.environ.get("GAZE_DISABLE_DESCRIBE", "0") == "1"
     disable_gazelle = os.environ.get("GAZE_DISABLE_GAZELLE", "0") == "1"
+    disable_iris = os.environ.get("GAZE_DISABLE_IRIS", "0") == "1"
     log.info(
         "starting gaze-server (recognizer=%s gazelle=%s moondream=%s db=%s)",
         settings.recognizer,
@@ -61,7 +63,14 @@ async def lifespan(app: FastAPI):
         except Exception as e:
             log.exception("failed to load moondream (%s) — describe disabled", e)
 
-    engine = GazeEngine(store, recognizer, gazelle_model, moondream_model)
+    iris_tracker: IrisTracker | None = None
+    if not disable_iris:
+        try:
+            iris_tracker = IrisTracker(settings.face_landmarker_path)
+        except Exception as e:
+            log.exception("failed to load iris tracker (%s) — iris signal disabled", e)
+
+    engine = GazeEngine(store, recognizer, gazelle_model, moondream_model, iris_tracker)
 
     app.state.store = store
     app.state.engine = engine

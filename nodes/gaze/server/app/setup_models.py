@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import logging
 import os
+import urllib.request
 
 from .config import settings
 
@@ -49,10 +50,26 @@ def _prepare_moondream() -> None:
     log.info("moondream2 cached")
 
 
+def _prepare_face_landmarker() -> None:
+    dest = settings.models_dir / "face_landmarker.task"
+    if dest.exists() and dest.stat().st_size > 0:
+        log.info("face_landmarker.task already at %s", dest)
+        return
+    url = (
+        "https://storage.googleapis.com/mediapipe-models/face_landmarker/"
+        "face_landmarker/float16/1/face_landmarker.task"
+    )
+    log.info("downloading MediaPipe FaceLandmarker → %s", dest)
+    with urllib.request.urlopen(url, timeout=60) as resp:
+        dest.write_bytes(resp.read())
+    log.info("face_landmarker cached (%.1f MB)", dest.stat().st_size / 1024 / 1024)
+
+
 def main() -> None:
     settings.models_dir.mkdir(parents=True, exist_ok=True)
     _prepare_recognizer()
     _prepare_moondream()
+    _prepare_face_landmarker()
     log.info("all models ready in %s", settings.models_dir)
 
 

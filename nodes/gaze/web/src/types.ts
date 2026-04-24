@@ -30,6 +30,7 @@ export type DetectedFace = {
   gaze: GazePoint | null;
   inout_score: number | null;
   gaze_peak: number | null;
+  iris_yaw: number | null;
   looking_at: string | null;
   looking_at_camera: boolean;
   looking_at_description: string | null;
@@ -46,6 +47,7 @@ export type DetectResponse = {
     match: number;
     encode: number;
     gaze: number;
+    iris: number;
     describe: number;
   };
 };

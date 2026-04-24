@@ -10,3 +10,7 @@ web/node_modules/
 web/dist/
 .env
 .env.local
+tests/fixtures/
+tests/output/
+tests/__pycache__/
+tests/**/__pycache__/

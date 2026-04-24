@@ -23,6 +23,7 @@ from PIL import Image
 from .config import settings
 from .gaze import GazeModel
 from .gazelle import GazelleModel
+from .iris import IrisTracker
 from .models import Bbox, DetectedFace, DetectResponse, GazePoint
 from .profiles import ProfileStore
 from .recognizer import DetectedFace as RawFace
@@ -42,6 +43,10 @@ class _Tuning:
     looking_at_stability_frames: int
     inout_threshold: float
     gaze_peak_threshold: float
+    min_face_fraction: float
+    camera_asym_threshold: float
+    camera_yaw_threshold: float
+    iris_to_head_scale: float
 
 
 class GazeEngine:
@@ -51,11 +56,13 @@ class GazeEngine:
         recognizer: Recognizer,
         gazelle: GazelleModel | None,
         moondream: GazeModel | None,
+        iris: IrisTracker | None,
     ) -> None:
         self._store = store
         self._rec = recognizer
         self._gazelle = gazelle
         self._moondream = moondream
+        self._iris = iris
         self._tuning = _Tuning(
             match_threshold=settings.match_threshold,
             uncertain_threshold=settings.uncertain_threshold,
@@ -66,6 +73,10 @@ class GazeEngine:
             looking_at_stability_frames=settings.looking_at_stability_frames,
             inout_threshold=settings.inout_threshold,
             gaze_peak_threshold=settings.gaze_peak_threshold,
+            min_face_fraction=settings.min_face_fraction,
+            camera_asym_threshold=settings.camera_asym_threshold,
+            camera_yaw_threshold=settings.camera_yaw_threshold,
+            iris_to_head_scale=settings.iris_to_head_scale,
         )
         self._last_event: dict[str, tuple[str, str | None, str | None]] = {}
         self._pending: dict[str, tuple[tuple[str, str | None], int]] = {}
@@ -81,6 +92,10 @@ class GazeEngine:
             "looking_at_stability_frames": float(self._tuning.looking_at_stability_frames),
             "inout_threshold": self._tuning.inout_threshold,
             "gaze_peak_threshold": self._tuning.gaze_peak_threshold,
+            "min_face_fraction": self._tuning.min_face_fraction,
+            "camera_asym_threshold": self._tuning.camera_asym_threshold,
+            "camera_yaw_threshold": self._tuning.camera_yaw_threshold,
+            "iris_to_head_scale": self._tuning.iris_to_head_scale,
         }
 
     def set_tuning(self, **updates: float) -> dict[str, float]:
@@ -101,6 +116,12 @@ class GazeEngine:
         t0 = time.perf_counter()
         image_bgr = _pil_to_bgr(pil)
         raw_faces = self._rec.detect(image_bgr)
+        min_side = min(width, height) * self._tuning.min_face_fraction
+        if min_side > 0:
+            raw_faces = [
+                rf for rf in raw_faces
+                if min(rf.bbox[2] - rf.bbox[0], rf.bbox[3] - rf.bbox[1]) >= min_side
+            ]
         t_detect = (time.perf_counter() - t0) * 1000
 
         t0 = time.perf_counter()
@@ -117,7 +138,23 @@ class GazeEngine:
         gaze_points: list[tuple[float, float] | None] = [None] * len(raw_faces)
         inout_scores: list[float | None] = [None] * len(raw_faces)
         peaks: list[float] = [0.0] * len(raw_faces)
+        iris_pairs: list[tuple[float, float] | None] = [None] * len(raw_faces)
         t_gaze = 0.0
+        t_iris = 0.0
+
+        if self._iris is not None and raw_faces:
+            t0 = time.perf_counter()
+            image_rgb = np.asarray(pil)
+            for i, rf in enumerate(raw_faces):
+                bbox_norm = _bbox_pixel_to_norm(rf.bbox, width, height)
+                try:
+                    res = self._iris.measure(image_rgb, bbox_norm)
+                except Exception as e:  # noqa: BLE001
+                    log.warning("iris measurement failed for face %d: %s", i, e)
+                    continue
+                if res is not None:
+                    iris_pairs[i] = (res.yaw_left, res.yaw_right)
+            t_iris = (time.perf_counter() - t0) * 1000
         if self._gazelle is not None and raw_faces:
             t0 = time.perf_counter()
             bboxes_norm = [
@@ -168,17 +205,46 @@ class GazeEngine:
             # Zero out low-confidence peaks: Gazelle is basically guessing.
             if peak_conf < self._tuning.gaze_peak_threshold:
                 gp = None
+
+            # "Looking at camera" via combined head + iris signal.
+            #
+            # world_yaw = head_yaw + iris_compensation, per eye. If the
+            # head is turned BUT the eyes counter-rotate (shift toward the
+            # opposite side in head frame), the effective gaze in world
+            # frame can still land on the lens. We pick the eye with the
+            # smallest |world_yaw| — a person reliably fixating the camera
+            # with ONE eye (e.g. Disaster Girl compensating a left turn
+            # with her right eye) still registers as eye contact.
+            #
+            # When iris tracking fails (MediaPipe couldn't fit on a heavy
+            # profile crop), we fall back to head-only: require head near-
+            # frontal. Profile faces fail that too, so this stays strict.
+            head_y = _head_yaw_signed(rf)
+            pair = iris_pairs[i]
+            scale = self._tuning.iris_to_head_scale
+            world_yaw: float | None
+            if pair is not None:
+                iris_l, iris_r = pair
+                # Camera-left eye's "iris toward inner" = toward image-right.
+                # head_y > 0 also means nose toward image-right. Add directly.
+                # Camera-right eye's "iris toward inner" = toward image-left.
+                # Flip sign so both converge toward the same world frame.
+                world_l = head_y + iris_l * scale
+                world_r = head_y - iris_r * scale
+                world_yaw = world_l if abs(world_l) < abs(world_r) else world_r
+                looking_at_camera = abs(world_yaw) < self._tuning.camera_yaw_threshold
+            else:
+                # Fallback — head-only. `_is_face_frontal` uses the same
+                # half-eye-distance metric so `camera_asym_threshold` is the
+                # right knob here.
+                world_yaw = None
+                looking_at_camera = abs(head_y) < self._tuning.camera_asym_threshold
+
+            if looking_at_camera:
+                gp = None
             gaze_point = GazePoint(x=gp[0], y=gp[1]) if gp else None
             eye = GazePoint(x=eye_xy[0], y=eye_xy[1])
             inout = inout_scores[i]
-            # "Looking at camera" strategy:
-            #   - peak confident → trust Gazelle, the target is in-frame
-            #   - peak low + face frontal → probably camera
-            #   - peak low + face turned away → unresolved (emit nothing)
-            if gp is not None:
-                looking_at_camera = False
-            else:
-                looking_at_camera = _is_face_frontal(rf)
 
             faces_out.append(DetectedFace(
                 face_index=i,
@@ -193,6 +259,7 @@ class GazeEngine:
                 gaze=gaze_point,
                 inout_score=inout,
                 gaze_peak=peaks[i] if peaks[i] > 0.0 else None,
+                iris_yaw=world_yaw,
                 looking_at=None,
                 looking_at_camera=looking_at_camera,
                 looking_at_description=desc,
@@ -210,13 +277,19 @@ class GazeEngine:
         self._apply_stability(faces_out)
         self._record_events(faces_out)
 
-        total_ms = t_detect + t_match + t_encode + t_gaze + t_describe
+        total_ms = t_detect + t_match + t_encode + t_gaze + t_describe + t_iris
+        head_yaws = [_head_yaw_signed(rf) for rf in raw_faces]
+        iris_strs = [
+            f"{p[0]:+.2f}/{p[1]:+.2f}" if p is not None else "-"
+            for p in iris_pairs
+        ]
         log.info(
-            "analyzed %d face(s) in %.0fms (detect=%.0f match=%.0f gaze=%.0f encode=%.0f describe=%.0f) "
-            "inout=%s peaks=%s cam=%d",
-            len(raw_faces), total_ms, t_detect, t_match, t_gaze, t_encode, t_describe,
-            [f"{v:.2f}" if v is not None else "-" for v in inout_scores],
-            [f"{p:.3f}" for p in peaks],
+            "analyzed %d face(s) in %.0fms (detect=%.0f match=%.0f gaze=%.0f iris=%.0f encode=%.0f describe=%.0f) "
+            "peaks=%s head=%s iris=%s cam=%d",
+            len(raw_faces), total_ms, t_detect, t_match, t_gaze, t_iris, t_encode, t_describe,
+            [f"{p:.2f}" for p in peaks],
+            [f"{y:+.2f}" for y in head_yaws],
+            iris_strs,
             sum(1 for f in faces_out if f.looking_at_camera),
         )
 
@@ -229,6 +302,7 @@ class GazeEngine:
                 "match": round(t_match, 1),
                 "encode": round(t_encode, 1),
                 "gaze": round(t_gaze, 1),
+                "iris": round(t_iris, 1),
                 "describe": round(t_describe, 1),
             },
         )
@@ -353,28 +427,40 @@ def _bbox_pixel_to_norm(
     )
 
 
-def _is_face_frontal(face: RawFace, asym_threshold: float = 0.22) -> bool:
-    """Heuristic: head roughly facing the camera.
+def _head_yaw_signed(face: RawFace) -> float:
+    """Signed head-yaw from InsightFace landmarks, in half-eye-distance units.
 
-    Horizontal asymmetry between nose↔left_eye vs nose↔right_eye distances
-    collapses as the head turns. Same check on mouth corners filters out
-    tilted but frontal heads. Used as a secondary "looking at camera" signal
-    when Gazelle has no confident gaze target (peak below threshold).
+    Projects (nose − eye_midpoint) onto the eye-axis direction (left→right
+    eye), normalized by half the eye distance. Invariant to head roll
+    because it measures along-axis displacement only. Sign convention:
+    positive = head turned to subject's left (nose drifts toward camera-
+    right in image); negative = head turned to subject's right.
+
+    Magnitudes: ≈ 0 frontal, ≈ 0.5 at 3/4-view, ≈ 1.0 near profile.
     """
-    left_eye, right_eye, nose, left_mouth, right_mouth = face.landmarks
-    dx_l_eye = abs(float(nose[0]) - float(left_eye[0]))
-    dx_r_eye = abs(float(nose[0]) - float(right_eye[0]))
-    eye_span = dx_l_eye + dx_r_eye
-    if eye_span < 1e-6:
-        return False
-    eye_asym = abs(dx_l_eye - dx_r_eye) / eye_span
-    dx_l_mouth = abs(float(nose[0]) - float(left_mouth[0]))
-    dx_r_mouth = abs(float(nose[0]) - float(right_mouth[0]))
-    mouth_span = dx_l_mouth + dx_r_mouth
-    mouth_asym = (
-        abs(dx_l_mouth - dx_r_mouth) / mouth_span if mouth_span > 1e-6 else 1.0
-    )
-    return eye_asym < asym_threshold and mouth_asym < asym_threshold
+    left_eye, right_eye, nose, _lm, _rm = face.landmarks
+    lx, ly = float(left_eye[0]), float(left_eye[1])
+    rx, ry = float(right_eye[0]), float(right_eye[1])
+    ex_axis, ey_axis = rx - lx, ry - ly
+    eye_len = math.hypot(ex_axis, ey_axis)
+    if eye_len < 1e-6:
+        return 0.0
+    ux, uy = ex_axis / eye_len, ey_axis / eye_len
+    mx, my = (lx + rx) / 2, (ly + ry) / 2
+    nose_lat = (float(nose[0]) - mx) * ux + (float(nose[1]) - my) * uy
+    return nose_lat / (eye_len / 2)
+
+
+def _frontality_asym(face: RawFace) -> float:
+    """Head-turn magnitude (|head_yaw|) — used for profile-face fallback
+    when iris tracking isn't available.
+    """
+    return abs(_head_yaw_signed(face))
+
+
+def _is_face_frontal(face: RawFace, asym_threshold: float = 0.22) -> bool:
+    """Heuristic: head roughly facing the camera (worst-of eye/mouth asym)."""
+    return _frontality_asym(face) < asym_threshold
 
 
 def _eye_center_norm(face: RawFace, width: int, height: int) -> tuple[float, float]:
