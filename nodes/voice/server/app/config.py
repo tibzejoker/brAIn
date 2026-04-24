@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     db_path: Path = Path("./data/voice.db")
     models_dir: Path = Path("./models")
 
-    stt_model: str = "tiny"
+    stt_model: str = "medium"
     stt_backend: str = "auto"  # auto | mlx | faster-whisper
     language: str = "fr"
 
