@@ -10,6 +10,7 @@ of them via averaging.
 """
 from __future__ import annotations
 
+import re
 import sqlite3
 from datetime import datetime, timezone
 from pathlib import Path
@@ -30,6 +31,13 @@ def _now() -> str:
 
 def _pick_color(idx: int) -> str:
     return PALETTE[idx % len(PALETTE)]
+
+
+_DEFAULT_NAME_RE = re.compile(r"^Speaker\s+\d+$")
+
+
+def _is_default_name(name: str) -> bool:
+    return bool(_DEFAULT_NAME_RE.match(name.strip()))
 
 
 class ProfileStore:
@@ -173,14 +181,41 @@ class ProfileStore:
 
         Voiceprints keep their distinct centroids — no averaging — so the
         target ends up covering every vocal mode the source had recorded.
+
+        Name/color reconciliation: if the target still carries a default
+        ("Speaker N") name/color but the source was manually renamed or
+        recolored, the target inherits those so the merge doesn't clobber
+        custom labels the user set. If both are custom the target's wins
+        (the user picked the merge direction).
         """
         if source_id == target_id:
             return self.get(target_id)
-        if self.get(target_id) is None:
+        target = self.get(target_id)
+        if target is None:
             return None
+        source = self.get(source_id)
+        now = _now()
+
+        # Inherit a custom name/color from source if target is still default.
+        if source is not None:
+            updates: list[tuple[str, str]] = []
+            if _is_default_name(target["name"]) and not _is_default_name(source["name"]):
+                updates.append(("name", source["name"]))
+            # Colors are auto-assigned from PALETTE — we can't cleanly tell
+            # "user-picked" from "default", so we only swap the color when we
+            # also swap the name (same decision, keeps them coherent).
+            if updates and source["color"] != target["color"]:
+                updates.append(("color", source["color"]))
+            if updates:
+                set_clause = ", ".join(f"{k} = ?" for k, _ in updates) + ", updated_at = ?"
+                values = [v for _, v in updates] + [now, target_id]
+                self._conn.execute(
+                    f"UPDATE profiles SET {set_clause} WHERE id = ?", values,
+                )
+
         self._conn.execute(
             "UPDATE voiceprints SET profile_id = ?, updated_at = ? WHERE profile_id = ?",
-            (target_id, _now(), source_id),
+            (target_id, now, source_id),
         )
         self._conn.execute("DELETE FROM profiles WHERE id = ?", (source_id,))
         self._conn.commit()

@@ -40,6 +40,39 @@ class IdentityResolver:
     def reset_label_map(self) -> None:
         self._label_to_profile.clear()
 
+    def drop_profile(self, profile_id: str) -> int:
+        """Forget any diarization label bound to this profile id. Called by
+        the delete endpoints so the engine doesn't immediately re-create a
+        "ghost" profile by looking up the now-deleted id on the next
+        segment with the same diar label.
+        """
+        dropped = [lbl for lbl, pid in self._label_to_profile.items() if pid == profile_id]
+        for lbl in dropped:
+            self._label_to_profile.pop(lbl, None)
+        if dropped:
+            log.info("identity: dropped %d diar label(s) referencing %s",
+                     len(dropped), profile_id)
+        return len(dropped)
+
+    def remap_profile(self, old_id: str, new_id: str) -> int:
+        """Rewrite any diarization label that was pointing at `old_id` to
+        point at `new_id`. Called right after a profile merge so the engine
+        doesn't keep emitting segments tagged with the deleted source
+        profile (which would then look like "the merged profile came back"
+        because its row is gone from the store).
+
+        Returns the number of labels that were remapped.
+        """
+        remapped = 0
+        for label, pid in list(self._label_to_profile.items()):
+            if pid == old_id:
+                self._label_to_profile[label] = new_id
+                remapped += 1
+        if remapped:
+            log.info("identity: remapped %d diar label(s) %s → %s",
+                     remapped, old_id, new_id)
+        return remapped
+
     def resolve(
         self,
         segment_pcm: np.ndarray | None,

@@ -34,6 +34,10 @@ class SessionHub:
     def engine(self) -> Engine:
         return self._engine
 
+    @property
+    def identity(self) -> IdentityResolver:
+        return self._identity
+
     async def start_session(self, session_id: str) -> None:
         if self._active_session == session_id:
             return

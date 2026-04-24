@@ -32,7 +32,10 @@ def build_router(store: ProfileStore, hub: SessionHub) -> APIRouter:
 
     @router.delete("/profiles/{profile_id}")
     def delete_profile(profile_id: str) -> dict[str, bool]:
-        return {"deleted": store.delete(profile_id)}
+        deleted = store.delete(profile_id)
+        if deleted:
+            hub.identity.drop_profile(profile_id)
+        return {"deleted": deleted}
 
     @router.delete("/profiles")
     def delete_all_profiles() -> dict[str, int]:
@@ -40,6 +43,10 @@ def build_router(store: ProfileStore, hub: SessionHub) -> APIRouter:
         for p in store.list():
             if store.delete(p["id"]):
                 n += 1
+        # Blanket reset is safer than drop_profile loops when wiping
+        # everything — guarantees the engine doesn't carry any stale
+        # id in its label map after the user hits "clear all".
+        hub.identity.reset_label_map()
         return {"deleted": n}
 
     @router.post("/profiles/merge")
@@ -47,6 +54,12 @@ def build_router(store: ProfileStore, hub: SessionHub) -> APIRouter:
         result = store.merge(body.source_id, body.target_id)
         if result is None:
             raise HTTPException(404, "target profile not found")
+        # Remap in-memory diarization-label → profile entries that the
+        # engine uses during live sessions. Without this, segments for the
+        # merged-away source keep getting routed to a now-stale id, and the
+        # resolver silently creates a brand-new profile on the next tick
+        # — the "merged profile reappeared" bug.
+        hub.identity.remap_profile(body.source_id, body.target_id)
         return result
 
     @router.get("/profiles/{profile_id}/voiceprints")
