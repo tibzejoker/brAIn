@@ -32,6 +32,11 @@ class RawSegment:
     pcm: np.ndarray | None
     sample_rate: int
     confidence: float
+    # Wall-clock seconds (epoch) when the audio ended at VAD speech_end,
+    # captured before STT processing. Consumers need this to correlate
+    # with other real-time streams after STT inflates the effective
+    # delivery timestamp.
+    ts_end: float | None = None
 
 
 class Engine:
@@ -248,10 +253,16 @@ class VadSttEngine(Engine):
         for pcm, start_sample, end_sample in self._vad.drain():
             t_start = start_sample / self.SAMPLE_RATE
             t_end = end_sample / self.SAMPLE_RATE
+            # Capture wall-clock at dispatch so the segment keeps a
+            # reference time that's close to the true audio end (within
+            # a VAD-hangover of it) regardless of how long STT takes.
+            ts_end = time.time()
             log.info("dispatching segment %.2fs–%.2fs to STT", t_start, t_end)
-            asyncio.create_task(self._process_segment(pcm, t_start, t_end))
+            asyncio.create_task(self._process_segment(pcm, t_start, t_end, ts_end))
 
-    async def _process_segment(self, pcm: np.ndarray, t_start: float, t_end: float) -> None:
+    async def _process_segment(
+        self, pcm: np.ndarray, t_start: float, t_end: float, ts_end: float,
+    ) -> None:
         try:
             t0 = time.monotonic()
             loop = asyncio.get_running_loop()
@@ -268,6 +279,7 @@ class VadSttEngine(Engine):
                 pcm=pcm,
                 sample_rate=self.SAMPLE_RATE,
                 confidence=0.9,
+                ts_end=ts_end,
             )
             try:
                 self._queue.put_nowait(seg)

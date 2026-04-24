@@ -26,6 +26,11 @@ class VoiceSegment:
     confidence: float
     provisional: bool
     person_id: str | None = None  # resolved at ingest
+    # Wall-clock when the underlying audio actually ended (captured by
+    # the voice engine at VAD speech_end, before STT latency). Used as
+    # the reference time for gaze correlation — `ts` is the delivery
+    # wall-clock which trails by however long STT took.
+    ts_end: float | None = None
 
 
 @dataclass(slots=True)

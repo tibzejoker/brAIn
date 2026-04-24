@@ -40,6 +40,12 @@ class SegmentEvent(BaseModel):
     text: str
     t_start: float
     t_end: float
+    # Wall-clock (epoch seconds) when the underlying audio ended, captured
+    # at VAD speech_end before STT processing. Downstream consumers (e.g.
+    # the intent correlator) need this to line segments up with gaze
+    # events that live in wall-clock time; `t_end` alone is session-
+    # relative and would drift after STT latency.
+    ts_end: float | None = None
     provisional: bool = False
     confidence: float = Field(ge=0.0, le=1.0)
 

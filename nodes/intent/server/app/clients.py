@@ -18,12 +18,23 @@ and retry rather than terminating the background tasks.
 from __future__ import annotations
 
 import asyncio
+import datetime as dt
 import json
 import logging
 import time as time_mod
 
 import httpx
 import websockets
+
+
+def _parse_iso_epoch(value: str | None) -> float | None:
+    if not value:
+        return None
+    try:
+        # datetime.fromisoformat handles trailing "Z" since 3.11.
+        return dt.datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return None
 
 from .persons import PersonStore
 from .timeline import GazeEvent, Timeline, VoiceSegment
@@ -105,6 +116,7 @@ class VoiceClient:
             return
         voice_pid = event.get("speaker_id")
         person = self._store.find_by_voice(voice_pid) if voice_pid else None
+        ts_end_raw = event.get("ts_end")
         seg = VoiceSegment(
             ts=time_mod.time(),
             voice_profile_id=voice_pid or "",
@@ -115,6 +127,7 @@ class VoiceClient:
             confidence=float(event.get("confidence") or 0.0),
             provisional=bool(event.get("provisional") or False),
             person_id=person["id"] if person else None,
+            ts_end=float(ts_end_raw) if ts_end_raw is not None else None,
         )
         self._timeline.add_voice(seg)
         # Only fire correlator for finalized (non-provisional) segments.
@@ -176,8 +189,12 @@ class GazeEventPoller:
         target_gid = row.get("target_profile_id")
         source_p = self._store.find_by_gaze(source_gid) if source_gid else None
         target_p = self._store.find_by_gaze(target_gid) if target_gid else None
+        # Prefer the gaze server's own record timestamp (ISO8601) over our
+        # poll-time wall clock — otherwise correlation with voice segments
+        # is off by up to `gaze_poll_interval_s`.
+        ts = _parse_iso_epoch(row.get("ts")) or time_mod.time()
         ev = GazeEvent(
-            ts=time_mod.time(),
+            ts=ts,
             target_kind=row.get("target_type") or "unknown",
             source_gaze_profile_id=source_gid,
             target_gaze_profile_id=target_gid,

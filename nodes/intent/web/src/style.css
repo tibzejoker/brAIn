@@ -74,6 +74,20 @@ input, select {
 /* timeline */
 #timeline-svg { overflow-x: auto; }
 
+.tl-tip {
+  position: fixed; z-index: 1000; pointer-events: none;
+  background: rgba(15, 23, 42, 0.96); color: var(--text);
+  border: 1px solid var(--border); border-radius: 6px;
+  padding: 8px 10px; max-width: 320px; font-size: 12px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.45);
+}
+.tl-tip .hd {
+  font-weight: 600; margin-bottom: 4px;
+  display: flex; align-items: center; gap: 6px;
+}
+.tl-tip .sw { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.tl-tip div + div { margin-top: 2px; color: var(--muted); }
+
 /* intents */
 .intent {
   border-left: 3px solid var(--c, var(--accent));

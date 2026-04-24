@@ -56,8 +56,15 @@ class IntentCorrelator:
             log.debug("segment from unlinked voice profile %s — skipping", seg.voice_profile_id)
             return
 
-        start = seg.ts - self._cfg.pre_s
-        end = seg.ts + self._cfg.post_s
+        # Use the voice engine's wall-clock `ts_end` (captured at VAD
+        # speech_end) as the reference, not our own delivery timestamp
+        # which trails by however long STT took. The correlation window
+        # widens backward by the segment duration so we cover the whole
+        # time the subject was speaking, not just the last few hundred ms.
+        duration = max(0.0, seg.t_end - seg.t_start)
+        ref = seg.ts_end if seg.ts_end is not None else seg.ts
+        start = ref - duration - self._cfg.pre_s
+        end = ref + self._cfg.post_s
         gaze_events = self._timeline.gaze_events_for(seg.person_id, start, end)
 
         target_kind = "unknown"

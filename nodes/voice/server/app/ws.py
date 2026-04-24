@@ -100,6 +100,7 @@ class SessionHub:
                 text=raw.text,
                 t_start=raw.t_start,
                 t_end=raw.t_end,
+                ts_end=raw.ts_end,
                 provisional=provisional,
                 confidence=confidence,
             ),
