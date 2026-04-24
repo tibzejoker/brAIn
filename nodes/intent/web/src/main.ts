@@ -3,6 +3,9 @@ import { IntentsFeed } from "./intents";
 import { PersonsPanel } from "./persons";
 import { TimelineView } from "./timeline";
 
+declare const __VOICE_WEB__: string;
+declare const __GAZE_WEB__: string;
+
 async function main(): Promise<void> {
   const personsHost = document.getElementById("persons-list");
   const timelineHost = document.getElementById("timeline-svg");
@@ -15,6 +18,11 @@ async function main(): Promise<void> {
     throw new Error("missing required DOM nodes");
   }
   const healthOut: HTMLElement = healthEl;
+
+  const voiceLink = document.getElementById("voice-link") as HTMLAnchorElement | null;
+  const gazeLink = document.getElementById("gaze-link") as HTMLAnchorElement | null;
+  if (voiceLink) voiceLink.href = __VOICE_WEB__;
+  if (gazeLink) gazeLink.href = __GAZE_WEB__;
 
   const persons = new PersonsPanel(personsHost);
   const timeline = new TimelineView(timelineHost, () => persons.all);
