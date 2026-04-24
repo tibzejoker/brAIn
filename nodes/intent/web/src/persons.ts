@@ -32,7 +32,14 @@ export class PersonsPanel {
     this.persons = persons;
     this.voices = voices;
     this.gazes = gazes;
-    this.render();
+    // Skip the DOM swap while the user is mid-interaction inside this
+    // panel — an open <select> dropdown lives in a separate native popup
+    // layer but gets blown away the instant we clear innerHTML. This
+    // makes linking a voice / face almost impossible on a periodic
+    // re-render cadence.
+    if (!this.host.contains(document.activeElement)) {
+      this.render();
+    }
     this.changedCb?.();
   }
 
