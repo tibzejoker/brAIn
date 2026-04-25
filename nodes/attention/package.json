@@ -1,0 +1,19 @@
+{
+  "name": "@brain/node-attention",
+  "version": "0.1.0",
+  "private": true,
+  "main": "dist/handler.js",
+  "types": "dist/handler.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@brain/sdk": "workspace:*",
+    "@brain/core": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0"
+  }
+}

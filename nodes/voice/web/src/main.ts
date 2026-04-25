@@ -153,6 +153,14 @@ async function stop(): Promise<void> {
   }
 }
 
+// Optional auto-start: when launched with ?auto_start=1 (typically from
+// the intent UI's "turn mic on" button) fire the same action as a user
+// click. Browser policy allows getUserMedia because the opener was a
+// user gesture that directly triggered the new tab.
+if (new URLSearchParams(window.location.search).get("auto_start") === "1") {
+  queueMicrotask(() => { void start(); });
+}
+
 $btn.addEventListener("click", () => {
   if ($btn.dataset.state === "listening") void stop();
   else void start();

@@ -1,0 +1,16 @@
+{
+  "name": "attention",
+  "description": "Bridge between the standalone intent correlator and the brAIn bus. On startup spawns the voice, gaze and intent services, then polls the intent endpoint and forwards every finalised intent to intent.output (raw) and brain.input (so the consciousness sees every spoken line).",
+  "tags": ["bridge", "attention", "supervisor"],
+  "default_authority": 1,
+  "default_priority": 8,
+  "default_subscriptions": [
+    { "topic": "attention.*" }
+  ],
+  "default_publishes": [
+    "intent.output",
+    "brain.input"
+  ],
+  "has_ui": true,
+  "supports_transport": ["process"]
+}

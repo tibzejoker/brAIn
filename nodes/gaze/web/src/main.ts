@@ -151,6 +151,14 @@ $btn.addEventListener("click", () => {
   else void startCam();
 });
 
+// Auto-start the webcam when the URL carries ?auto_start=1 (typically
+// set by the intent UI's "turn cam on" shortcut). Relies on the fact
+// that opening a new tab via user gesture propagates the permission
+// prompt; no extra gesture is required.
+if (new URLSearchParams(window.location.search).get("auto_start") === "1") {
+  queueMicrotask(() => { void startCam(); });
+}
+
 $upload.addEventListener("change", async () => {
   const file = $upload.files?.[0];
   if (!file) return;

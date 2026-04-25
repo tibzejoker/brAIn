@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>attention — who addresses the network</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --border: #334155;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #a855f7;
+      --addressed: #22d3ee;
+    }
+    html, body { height: 100%; background: var(--bg); color: var(--text); font: 13px/1.4 ui-sans-serif, system-ui, sans-serif; }
+    body { display: flex; flex-direction: column; }
+
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel);
+    }
+    header h1 { font-size: 14px; color: var(--accent); letter-spacing: 0.02em; }
+    .hint { font-size: 11px; color: var(--muted); }
+
+    main { flex: 1; display: grid; grid-template-rows: 200px 1fr; gap: 1px; background: var(--border); min-height: 0; }
+    .attn {
+      background: var(--bg); overflow-y: auto; padding: 8px 12px; min-height: 0;
+    }
+    .attn .empty { color: var(--muted); font-style: italic; padding: 8px; }
+    .item {
+      border-left: 3px solid var(--accent); padding: 6px 10px;
+      margin-bottom: 6px; background: var(--panel); border-radius: 0 4px 4px 0;
+    }
+    .item.addressed { border-left-color: var(--addressed); }
+    .item .head {
+      display: flex; gap: 8px; align-items: baseline;
+      font-size: 12px; color: var(--muted);
+    }
+    .item .badge {
+      text-transform: uppercase; font-size: 10px; letter-spacing: 0.03em;
+      padding: 1px 5px; border-radius: 3px; background: rgba(168,85,247,0.2); color: var(--accent);
+    }
+    .item.addressed .badge { background: rgba(34,211,238,0.2); color: var(--addressed); }
+    .item .src { color: var(--text); font-weight: 500; }
+    .item .text { color: var(--text); margin-top: 2px; }
+    .item .response { color: var(--addressed); margin-top: 2px; font-style: italic; }
+    .item .summary { color: var(--muted); font-size: 11px; margin-top: 2px; }
+
+    iframe { border: 0; width: 100%; height: 100%; display: block; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>attention</h1>
+      <div class="hint">
+        Bridges every intent from the correlator below onto the brAIn bus.
+        Cyan items = the speaker looked at the camera (addressing the network).
+        <span id="meta" style="color:var(--muted)"></span>
+      </div>
+    </div>
+    <div class="hint" id="status">connecting…</div>
+  </header>
+
+  <main>
+    <section class="attn" id="attn-feed">
+      <div class="empty">No intents seen yet. Speak from the voice UI in the panel below.</div>
+    </section>
+    <iframe id="intent-iframe" src="http://localhost:5176/" title="intent UI"></iframe>
+  </main>
+
+  <script>
+    // The node UI is served by the brAIn API at /nodes/<id>/ui/. We
+    // derive the id from the URL so the UI works regardless of the
+    // instance id the runtime assigned.
+    const match = window.location.pathname.match(/\/nodes\/([^/]+)\//);
+    const NODE_ID = match ? match[1] : "attention";
+    const MESSAGES_URL = `/nodes/${NODE_ID}/ui/messages`;
+
+    const feed = document.getElementById("attn-feed");
+    const status = document.getElementById("status");
+    const meta = document.getElementById("meta");
+
+    const knownIds = new Set();
+
+    async function tick() {
+      try {
+        const res = await fetch(MESSAGES_URL);
+        if (!res.ok) throw new Error(`${res.status}`);
+        const msgs = await res.json();
+        const entries = msgs
+          .filter((m) => m.topic === "intent.output" && m.metadata)
+          .map((m) => ({ msg: m, md: m.metadata }));
+        status.textContent = `${entries.length} intent(s) forwarded`;
+        render(entries);
+      } catch (e) {
+        status.textContent = `messages endpoint unreachable (${e.message})`;
+      }
+    }
+
+    function render(entries) {
+      if (entries.length === 0) return;
+      feed.querySelector(".empty")?.remove();
+      for (const entry of entries) {
+        const key = entry.md.intent_id;
+        if (knownIds.has(key)) continue;
+        knownIds.add(key);
+        feed.insertBefore(card(entry), feed.firstChild);
+      }
+      while (feed.children.length > 100) feed.lastChild.remove();
+    }
+
+    function card(entry) {
+      const { md } = entry;
+      const isCam = md.target_kind === "camera";
+      const el = document.createElement("div");
+      el.className = `item${isCam ? " addressed" : ""}`;
+      const src = md.source ?? "?";
+      const tgt = md.target_kind;
+      const tgtName = md.target ? ` → ${md.target}` : "";
+      const ts = (md.intent_ts ?? "").slice(11, 19);
+      el.innerHTML = `
+        <div class="head">
+          <span class="badge">${escapeHtml(tgt || "?")}${escapeHtml(tgtName)}</span>
+          <span class="src">${escapeHtml(src)}</span>
+          <span>${escapeHtml(ts)}</span>
+          <span>conf ${Math.round((md.confidence ?? 0) * 100)}%</span>
+        </div>
+        <div class="text">${escapeHtml(md.text || "")}</div>
+      `;
+      return el;
+    }
+
+    function escapeHtml(s) {
+      return String(s ?? "").replace(/[&<>"']/g, (c) => (
+        { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]
+      ));
+    }
+
+    tick();
+    setInterval(tick, 1500);
+  </script>
+</body>
+</html>

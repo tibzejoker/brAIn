@@ -24,6 +24,25 @@ async function main(): Promise<void> {
   if (voiceLink) voiceLink.href = __VOICE_WEB__;
   if (gazeLink) gazeLink.href = __GAZE_WEB__;
 
+  // "turn mic/cam on" — open the respective UI in a small popup with
+  // ?auto_start=1. The voice / gaze web apps read that flag and fire
+  // their own Start button as soon as they load, so the user gesture
+  // of clicking here carries through the mic/camera permission prompt
+  // without a second manual click.
+  const micBtn = document.getElementById("mic-on");
+  const camBtn = document.getElementById("cam-on");
+  const openWith = (base: string, opts: { w: number; h: number; name: string }): void => {
+    const url = new URL(base);
+    url.searchParams.set("auto_start", "1");
+    window.open(
+      url.toString(),
+      opts.name,
+      `popup=yes,width=${opts.w},height=${opts.h}`,
+    );
+  };
+  micBtn?.addEventListener("click", () => openWith(__VOICE_WEB__, { w: 520, h: 720, name: "voice" }));
+  camBtn?.addEventListener("click", () => openWith(__GAZE_WEB__, { w: 640, h: 540, name: "gaze" }));
+
   const persons = new PersonsPanel(personsHost);
   const timeline = new TimelineView(timelineHost, () => persons.all);
   const intents = new IntentsFeed(intentsHost, () => persons.all);

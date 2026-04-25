@@ -16,12 +16,17 @@ header {
   padding: 12px 20px; border-bottom: 1px solid var(--border); gap: 16px;
 }
 h1 { margin: 0; font-size: 18px; letter-spacing: 0.02em; color: var(--accent); }
-.subnav { display: flex; gap: 12px; margin-right: auto; }
+.subnav { display: flex; gap: 10px; margin-right: auto; align-items: center; }
 .subnav a {
   color: var(--muted); text-decoration: none; font-size: 13px;
   padding: 2px 8px; border-radius: 4px; border: 1px solid var(--border);
 }
 .subnav a:hover { color: var(--text); background: #1f2937; }
+.subnav .launch {
+  background: #0b1220; border: 1px solid var(--accent); color: var(--accent);
+  padding: 4px 10px; border-radius: 4px; font-size: 13px; cursor: pointer;
+}
+.subnav .launch:hover { background: var(--accent); color: #0b1220; }
 h2 { margin: 0; font-size: 14px; color: var(--muted); font-weight: 500; }
 .hint { color: var(--muted); font-style: italic; padding: 8px; }
 
