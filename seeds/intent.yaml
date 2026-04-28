@@ -1,0 +1,40 @@
+# Full perception stack: voice + gaze + intent.
+# Each node spawns its own backing Python server (voice/gaze) or runs pure
+# TS (intent). Intent subscribes to voice.transcript + gaze.target.resolved
+# and emits intent.detected.
+nodes:
+  - type: voice
+    name: voice
+    description: "Local STT + diarization."
+    priority: 5
+    position: { x: 100, y: 250 }
+    subscriptions:
+      - topic: "voice.control"
+      - topic: "voice.speaker.rename"
+    config_overrides:
+      response_topic: "voice.status"
+
+  - type: gaze
+    name: gaze
+    description: "Local face detection + gaze direction."
+    priority: 5
+    position: { x: 100, y: 450 }
+    subscriptions:
+      - topic: "gaze.control"
+      - topic: "gaze.face.rename"
+    config_overrides:
+      response_topic: "gaze.status"
+
+  - type: intent
+    name: intent
+    description: "Correlator over voice + gaze events."
+    priority: 5
+    position: { x: 500, y: 350 }
+    subscriptions:
+      - topic: "voice.transcript"
+      - topic: "gaze.target.resolved"
+      - topic: "intent.persons.create"
+      - topic: "intent.persons.update"
+      - topic: "intent.persons.delete"
+    config_overrides:
+      response_topic: "intent.detected"
