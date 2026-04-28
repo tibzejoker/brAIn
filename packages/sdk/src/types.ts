@@ -224,11 +224,15 @@ export type NodeHandler = (ctx: NodeContext) => Promise<void>;
  * `NodeTeardown`. Use it to acquire process-level resources (e.g. boot a
  * child server) eagerly, before any message reaches the handler.
  *
+ * Receives the spawned `NodeInfo` so the implementation can stash the
+ * node id (needed to publish on the bus from background tasks like a
+ * long-lived WebSocket bridge).
+ *
  * Fire-and-forget from the runner's perspective. Failures are logged but
  * don't block the start flow; the handler can recover lazily on its first
  * invocation.
  */
-export type NodeOnSpawn = () => Promise<void> | void;
+export type NodeOnSpawn = (info: NodeInfo) => Promise<void> | void;
 
 /**
  * Optional teardown hook called once when the node is killed or stopped.

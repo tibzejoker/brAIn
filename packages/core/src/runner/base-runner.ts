@@ -93,8 +93,9 @@ export abstract class BaseRunner {
     this.onSpawnFired = true;
     const fn = this.onSpawn;
     if (!fn) return;
+    const info = this.nodeInfo;
     void Promise.resolve()
-      .then(() => fn())
+      .then(() => fn(info))
       .catch((err: unknown) => {
         this.log.error(`onSpawn failed: ${err instanceof Error ? err.message : String(err)}`);
         logger.error({ err, node: this.nodeInfo.name }, "onSpawn failed");
