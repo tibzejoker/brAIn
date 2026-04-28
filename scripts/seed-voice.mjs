@@ -42,7 +42,11 @@ async function main() {
   console.log("[seed-voice]   curl -X POST http://localhost:8765/api/capture/start -H 'content-type: application/json' -d '{}'");
   console.log("[seed-voice]   curl -X POST http://localhost:8765/api/capture/stop");
 
-  // Hold the process open so concurrently keeps the stack alive.
+  // Hold the process open so concurrently doesn't consider this pane "done"
+  // and tear down the stack via --kill-others. `await new Promise(() => {})`
+  // alone doesn't suffice — Node exits when libuv has no active handle.
+  // setInterval registers one, so the loop stays alive until SIGTERM/SIGINT.
+  setInterval(() => {}, 1 << 30);
   await new Promise(() => {});
 }
 

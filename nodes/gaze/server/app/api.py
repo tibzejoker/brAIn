@@ -5,15 +5,30 @@ import base64
 import logging
 
 from fastapi import APIRouter, File, HTTPException, UploadFile
+from fastapi.responses import Response
 
 from .engine import GazeEngine
+from .local_capture import CaptureError, LocalCapture, list_input_devices
 from .models import DetectBase64In, DetectResponse, MergeIn, ProfileIn, ProfilePatch
 from .profiles import ProfileStore
+from pydantic import BaseModel
 
 log = logging.getLogger(__name__)
 
 
-def build_router(store: ProfileStore, engine: GazeEngine) -> APIRouter:
+class CaptureStartIn(BaseModel):
+    device: int = 0
+    fps: float = 6.0
+    describe: bool = False
+
+
+class CaptureDescribeIn(BaseModel):
+    enabled: bool
+
+
+def build_router(
+    store: ProfileStore, engine: GazeEngine, capture: LocalCapture,
+) -> APIRouter:
     router = APIRouter(prefix="/api", tags=["gaze"])
 
     @router.get("/health")
@@ -114,5 +129,51 @@ def build_router(store: ProfileStore, engine: GazeEngine) -> APIRouter:
         if not data:
             raise HTTPException(400, "empty image")
         return engine.analyze(data, remember=body.remember, describe=body.describe)
+
+    @router.get("/capture/devices")
+    def capture_devices() -> list[dict]:
+        try:
+            return list_input_devices()
+        except CaptureError as e:
+            raise HTTPException(503, str(e)) from e
+
+    @router.get("/capture/status")
+    def capture_status() -> dict:
+        return capture.status()
+
+    @router.post("/capture/start")
+    def capture_start(body: CaptureStartIn) -> dict:
+        try:
+            return capture.start(
+                device=body.device, fps=body.fps, describe=body.describe,
+            )
+        except CaptureError as e:
+            raise HTTPException(503, str(e)) from e
+
+    @router.post("/capture/stop")
+    def capture_stop() -> dict:
+        return capture.stop()
+
+    @router.post("/capture/describe")
+    def capture_describe(body: CaptureDescribeIn) -> dict:
+        return capture.set_describe(body.enabled)
+
+    @router.get("/capture/preview.jpg")
+    def capture_preview() -> Response:
+        jpeg = capture.latest_preview()
+        if jpeg is None:
+            raise HTTPException(404, "no frame available — start capture first")
+        # no-store so browsers refetch every <img> reload.
+        return Response(
+            content=jpeg, media_type="image/jpeg",
+            headers={"Cache-Control": "no-store"},
+        )
+
+    @router.get("/capture/latest")
+    def capture_latest() -> dict:
+        resp = capture.latest_response()
+        if resp is None:
+            return {"width": 0, "height": 0, "faces": [], "elapsed_ms": {}}
+        return resp.model_dump()
 
     return router

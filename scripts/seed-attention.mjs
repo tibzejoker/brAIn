@@ -78,6 +78,9 @@ async function main() {
     );
   }
   // Hold the process so concurrently doesn't consider this pane "done".
+  // setInterval registers a libuv handle so Node stays alive — `await` on
+  // a never-resolving Promise alone is not enough.
+  setInterval(() => {}, 1 << 30);
   await new Promise(() => {});
 }
 
