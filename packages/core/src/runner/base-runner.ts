@@ -1,6 +1,8 @@
 import {
   type NodeInfo,
   type NodeHandler,
+  type NodeOnSpawn,
+  type NodeTeardown,
   type NodeContext,
   type Message,
   type WakeCondition,
@@ -48,6 +50,9 @@ export abstract class BaseRunner {
   protected sleepRequested = false;
   protected pendingSleepConditions: WakeCondition[] = [];
 
+  private teardownFired = false;
+  private onSpawnFired = false;
+
   // Shared
   protected iteration = 0;
   protected readonly state: Record<string, unknown> = {};
@@ -59,6 +64,8 @@ export abstract class BaseRunner {
     protected readonly handler: NodeHandler,
     protected readonly deps: RunnerDeps,
     runMode?: RunMode,
+    protected readonly teardown?: NodeTeardown,
+    protected readonly onSpawn?: NodeOnSpawn,
   ) {
     this.handlerTimeoutMs = typeof nodeInfo.config_overrides?.handler_timeout_ms === "number"
       ? nodeInfo.config_overrides.handler_timeout_ms
@@ -77,7 +84,21 @@ export abstract class BaseRunner {
     this.deps.bus.on(`message:${this.nodeInfo.id}`, this.messageListener);
 
     this.watcherTimer = setInterval(() => { this.tryRun(); }, WATCHER_INTERVAL_MS);
+    this.runOnSpawn();
     this.tryRun();
+  }
+
+  private runOnSpawn(): void {
+    if (this.onSpawnFired) return;
+    this.onSpawnFired = true;
+    const fn = this.onSpawn;
+    if (!fn) return;
+    void Promise.resolve()
+      .then(() => fn())
+      .catch((err: unknown) => {
+        this.log.error(`onSpawn failed: ${err instanceof Error ? err.message : String(err)}`);
+        logger.error({ err, node: this.nodeInfo.name }, "onSpawn failed");
+      });
   }
 
   stop(): void {
@@ -88,6 +109,23 @@ export abstract class BaseRunner {
       this.messageListener = undefined;
     }
     this.deps.sleepService.unregisterSleep(this.nodeInfo.id);
+    this.runTeardown();
+  }
+
+  private runTeardown(): void {
+    if (this.teardownFired) return;
+    this.teardownFired = true;
+    const t = this.teardown;
+    if (!t) return;
+    // Fire-and-forget: SIGTERM-style cleanups should be quick. Errors get
+    // logged but don't block the kill flow — the registry/runner tear-down
+    // continues either way.
+    void Promise.resolve()
+      .then(() => t())
+      .catch((err: unknown) => {
+        this.log.error(`teardown failed: ${err instanceof Error ? err.message : String(err)}`);
+        logger.error({ err, node: this.nodeInfo.name }, "teardown failed");
+      });
   }
 
   tick(): void { this.tryRun(); }

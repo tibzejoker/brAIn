@@ -3,12 +3,13 @@ from __future__ import annotations
 
 from fastapi import APIRouter, HTTPException
 
-from .models import ControlIn, MergeIn, ProfileIn, ProfilePatch
+from .local_capture import CaptureError, LocalCapture, list_input_devices
+from .models import CaptureStartIn, ControlIn, MergeIn, ProfileIn, ProfilePatch
 from .profiles import ProfileStore
 from .ws import SessionHub
 
 
-def build_router(store: ProfileStore, hub: SessionHub) -> APIRouter:
+def build_router(store: ProfileStore, hub: SessionHub, capture: LocalCapture) -> APIRouter:
     router = APIRouter(prefix="/api", tags=["voice"])
 
     @router.get("/health")
@@ -96,5 +97,27 @@ def build_router(store: ProfileStore, hub: SessionHub) -> APIRouter:
     @router.patch("/tuning")
     def patch_tuning(body: dict[str, float]) -> dict[str, float]:
         return hub.engine.set_tuning(**body)
+
+    @router.get("/capture/devices")
+    def capture_devices() -> list[dict]:
+        try:
+            return list_input_devices()
+        except CaptureError as e:
+            raise HTTPException(503, str(e)) from e
+
+    @router.get("/capture/status")
+    def capture_status() -> dict:
+        return capture.status()
+
+    @router.post("/capture/start")
+    async def capture_start(body: CaptureStartIn) -> dict:
+        try:
+            return await capture.start(body.device, body.session_id or "default")
+        except CaptureError as e:
+            raise HTTPException(503, str(e)) from e
+
+    @router.post("/capture/stop")
+    async def capture_stop() -> dict:
+        return await capture.stop()
 
     return router

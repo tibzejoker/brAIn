@@ -32,6 +32,13 @@ class ControlIn(BaseModel):
     session_id: str | None = None
 
 
+class CaptureStartIn(BaseModel):
+    # Sounddevice accepts either an integer index or a substring of the
+    # device name. None → system default input.
+    device: int | str | None = None
+    session_id: str | None = None
+
+
 class SegmentEvent(BaseModel):
     type: Literal["segment"] = "segment"
     session_id: str

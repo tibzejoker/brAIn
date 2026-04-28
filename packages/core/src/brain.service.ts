@@ -1,6 +1,9 @@
 import {
   type NodeInfo,
   type NodeHandler,
+  type NodeModule,
+  type NodeOnSpawn,
+  type NodeTeardown,
   type NodeInstanceConfig,
   type NodeState,
 } from "@brain/sdk";
@@ -201,10 +204,12 @@ export class BrainService extends EventEmitter {
     });
   }
 
-  private async loadHandler(_typeName: string, typePath: string): Promise<NodeHandler> {
+  private async loadHandler(_typeName: string, typePath: string): Promise<NodeModule> {
     const mod = await import(require.resolve(typePath)) as Record<string, unknown>;
     const h = (mod.handler ?? mod.default) as NodeHandler | undefined;
     if (!h) throw new Error(`No handler in ${typePath}`);
-    return h;
+    const teardown = mod.teardown as NodeTeardown | undefined;
+    const onSpawn = mod.onSpawn as NodeOnSpawn | undefined;
+    return { handler: h, teardown, onSpawn };
   }
 }

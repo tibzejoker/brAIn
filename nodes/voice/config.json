@@ -15,5 +15,6 @@
     "voice.speaker.identified",
     "voice.status"
   ],
+  "has_ui": true,
   "supports_transport": ["process"]
 }
