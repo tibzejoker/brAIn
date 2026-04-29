@@ -252,6 +252,11 @@ Pour répondre à la critique "pub/sub = enfer à debugger en prod".
   handler appelle `ctx.publish` / `ctx.respond`. Le `WebRunner` propage
   via les frames pour préserver la chaîne au-delà du process. Endpoint
   `GET /network/traces/:trace_id` renvoie la chaîne ordonnée.
+- [x] **6.1b Trace viewer** dans le dashboard: chaque ligne du
+  `MessageLog` expose une icône ⛓ qui ouvre une `TraceModal` listant
+  toute la chaîne causale (récupérée via `GET /network/traces/:id`).
+  Indentation par profondeur basée sur `parent_id` → on voit qui a
+  causé qui. Loading + 404 friendly handlés.
 - [ ] **6.2 Dead-letter queue**: messages qui causent un crash
   handler 3x sont déplacés dans un mailbox dédié pour inspection.
 - [ ] **6.3 Backpressure metrics**: par souscription, exposer

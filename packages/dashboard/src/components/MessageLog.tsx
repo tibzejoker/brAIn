@@ -1,5 +1,6 @@
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import type { Message } from "../api/types";
+import { TraceModal } from "./TraceModal";
 
 interface MessageLogProps {
   messages: Message[];
@@ -47,6 +48,7 @@ export function MessageLog({
   onMinCriticalityChange,
 }: MessageLogProps): React.ReactElement {
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [openTraceId, setOpenTraceId] = useState<string | null>(null);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -96,7 +98,7 @@ export function MessageLog({
         {messages.map((msg) => (
           <div
             key={msg.id}
-            className="flex items-baseline gap-2 py-0.5 text-xs font-mono"
+            className="flex items-baseline gap-2 py-0.5 text-xs font-mono group"
           >
             <span className="text-text-muted shrink-0">
               {formatTime(msg.timestamp)}
@@ -113,9 +115,26 @@ export function MessageLog({
             <span className="text-text truncate">
               {truncate(payloadText(msg.payload), 80)}
             </span>
+            {msg.trace_id && (
+              <button
+                onClick={() => setOpenTraceId(msg.trace_id ?? null)}
+                title={`Show causal trace ${msg.trace_id}`}
+                className="ml-auto shrink-0 text-text-muted/40 hover:text-accent opacity-0 group-hover:opacity-100 transition-opacity"
+              >
+                ⛓
+              </button>
+            )}
           </div>
         ))}
       </div>
+
+      {openTraceId && (
+        <TraceModal
+          traceId={openTraceId}
+          nodeNames={nodeNames}
+          onClose={() => setOpenTraceId(null)}
+        />
+      )}
     </div>
   );
 }

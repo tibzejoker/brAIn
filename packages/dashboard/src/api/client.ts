@@ -46,6 +46,10 @@ export function getMessages(opts?: {
   return request(`/network/messages${qs ? `?${qs}` : ""}`);
 }
 
+export function getTrace(traceId: string): Promise<Message[]> {
+  return request(`/network/traces/${encodeURIComponent(traceId)}`);
+}
+
 export function spawnNode(config: NodeInstanceConfig): Promise<NodeSnapshot> {
   return request("/nodes", {
     method: "POST",
