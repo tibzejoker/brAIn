@@ -92,6 +92,8 @@ export class Agent {
 
     // Listen for remote spawn/kill requests addressed to this agent.
     this.attachControlChannel();
+    // Answer log/mailbox read-back requests from the API.
+    this.attachReadbackChannel();
 
     // Graceful shutdown so child runners' teardowns fire.
     const onSignal = (sig: NodeJS.Signals): void => {
@@ -175,6 +177,27 @@ export class Agent {
     } catch (err) {
       logger.warn({ err, topic }, "agent: control handler failed");
     }
+  }
+
+  /**
+   * Register NATS request-reply handlers so the API can read this
+   * agent's local node logs and mailboxes synchronously. The
+   * payload is `{ node_id, last? }`; the response mirrors what
+   * `BrainService.getNodeLogs` / `getNodeMailboxes` would return for
+   * a local node.
+   */
+  private attachReadbackChannel(): void {
+    const brain = this.brain;
+    const bus = this.natsBus;
+    if (!brain || !bus) return;
+    bus.respondToRequests(`brain.agents.${this.id}.read.logs`, (payload) => {
+      const { node_id, last } = payload as { node_id: string; last?: number };
+      return brain.getNodeLogs(node_id, last);
+    });
+    bus.respondToRequests(`brain.agents.${this.id}.read.mailboxes`, (payload) => {
+      const { node_id } = payload as { node_id: string };
+      return brain.getNodeMailboxes(node_id);
+    });
   }
 
   private announce(): void {

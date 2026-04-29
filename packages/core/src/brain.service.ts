@@ -12,7 +12,7 @@ import type Database from "better-sqlite3";
 import EventEmitter from "eventemitter3";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { BusService, type IBusService } from "./bus";
+import { BusService, type IBusService, type NatsBusService } from "./bus";
 import { TypeRegistry, InstanceRegistry, DynamicTypeScanner, type DynamicScannerOptions } from "./registry";
 import { AuthorityService } from "./authority";
 import { type BaseRunner, SleepService } from "./runner";
@@ -232,6 +232,40 @@ export class BrainService extends EventEmitter {
   tickNode(id: string): boolean { const r = this.runners.get(id); if (!r) return false; r.tick(); return true; }
   tickAll(): number { let n = 0; for (const [, r] of this.runners) { r.tick(); n++; } return n; }
   getNodeLogs(id: string, last?: number): Array<{ timestamp: number; level: string; message: string; data?: Record<string, unknown> }> { return this.runners.get(id)?.getLogs(last) ?? []; }
+
+  /**
+   * Read logs for a node regardless of locality. Local nodes return
+   * synchronously via the runner buffer; remote nodes are fetched via
+   * NATS request-reply against the hosting agent. Returns [] if the
+   * agent doesn't respond within the timeout (the controller turns
+   * that into an empty list rather than 500-ing).
+   */
+  async getNodeLogsAny(
+    id: string,
+    last?: number,
+  ): Promise<Array<{ timestamp: number; level: string; message: string; data?: Record<string, unknown> }>> {
+    const agentId = this.remoteNodes.get(id);
+    if (!agentId) return this.getNodeLogs(id, last);
+    const bus = this.bus as { requestRemote?: typeof NatsBusService.prototype.requestRemote };
+    if (!bus.requestRemote) return [];
+    try {
+      return await bus.requestRemote(`brain.agents.${agentId}.read.logs`, { node_id: id, last });
+    } catch { return []; }
+  }
+
+  /**
+   * Read mailboxes for a node regardless of locality. Same fallback
+   * semantics as `getNodeLogsAny` above.
+   */
+  async getNodeMailboxesAny(id: string): Promise<ReturnType<BusService["getMailboxes"]>> {
+    const agentId = this.remoteNodes.get(id);
+    if (!agentId) return this.getNodeMailboxes(id);
+    const bus = this.bus as { requestRemote?: typeof NatsBusService.prototype.requestRemote };
+    if (!bus.requestRemote) return [];
+    try {
+      return await bus.requestRemote(`brain.agents.${agentId}.read.mailboxes`, { node_id: id });
+    } catch { return []; }
+  }
 
   setDevMode(on: boolean): void {
     this.globalRunMode = on ? "manual" : "auto";

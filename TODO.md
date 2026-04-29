@@ -192,11 +192,17 @@ Le pari le plus ambitieux. Justifie le "N" du sigle.
   dashboard) avec `target_agent_id`. **Test**: nouveau cas dans
   `tests/remote-spawn.test.ts` qui spawn un echo distant, applique
   stop puis start puis kill et vérifie l'état des deux côtés.
-- [ ] **4.5d Read-back distant** (logs / mailbox): pour qu'un node
-  distant soit aussi observable qu'un local, ajouter request-reply
-  NATS — `brain.agents.<id>.read.logs` / `.read.mailboxes` — et
-  variantes async sur `BrainService` consommées par les controllers.
-  Plus invasif, séparé du control plane.
+- [x] **4.5d Read-back distant** (logs / mailbox): `NatsBusService`
+  expose `requestRemote()` + `respondToRequests()` (NATS request-reply
+  natif). L'agent répond aux subjects `brain.agents.<id>.read.logs`
+  / `.read.mailboxes`. Le controller consomme les variantes async
+  `getNodeLogsAny` / `getNodeMailboxesAny` sur `BrainService`, qui
+  routent automatiquement local vs distant. Bonus: `consumeRemote`
+  filtre maintenant les payloads non-enveloppe pour ne pas envoyer
+  les RPC dans le router de bus. **Test**: nouveau cas dans
+  `tests/remote-spawn.test.ts` qui spawn un echo distant, lui envoie
+  un message, puis lit logs + mailboxes via l'API et vérifie que
+  les deux remontent les bonnes données depuis l'agent.
 
 ---
 

@@ -204,4 +204,70 @@ describe.skipIf(!HAS_NATS)("Remote spawn (transport: remote)", () => {
     await apiBus.close();
     await agentBus.close();
   });
+
+  it("API reads remote node logs via NATS request-reply", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "remote-readback-"));
+    const nodesDir = resolve(__dirname, "..", "nodes");
+
+    const apiBus = new NatsBusService({ url: `nats://127.0.0.1:${PORT}`, prefix: "rb" });
+    const agentBus = new NatsBusService({ url: `nats://127.0.0.1:${PORT}`, prefix: "rb" });
+    await apiBus.connect();
+    await agentBus.connect();
+
+    const api = new BrainService(join(scratch, "api.db"), apiBus);
+    api.bootstrap(nodesDir);
+    const agent = new BrainService(join(scratch, "agent.db"), agentBus);
+    agent.bootstrap(nodesDir);
+
+    // Wire spawn + read-back exactly like the real Agent does.
+    const ctlNode = "agent:agent-C:control";
+    agentBus.subscribe(ctlNode, "brain.agents.agent-C.spawn");
+    agentBus.on(`message:${ctlNode}`, (msg) => {
+      void (async (): Promise<void> => {
+        const data = JSON.parse((msg.payload as { content: string }).content);
+        const cfg = { ...data.config, id: data.id, transport: "process" as const };
+        await agent.spawnNode(cfg);
+      })();
+    });
+    agentBus.respondToRequests("brain.agents.agent-C.read.logs", (p) => {
+      const { node_id, last } = p as { node_id: string; last?: number };
+      return agent.getNodeLogs(node_id, last);
+    });
+    agentBus.respondToRequests("brain.agents.agent-C.read.mailboxes", (p) => {
+      const { node_id } = p as { node_id: string };
+      return agent.getNodeMailboxes(node_id);
+    });
+
+    const stub = await api.spawnNode({
+      type: "echo",
+      name: "echo-readback",
+      transport: "remote",
+      target_agent_id: "agent-C",
+      subscriptions: [{ topic: "rb.in" }],
+    });
+
+    const t0 = Date.now() + 2000;
+    while (Date.now() < t0 && !agent.instanceRegistry.get(stub.id)) await wait(50);
+
+    // Trigger a message so echo emits a log line on the agent
+    apiBus.publish({
+      from: "test", topic: "rb.in", type: "text", criticality: 1,
+      payload: { content: "ping for log" },
+    });
+    await wait(300);
+
+    const logs = await api.getNodeLogsAny(stub.id);
+    expect(Array.isArray(logs)).toBe(true);
+    expect(logs.length).toBeGreaterThan(0);
+
+    const mailboxes = await api.getNodeMailboxesAny(stub.id);
+    expect(Array.isArray(mailboxes)).toBe(true);
+    expect(mailboxes.some((mb) => mb.pattern === "rb.in")).toBe(true);
+
+    api.killNode(stub.id);
+    api.killAll();
+    agent.killAll();
+    await apiBus.close();
+    await agentBus.close();
+  });
 });

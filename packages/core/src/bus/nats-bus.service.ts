@@ -290,17 +290,57 @@ export class NatsBusService extends EventEmitter implements IBusService {
     return this.messageHistory.filter((m) => m.trace_id === traceId);
   }
 
+  /**
+   * Request-reply over NATS, used by the API to read remote node logs
+   * / mailboxes synchronously. The subject is sanitized like topics
+   * (so `brain.agents.<id>.read.logs` works as-is) and prefixed.
+   * Returns the parsed JSON response or throws on timeout.
+   */
+  async requestRemote<T = unknown>(subject: string, payload: unknown, timeoutMs = 2000): Promise<T> {
+    if (!this.nc) throw new Error("nats-bus not connected");
+    const subj = `${this.prefix}.${this.sanitizeTopic(subject)}`;
+    const reply = await this.nc.request(subj, this.codec.encode(JSON.stringify(payload)), { timeout: timeoutMs });
+    return JSON.parse(this.codec.decode(reply.data)) as T;
+  }
+
+  /**
+   * Register a NATS request handler — `respondToRequests` lets the
+   * agent answer log/mailbox queries the API makes via
+   * `requestRemote`. The handler's return value is JSON-encoded back
+   * to the caller; thrown errors come through as `{ error: "..." }`.
+   */
+  respondToRequests(subject: string, handler: (payload: unknown) => Promise<unknown> | unknown): void {
+    if (!this.nc) throw new Error("nats-bus not connected");
+    const subj = `${this.prefix}.${this.sanitizeTopic(subject)}`;
+    const sub = this.nc.subscribe(subj);
+    void (async (): Promise<void> => {
+      for await (const m of sub) {
+        try {
+          const data = JSON.parse(this.codec.decode(m.data));
+          const result = await handler(data);
+          m.respond(this.codec.encode(JSON.stringify(result)));
+        } catch (err) {
+          m.respond(this.codec.encode(JSON.stringify({ error: String(err) })));
+        }
+      }
+    })();
+  }
+
   // === Internals ===
 
   private async consumeRemote(): Promise<void> {
     if (!this.natsSub) return;
     for await (const m of this.natsSub) {
       try {
-        const env = JSON.parse(this.codec.decode(m.data)) as { origin: string; message: Message };
-        if (env.origin === this.originId) continue;  // own publish round-tripping
-        this.recordHistory(env.message);
-        this.routeLocally(env.message);
-        this.emit("message:published", env.message);
+        const parsed = JSON.parse(this.codec.decode(m.data)) as Partial<{ origin: string; message: Message }>;
+        // Request-reply traffic shares the same `<prefix>.>` subtree but
+        // has no envelope shape — skip it so the bus router doesn't
+        // try to fanout RPC payloads as if they were node messages.
+        if (!parsed.origin || !parsed.message) continue;
+        if (parsed.origin === this.originId) continue;  // own publish round-tripping
+        this.recordHistory(parsed.message);
+        this.routeLocally(parsed.message);
+        this.emit("message:published", parsed.message);
       } catch (err) {
         logger.warn({ err }, "nats-bus: malformed envelope");
       }
