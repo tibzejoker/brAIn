@@ -30,7 +30,7 @@ import {
 import { LLMRegistry, type ProviderStatus } from "./llm/llm-registry";
 import { CLIRegistry, type CLIStatus } from "./llm/cli-registry";
 import { StoreService } from "./store";
-import { AgentDirectory } from "./agents";
+import { AgentDirectory, type AgentDirectoryOptions } from "./agents";
 
 export class BrainService extends EventEmitter {
   static current: BrainService | null = null;
@@ -60,8 +60,14 @@ export class BrainService extends EventEmitter {
    *               `NatsBusService` to join a distributed bus instead of
    *               the default in-process `BusService`. The agent uses
    *               this hook.
+   * @param opts   Tunables (mostly for tests). `agentDirectory` lets
+   *               you shrink the TTL to verify expiry-driven cleanup.
    */
-  constructor(dbPath?: string, bus?: IBusService) {
+  constructor(
+    dbPath?: string,
+    bus?: IBusService,
+    opts?: { agentDirectory?: AgentDirectoryOptions },
+  ) {
     super();
     BrainService.current = this;
     (globalThis as Record<string, unknown>).__brainService = this;
@@ -72,10 +78,33 @@ export class BrainService extends EventEmitter {
     this.authority = new AuthorityService();
     this.sleepService = new SleepService(this.bus, this.instanceRegistry);
     this.sleepService.setDb(this.db);
-    this.agents = new AgentDirectory(this.bus);
+    this.agents = new AgentDirectory(this.bus, opts?.agentDirectory);
     this.agents.attach();
+    this.agents.on("agent:expired", (ann: { agent_id: string }) => {
+      this.dropExpiredAgentNodes(ann.agent_id);
+    });
     this.forwardEvents();
     this.setupHistoryRecording();
+  }
+
+  /**
+   * When an agent stops announcing past its TTL, every remote-spawned
+   * node we tracked for it is orphaned. Drop them from the local
+   * registry + remoteNodes map so the dashboard's network graph
+   * doesn't keep zombies forever. The agent may come back later under
+   * a fresh id; the user can re-spawn the nodes manually.
+   */
+  private dropExpiredAgentNodes(agentId: string): void {
+    const orphaned: string[] = [];
+    for (const [nodeId, agent] of this.remoteNodes) {
+      if (agent === agentId) orphaned.push(nodeId);
+    }
+    if (orphaned.length === 0) return;
+    logger.warn({ agentId, count: orphaned.length }, "agent expired — dropping its remote nodes");
+    for (const nodeId of orphaned) {
+      this.remoteNodes.delete(nodeId);
+      this.instanceRegistry.remove(nodeId);
+    }
   }
 
   private get deps(): LifecycleDeps {

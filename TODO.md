@@ -199,6 +199,17 @@ Le pari le plus ambitieux. Justifie le "N" du sigle.
   dashboard) avec `target_agent_id`. **Test**: nouveau cas dans
   `tests/remote-spawn.test.ts` qui spawn un echo distant, applique
   stop puis start puis kill et vérifie l'état des deux côtés.
+- [x] **4.5e Cleanup des nodes zombies**: `AgentDirectory` étend
+  EventEmitter et émet `agent:added` / `agent:expired` via une sweep
+  périodique. `BrainService` souscrit à `agent:expired` et appelle
+  `dropExpiredAgentNodes(agentId)` qui retire toute remote-node
+  enregistrée pour cet agent (de `remoteNodes` + `instanceRegistry`).
+  Sans ça, un agent qui crashe laissait ses nodes en zombie dans le
+  graphe du dashboard. Le constructeur de `BrainService` accepte
+  désormais un `opts.agentDirectory` pour configurer TTL et sweep
+  interval (utile en test). **Test**: nouveau cas dans
+  `tests/agent.test.ts` qui injecte une seule annonce, spawn un node
+  remote dessus, et vérifie qu'il disparaît passé le TTL.
 - [x] **4.5d Read-back distant** (logs / mailbox): `NatsBusService`
   expose `requestRemote()` + `respondToRequests()` (NATS request-reply
   natif). L'agent répond aux subjects `brain.agents.<id>.read.logs`

@@ -13,7 +13,8 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Agent, AgentDirectory } from "../packages/agent/src/agent";
-import { NatsBusService } from "@brain/core";
+import { BrainService, NatsBusService } from "@brain/core";
+import { resolve } from "node:path";
 
 const HAS_NATS = spawnSync("which", ["nats-server"]).status === 0;
 const PORT = 24222 + Math.floor(Math.random() * 500);
@@ -112,5 +113,49 @@ describe.skipIf(!HAS_NATS)("brAIn-agent + AgentDirectory", () => {
     expect((got[0].payload as { content: string }).content).toBe("hello-from-api");
 
     await apiBus.close(); await agentBus.close();
+  });
+
+  it("API drops a remote node's local stub when its agent stops announcing", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "agent-expire-"));
+    const apiBus = new NatsBusService({ url: `nats://127.0.0.1:${PORT}`, prefix: "agt3" });
+    await apiBus.connect();
+    // Aggressive TTL so the test runs in a couple of seconds.
+    const api = new BrainService(
+      join(scratch, "api.db"),
+      apiBus,
+      { agentDirectory: { ttlMs: 600, sweepIntervalMs: 100 } },
+    );
+    api.bootstrap(resolve(__dirname, "..", "nodes"));
+
+    // Inject one announcement so the agent is "alive" briefly.
+    apiBus.publish({
+      from: "agent:dying-agent", topic: "brain.agents.discover",
+      type: "text", criticality: 0,
+      payload: { content: JSON.stringify({
+        agent_id: "dying-agent", host: "ghost", pid: 1,
+        started_at: Date.now(), types: ["echo"], ts: Date.now(),
+      }) },
+    });
+    await wait(150);
+    expect(api.agents.has("dying-agent")).toBe(true);
+
+    // Spawn a remote node addressed to that agent. No real agent
+    // process is running — we only test the API's stub bookkeeping.
+    const stub = await api.spawnNode({
+      type: "echo", name: "zombie-echo",
+      transport: "remote", target_agent_id: "dying-agent",
+    });
+    expect(api.instanceRegistry.get(stub.id)).toBeDefined();
+
+    // Wait past the TTL — the sweep should fire, the agent is dropped
+    // and dropExpiredAgentNodes cleans up the orphaned stub.
+    const deadline = Date.now() + 2000;
+    while (Date.now() < deadline && api.instanceRegistry.get(stub.id)) await wait(50);
+    expect(api.instanceRegistry.get(stub.id)).toBeUndefined();
+    expect(api.agents.has("dying-agent")).toBe(false);
+
+    api.agents.detach();
+    api.killAll();
+    await apiBus.close();
   });
 });
