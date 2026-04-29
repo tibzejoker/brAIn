@@ -1,24 +1,21 @@
-# Vocal-chat: parler au LLM par la voix, voir et répondre par clavier dans le chat.
+# Vocal-chat: parler au LLM par la voix, voir/répondre dans le chat.
 #
-# Topology (real one — checked against each node's config.json):
+# Topology (no attention bridge — brain consumes intent directly):
 #
 #   voice  ──voice.transcript──────┐
 #   gaze   ──gaze.target.resolved──┤
 #                                  ▼
-#                              intent  (also exposes HTTP API on :8767)
-#                                  │
-#                                  ▼ (HTTP poll, NOT bus)
-#                              attention ──intent.output──> chat (visu)
-#                                        ──brain.input────> brain (consciousness)
+#                              intent ──intent.detected──┬──> consciousness (brain LLM)
+#                                                        └──> chat (visu)
 #
-#   chat   ──chat.input───────────────────> brain
-#   brain  ──chat.response────────────────> chat
+#   chat   ──chat.input─────────────> consciousness
+#   brain  ──chat.response──────────> chat
 #
 # Run: `pnpm dev:vocal-chat` (requires `ollama serve` + `ollama pull gemma4:e4b`).
 nodes:
   # ── PERCEPTION ────────────────────────────────────────────────
-  # Both voice and gaze keep their default subscriptions/publishes
-  # from each node's config.json. No overrides needed here.
+  # voice + gaze keep their default subscriptions / publishes from each
+  # node's config.json — no override needed.
   - type: voice
     name: voice
     description: "Local STT + diarization. Mic → voice.transcript."
@@ -33,38 +30,24 @@ nodes:
 
   # ── CORRELATION ───────────────────────────────────────────────
   # intent's defaults already cover voice.transcript + gaze.target.resolved
-  # as inputs and intent.detected + intent.persons.changed as outputs.
+  # as inputs and intent.detected as the canonical output.
   - type: intent
     name: intent
-    description: "Pairs voice utterances with gaze targets. Emits intent.detected; HTTP API consumed by attention."
+    description: "Pairs voice utterances with gaze targets. Emits intent.detected on the bus."
     priority: 5
     position: { x: 400, y: 300 }
 
-  # ── BRIDGE (HTTP poll → bus) ──────────────────────────────────
-  # attention is "dumb" — it doesn't gate. It polls intent's HTTP API
-  # and fans out every utterance to:
-  #   - intent.output  (raw — chat displays it)
-  #   - brain.input    (consciousness gets every spoken line and decides
-  #                     for itself whether/how to reply)
-  - type: attention
-    name: attention
-    description: "Polls intent's HTTP API and forwards every utterance to brain.input + intent.output."
-    priority: 8
-    position: { x: 750, y: 300 }
-
   # ── CONSCIOUSNESS ─────────────────────────────────────────────
-  # Subscribes to:
-  #   - brain.*    catches brain.input from attention (default already covers this)
-  #   - chat.input typed human messages
-  #   - alerts.*   urgent broadcasts
-  # Publishes its replies on chat.response via response_topic.
+  # Subscribes directly to intent.detected (every correlated utterance)
+  # plus chat.input (typed messages). Replies via response_topic.
   - type: brain
     name: consciousness
-    description: "LLM brain. Reads spoken (brain.input via attention) + typed (chat.input) messages; replies on chat.response."
+    description: "LLM brain. Hears intent.detected (spoken) + chat.input (typed); replies on chat.response."
     priority: 10
-    position: { x: 1100, y: 300 }
+    position: { x: 800, y: 300 }
     subscriptions:
       - topic: "brain.*"
+      - topic: "intent.detected"
       - topic: "chat.input"
       - topic: "alerts.*"
     config_overrides:
@@ -74,14 +57,14 @@ nodes:
       max_steps: 6
 
   # ── HUMAN INTERFACE ───────────────────────────────────────────
-  # chat already publishes chat.input by default. We override its
-  # subscriptions so the user sees both the brain's replies and the
-  # raw spoken stream the network is hearing in real time.
+  # chat publishes chat.input by default. We sub it to the brain's
+  # replies and the raw correlated utterances so the user sees both
+  # the network's "ear" and the LLM's voice.
   - type: chat
     name: human
     description: "Keyboard chat + transcript viewer. Type to talk to the brain; spoken utterances surface here too."
     priority: 5
-    position: { x: 1100, y: 100 }
+    position: { x: 800, y: 100 }
     subscriptions:
       - topic: "chat.response"
-      - topic: "intent.output"
+      - topic: "intent.detected"
