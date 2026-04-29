@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sys
 import threading
 import time
 
@@ -66,6 +67,22 @@ class ParentHeartbeat:
 
 
 def _is_alive(pid: int) -> bool:
+    if sys.platform == "win32":
+        # On Windows, signal 0 is CTRL_C_EVENT — calling os.kill(pid, 0) would
+        # broadcast Ctrl+C to the parent's console group and kill every sibling
+        # process attached to it. Use OpenProcess + GetExitCodeProcess instead.
+        import ctypes
+        PROCESS_QUERY_LIMITED_INFORMATION = 0x1000
+        STILL_ACTIVE = 259
+        kernel32 = ctypes.windll.kernel32
+        kernel32.OpenProcess.restype = ctypes.c_void_p
+        h = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
+        if not h:
+            return False
+        exit_code = ctypes.c_ulong()
+        ok = kernel32.GetExitCodeProcess(h, ctypes.byref(exit_code))
+        kernel32.CloseHandle(h)
+        return bool(ok) and exit_code.value == STILL_ACTIVE
     try:
         os.kill(pid, 0)
     except ProcessLookupError:

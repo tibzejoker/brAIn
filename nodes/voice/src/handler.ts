@@ -8,7 +8,10 @@ const HOST = process.env.VOICE_HOST ?? "127.0.0.1";
 const SERVER_URL = process.env.VOICE_SERVER_URL ?? `http://${HOST}:${PORT}`;
 const WS_URL = SERVER_URL.replace(/^http/, "ws") + "/ws/events?session_id=default";
 const SERVER_DIR = path.resolve(__dirname, "..", "server");
-const PYTHON_BIN = process.env.VOICE_PYTHON ?? path.join(SERVER_DIR, ".venv", "bin", "python");
+const VENV_PYTHON = process.platform === "win32"
+  ? path.join(SERVER_DIR, ".venv", "Scripts", "python.exe")
+  : path.join(SERVER_DIR, ".venv", "bin", "python");
+const PYTHON_BIN = process.env.VOICE_PYTHON ?? VENV_PYTHON;
 
 let serverPromise: Promise<ChildServerHandle> | null = null;
 let nodeId: string | null = null;

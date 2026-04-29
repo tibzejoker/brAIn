@@ -19,6 +19,7 @@
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
+import { logger } from "@brain/core";
 import type { IntentRecord, IntentStore, Person } from "./store";
 import type { Timeline } from "./timeline";
 
@@ -26,16 +27,18 @@ const VOICE_URL = process.env.VOICE_SERVER_URL ?? "http://127.0.0.1:8765";
 const GAZE_URL = process.env.GAZE_SERVER_URL ?? "http://127.0.0.1:8766";
 
 export interface IntentServerHandle {
+  /** True when this process bound the port; false when we attached to an existing server (orphan from a prior run). */
+  readonly spawned: boolean;
   close(): Promise<void>;
   broadcastIntent(intent: IntentRecord): void;
 }
 
-export function startIntentServer(opts: {
+export async function startIntentServer(opts: {
   port: number;
   store: IntentStore;
   timeline: Timeline;
   onPersonChange: (kind: "create" | "update" | "delete", person: Person | { id: string }) => void;
-}): IntentServerHandle {
+}): Promise<IntentServerHandle> {
   const subscribers = new Set<WebSocket>();
 
   const httpServer: Server = createServer(async (req, res) => {
@@ -52,15 +55,62 @@ export function startIntentServer(opts: {
     }
   });
 
+  // Bind with proper error handling. If another intent server is already
+  // listening (orphan from a prior run, or another `dev` shell), don't
+  // crash the API process — log and return a no-op handle that lets the
+  // correlator keep running. Attention will poll the existing server.
+  //
+  // Probe FIRST. WebSocketServer attached to httpServer also emits 'error'
+  // on bind failures, so attaching wss before we know listen() succeeded
+  // would re-throw the EADDRINUSE event from a second emitter that we
+  // can't fully silence. Probe → bind → wss is the safest order.
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const onError = (err: NodeJS.ErrnoException): void => {
+        httpServer.removeListener("listening", onListening);
+        reject(err);
+      };
+      const onListening = (): void => {
+        httpServer.removeListener("error", onError);
+        resolve();
+      };
+      httpServer.once("error", onError);
+      httpServer.once("listening", onListening);
+      httpServer.listen(opts.port);
+    });
+  } catch (err: unknown) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "EADDRINUSE") {
+      // Port already held — likely an intent server orphan from a prior
+      // pnpm dev run. We don't bind; the correlator still works, and
+      // attention's HTTP poll will hit whatever is on :8767 (which IS an
+      // intent server, so that's fine). The downside: writes via this
+      // node's API surface go to the orphan's store, not ours. Logged
+      // loudly so the dev notices and kills the orphan.
+      try { httpServer.close(); } catch { /* ignore */ }
+      const noop: IntentServerHandle = {
+        spawned: false,
+        close: () => Promise.resolve(),
+        broadcastIntent: () => { /* orphan owns the WS clients */ },
+      };
+      return noop;
+    }
+    throw err;
+  }
+
+  // httpServer is now listening — safe to attach the WebSocket server.
   const wss = new WebSocketServer({ server: httpServer, path: "/ws/intents" });
   wss.on("connection", (ws) => {
     subscribers.add(ws);
     ws.on("close", () => subscribers.delete(ws));
   });
-
-  httpServer.listen(opts.port);
+  wss.on("error", (err: Error) => {
+    // Defensive: log but don't let a runtime ws error tear down the api.
+    logger.warn({ err: err.message }, "intent: wss runtime error");
+  });
 
   return {
+    spawned: true,
     close: () => new Promise((resolve) => {
       for (const ws of subscribers) { try { ws.close(); } catch { /* ignore */ } }
       subscribers.clear();

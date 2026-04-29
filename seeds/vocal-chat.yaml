@@ -1,0 +1,70 @@
+# Vocal-chat: parler au LLM par la voix, voir/répondre dans le chat.
+#
+# Topology (no attention bridge — brain consumes intent directly):
+#
+#   voice  ──voice.transcript──────┐
+#   gaze   ──gaze.target.resolved──┤
+#                                  ▼
+#                              intent ──intent.detected──┬──> consciousness (brain LLM)
+#                                                        └──> chat (visu)
+#
+#   chat   ──chat.input─────────────> consciousness
+#   brain  ──chat.response──────────> chat
+#
+# Run: `pnpm dev:vocal-chat` (requires `ollama serve` + `ollama pull gemma4:e4b`).
+nodes:
+  # ── PERCEPTION ────────────────────────────────────────────────
+  # voice + gaze keep their default subscriptions / publishes from each
+  # node's config.json — no override needed.
+  - type: voice
+    name: voice
+    description: "Local STT + diarization. Mic → voice.transcript."
+    priority: 5
+    position: { x: 50, y: 200 }
+
+  - type: gaze
+    name: gaze
+    description: "Face detection + gaze direction. Cam → gaze.target.resolved."
+    priority: 5
+    position: { x: 50, y: 400 }
+
+  # ── CORRELATION ───────────────────────────────────────────────
+  # intent's defaults already cover voice.transcript + gaze.target.resolved
+  # as inputs and intent.detected as the canonical output.
+  - type: intent
+    name: intent
+    description: "Pairs voice utterances with gaze targets. Emits intent.detected on the bus."
+    priority: 5
+    position: { x: 400, y: 300 }
+
+  # ── CONSCIOUSNESS ─────────────────────────────────────────────
+  # Subscribes directly to intent.detected (every correlated utterance)
+  # plus chat.input (typed messages). Replies via response_topic.
+  - type: brain
+    name: consciousness
+    description: "LLM brain. Hears intent.detected (spoken) + chat.input (typed); replies on chat.response."
+    priority: 10
+    position: { x: 800, y: 300 }
+    subscriptions:
+      - topic: "brain.*"
+      - topic: "intent.detected"
+      - topic: "chat.input"
+      - topic: "alerts.*"
+    config_overrides:
+      model: "ollama/gemma4:e4b"
+      response_topic: "chat.response"
+      idle_sleep: "1m"
+      max_steps: 6
+
+  # ── HUMAN INTERFACE ───────────────────────────────────────────
+  # chat publishes chat.input by default. We sub it to the brain's
+  # replies and the raw correlated utterances so the user sees both
+  # the network's "ear" and the LLM's voice.
+  - type: chat
+    name: human
+    description: "Keyboard chat + transcript viewer. Type to talk to the brain; spoken utterances surface here too."
+    priority: 5
+    position: { x: 800, y: 100 }
+    subscriptions:
+      - topic: "chat.response"
+      - topic: "intent.detected"

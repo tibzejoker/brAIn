@@ -6,7 +6,10 @@ const PORT = process.env.GAZE_PORT ?? "8766";
 const HOST = process.env.GAZE_HOST ?? "127.0.0.1";
 const SERVER_URL = process.env.GAZE_SERVER_URL ?? `http://${HOST}:${PORT}`;
 const SERVER_DIR = path.resolve(__dirname, "..", "server");
-const PYTHON_BIN = process.env.GAZE_PYTHON ?? path.join(SERVER_DIR, ".venv", "bin", "python");
+const VENV_PYTHON = process.platform === "win32"
+  ? path.join(SERVER_DIR, ".venv", "Scripts", "python.exe")
+  : path.join(SERVER_DIR, ".venv", "bin", "python");
+const PYTHON_BIN = process.env.GAZE_PYTHON ?? VENV_PYTHON;
 const POLL_INTERVAL_MS = Number(process.env.GAZE_POLL_INTERVAL_MS ?? "300");
 
 let serverPromise: Promise<ChildServerHandle> | null = null;

@@ -37,6 +37,7 @@ let store: IntentStore | null = null;
 let timeline: Timeline | null = null;
 let correlator: IntentCorrelator | null = null;
 let server: IntentServerHandle | null = null;
+let serverBoot: Promise<void> | null = null;
 let pruneTimer: NodeJS.Timeout | null = null;
 
 function bus(): ReturnType<typeof getBusOrNull> { return getBusOrNull(); }
@@ -57,8 +58,8 @@ function publish(topic: string, payload: Record<string, unknown>, criticality = 
   });
 }
 
-function ensureBoot(): void {
-  if (store && timeline && correlator && server) return;
+function ensureBoot(): Promise<void> {
+  if (serverBoot) return serverBoot;
   fs.mkdirSync(DB_DIR, { recursive: true });
   store = new IntentStore(DB_PATH);
   timeline = new Timeline();
@@ -69,16 +70,26 @@ function ensureBoot(): void {
       publish("intent.detected", intent as unknown as Record<string, unknown>, 4);
     },
   );
-  server = startIntentServer({
+  pruneTimer = setInterval(() => timeline?.prune(Date.now() / 1000), 30_000);
+  serverBoot = startIntentServer({
     port: SERVER_PORT,
     store,
     timeline,
     onPersonChange: (kind, person) => {
       publish("intent.persons.changed", { kind, person });
     },
+  }).then((handle) => {
+    server = handle;
+    if (handle.spawned) {
+      logger.info({ port: SERVER_PORT, db: DB_PATH }, "intent node: server listening");
+    } else {
+      logger.warn(
+        { port: SERVER_PORT, db: DB_PATH },
+        "intent node: port already in use — attached to existing server (likely an orphan from a prior run; correlator runs anyway, persons writes go to the orphan's store)",
+      );
+    }
   });
-  pruneTimer = setInterval(() => timeline?.prune(Date.now() / 1000), 30_000);
-  logger.info({ port: SERVER_PORT, db: DB_PATH }, "intent node: server listening");
+  return serverBoot;
 }
 
 function ingestVoiceTranscript(metadata: Record<string, unknown>): void {
@@ -152,14 +163,14 @@ function applyPersonCommand(topic: string, payload: Record<string, unknown>): vo
   }
 }
 
-export const onSpawn: NodeOnSpawn = (info: NodeInfo) => {
+export const onSpawn: NodeOnSpawn = async (info: NodeInfo) => {
   nodeId = info.id;
-  ensureBoot();
+  await ensureBoot();
 };
 
 export const handler: NodeHandler = async (ctx) => {
   nodeId ??= ctx.node.id;
-  ensureBoot();
+  await ensureBoot();
 
   for (const msg of ctx.messages) {
     const meta = msg.metadata ?? {};
@@ -178,6 +189,7 @@ export const teardown: NodeTeardown = async () => {
   if (pruneTimer) { clearInterval(pruneTimer); pruneTimer = null; }
   if (server) { await server.close(); server = null; }
   if (store) { store.close(); store = null; }
+  serverBoot = null;
   timeline = null;
   correlator = null;
   nodeId = null;

@@ -39,38 +39,6 @@ importers:
         specifier: ^9.0.5
         version: 9.0.5
 
-  nodes/_dynamic/dev-03b43c48:
-    dependencies:
-      '@brain/sdk':
-        specifier: workspace:*
-        version: link:../../../packages/sdk
-    devDependencies:
-      '@types/node':
-        specifier: ^20.11.0
-        version: 20.19.39
-      typescript:
-        specifier: ^5.4.0
-        version: 5.9.3
-      vitest:
-        specifier: ^4.1.4
-        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@20.19.39)(vite@6.4.2(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))
-
-  nodes/_dynamic/dev-a71b209c:
-    dependencies:
-      '@brain/sdk':
-        specifier: workspace:*
-        version: link:../../../packages/sdk
-    devDependencies:
-      '@types/node':
-        specifier: ^20.11.0
-        version: 20.19.39
-      typescript:
-        specifier: ^5.4.0
-        version: 5.9.3
-      vitest:
-        specifier: ^4.1.4
-        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@20.19.39)(vite@6.4.2(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))
-
   nodes/attention:
     dependencies:
       '@brain/core':
@@ -454,6 +422,19 @@ importers:
       vite:
         specifier: ^6.3.2
         version: 6.4.2(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)
+    optionalDependencies:
+      '@rollup/rollup-darwin-arm64':
+        specifier: ^4.60.0
+        version: 4.60.1
+      '@rollup/rollup-darwin-x64':
+        specifier: ^4.60.0
+        version: 4.60.1
+      '@rollup/rollup-linux-x64-gnu':
+        specifier: ^4.60.0
+        version: 4.60.1
+      '@rollup/rollup-win32-x64-msvc':
+        specifier: ^4.60.0
+        version: 4.60.2
 
   packages/sdk:
     devDependencies:
@@ -1145,6 +1126,11 @@ packages:
 
   '@rollup/rollup-win32-x64-msvc@4.60.1':
     resolution: {integrity: sha512-lWMnixq/QzxyhTV6NjQJ4SFo1J6PvOX8vUx5Wb4bBPsEb+8xZ89Bz6kOXpfXj9ak9AHTQVQzlgzBEc1SyM27xQ==}
+    cpu: [x64]
+    os: [win32]
+
+  '@rollup/rollup-win32-x64-msvc@4.60.2':
+    resolution: {integrity: sha512-Nd/SgG27WoA9e+/TdK74KnHz852TLa94ovOYySo/yMPuTmpckK/jIF2jSwS3g7ELSKXK13/cVdmg1Z/DaCWKxA==}
     cpu: [x64]
     os: [win32]
 
@@ -4168,6 +4154,9 @@ snapshots:
     optional: true
 
   '@rollup/rollup-win32-x64-msvc@4.60.1':
+    optional: true
+
+  '@rollup/rollup-win32-x64-msvc@4.60.2':
     optional: true
 
   '@socket.io/component-emitter@3.1.2': {}

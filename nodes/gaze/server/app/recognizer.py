@@ -24,6 +24,21 @@ class DetectedFace:
     det_score: float
 
 
+def _resolve_ctx_id() -> int:
+    """Pick the InsightFace `ctx_id`: 0 (GPU) when CUDA-capable onnxruntime is
+    installed, else -1 (CPU). Keeps the same code path on Mac/Linux without
+    GPU and on machines that haven't installed onnxruntime-gpu.
+    """
+    try:
+        import onnxruntime as ort  # type: ignore[import-not-found]
+
+        if "CUDAExecutionProvider" in ort.get_available_providers():
+            return 0
+    except Exception:
+        pass
+    return -1
+
+
 class Recognizer:
     def __init__(self, model_name: str, det_size: int, root: str | None = None) -> None:
         from insightface.app import FaceAnalysis
@@ -35,10 +50,10 @@ class Recognizer:
         if root is not None:
             kwargs["root"] = root
         self._app = FaceAnalysis(**kwargs)
-        # ctx_id=-1 forces CPU. InsightFace's ORT providers pick MPS-less CPU by
-        # default on Mac — no CoreML pain to deal with.
-        self._app.prepare(ctx_id=-1, det_size=(det_size, det_size))
-        log.info("recognizer ready (model=%s det_size=%d)", model_name, det_size)
+        ctx_id = _resolve_ctx_id()
+        self._app.prepare(ctx_id=ctx_id, det_size=(det_size, det_size))
+        log.info("recognizer ready (model=%s det_size=%d ctx_id=%d)",
+                 model_name, det_size, ctx_id)
 
     def detect(self, image_bgr: np.ndarray) -> list[DetectedFace]:
         faces = self._app.get(image_bgr)
