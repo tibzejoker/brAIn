@@ -29,4 +29,5 @@ export type { AgentAnnouncement, AgentDirectoryOptions } from "./agents";
 export { StoreService } from "./store";
 export type {
   StoreRegistry, StoreRepo, StoreNode, StoreNodeStatus, StoreInstallResult,
+  StoreCandidate,
 } from "./store";

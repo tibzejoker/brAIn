@@ -79,10 +79,17 @@ plugin. Pose les bases pour les nodes générés par `developer`.
   du registry avec dot status (installed / not), badges (`py`, `ollama`,
   `ui`), bouton "Install" qui appelle l'endpoint, banner de feedback,
   refresh manuel. Ajout d'un item "⊞ Store" dans le menu nav.
-- [ ] **2.5 Adapter le `developer` node** pour publier ses
-  créations: génération auto d'un `package.json` + push sur un repo
-  GitHub temporaire (ou private gist) + ajout au store via PR
-  automatique sur `brAIn-store`.
+- [~] **2.5 Store-candidates** (partial — pragmatic v1):
+  `StoreService.listCandidates()` scanne le `TypeRegistry` pour les
+  types `origin: "dynamic"` (créés par le node `developer`) avec un
+  `dist/handler.js` build, et synthétise un manifest `StoreNode`
+  prêt à coller dans `brAIn-store/registry.json`. Endpoint REST
+  `GET /store/candidates` + section "Local candidates" dans le
+  StorePanel avec un bouton "Copy registry entry" qui copie le JSON
+  dans le presse-papier. **Reste à faire** (différé): auto-PR contre
+  `tibzejoker/brAIn-store` via `gh` — demande une auth GitHub côté
+  serveur dont la conception n'est pas figée. Le bouton "Copy" suffit
+  pour boucler la chaine création → partage manuellement.
 
 ---
 

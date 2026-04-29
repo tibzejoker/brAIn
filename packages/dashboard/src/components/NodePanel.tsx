@@ -79,8 +79,18 @@ export function NodePanel({
   return (
     <div className="w-96 border-l border-border bg-surface-raised flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-        <h2 className="text-sm font-semibold text-text truncate">{node.name}</h2>
+      <div className="flex items-center justify-between px-4 py-3 border-b border-border gap-2">
+        <div className="flex items-center gap-2 min-w-0">
+          <h2 className="text-sm font-semibold text-text truncate">{node.name}</h2>
+          {node.transport === "remote" && (
+            <span
+              title={`Hosted on agent ${node.target_agent_id ?? "?"}`}
+              className="shrink-0 px-1.5 py-0.5 text-[10px] rounded bg-accent/20 text-accent font-mono"
+            >
+              ⚯ remote
+            </span>
+          )}
+        </div>
         <button onClick={onClose} className="text-text-muted hover:text-text text-lg leading-none">
           &times;
         </button>
@@ -101,6 +111,7 @@ export function NodePanel({
             <InfoRow label="Type" value={node.type} />
             <InfoRow label="State" value={node.state} />
             <InfoRow label="Transport" value={node.transport} />
+            {node.target_agent_id && <InfoRow label="Agent" value={node.target_agent_id} mono />}
             <InfoRow label="Authority" value={String(node.authority_level)} />
             <InfoRow label="Priority" value={String(node.priority)} />
             {node.spawned_by && <InfoRow label="Spawned by" value={node.spawned_by} mono />}

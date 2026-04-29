@@ -5,4 +5,5 @@ export type {
   StoreNode,
   StoreNodeStatus,
   StoreInstallResult,
+  StoreCandidate,
 } from "./store.service";

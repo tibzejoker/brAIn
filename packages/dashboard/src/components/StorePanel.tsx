@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import {
-  getStoreNodes, installFromStore,
-  type StoreNodeStatus,
+  getStoreNodes, installFromStore, getStoreCandidates,
+  type StoreNodeStatus, type StoreCandidate,
 } from "../api/client";
 
 /**
@@ -13,18 +13,22 @@ import {
  */
 export function StorePanel({ onInstalled }: { onInstalled: () => void }): React.ReactElement {
   const [nodes, setNodes] = useState<StoreNodeStatus[]>([]);
+  const [candidates, setCandidates] = useState<StoreCandidate[]>([]);
   const [loading, setLoading] = useState(true);
   const [installing, setInstalling] = useState<string | null>(null);
   const [banner, setBanner] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null);
 
   const refresh = useCallback((): void => {
     setLoading(true);
-    getStoreNodes()
-      .then((data) => { setNodes(data); setBanner(null); })
-      .catch((err: unknown) => {
+    void Promise.all([
+      getStoreNodes().catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
         setBanner({ type: "error", message: `store unreachable — ${msg}` });
-      })
+        return [] as StoreNodeStatus[];
+      }),
+      getStoreCandidates().catch(() => [] as StoreCandidate[]),
+    ])
+      .then(([n, c]) => { setNodes(n); setCandidates(c); })
       .finally(() => setLoading(false));
   }, []);
 
@@ -75,6 +79,42 @@ export function StorePanel({ onInstalled }: { onInstalled: () => void }): React.
       <div className="flex-1 overflow-y-auto">
         {loading && (
           <div className="text-text-muted text-xs py-8 text-center">Loading registry…</div>
+        )}
+
+        {candidates.length > 0 && (
+          <div className="border-b border-border bg-accent/5">
+            <div className="px-5 py-2 text-[11px] uppercase tracking-wide text-accent font-semibold">
+              Local candidates · {candidates.length}
+              <span className="ml-2 normal-case text-text-muted font-normal">
+                authored locally — copy <code>registry_entry</code> into a PR against
+                <code className="ml-1">brAIn-store/registry.json</code> to share.
+              </span>
+            </div>
+            {candidates.map((c) => (
+              <div key={c.type_name} className="px-5 py-3 border-t border-border/40">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="w-2 h-2 rounded-full bg-accent" />
+                  <span className="text-sm font-medium text-text">{c.type_name}</span>
+                  <span className="text-xs text-text-muted font-mono">{c.package_name}</span>
+                  {c.has_ui && (
+                    <span className="px-1.5 py-0.5 text-[10px] rounded bg-surface-overlay text-text-muted">ui</span>
+                  )}
+                  <button
+                    onClick={() => {
+                      const json = JSON.stringify(c.registry_entry, null, 2);
+                      void navigator.clipboard.writeText(json);
+                      setBanner({ type: "success", message: `${c.type_name} entry copied to clipboard` });
+                    }}
+                    className="ml-auto px-2 py-1 text-[11px] rounded bg-accent/20 text-accent hover:bg-accent/30"
+                  >
+                    Copy registry entry
+                  </button>
+                </div>
+                <p className="text-xs text-text-muted mb-1">{c.description}</p>
+                <p className="text-[11px] text-text-muted font-mono truncate">{c.workspace}</p>
+              </div>
+            ))}
+          </div>
         )}
 
         {nodes.map((n) => (

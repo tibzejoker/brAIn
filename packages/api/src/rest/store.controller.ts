@@ -1,6 +1,7 @@
 import { Body, Controller, Get, HttpException, HttpStatus, Post } from "@nestjs/common";
 import {
   BrainService,
+  type StoreCandidate,
   type StoreInstallResult, type StoreNodeStatus, type StoreRegistry,
 } from "@brain/core";
 
@@ -31,6 +32,17 @@ export class StoreController {
       const msg = err instanceof Error ? err.message : String(err);
       throw new HttpException(`store unreachable: ${msg}`, HttpStatus.BAD_GATEWAY);
     }
+  }
+
+  /**
+   * Locally-built dynamic node types — what the developer node has
+   * authored — that are candidates for being added to the public
+   * store. Each entry includes a ready-made `registry_entry` the
+   * user can paste into a PR against `brAIn-store/registry.json`.
+   */
+  @Get("candidates")
+  candidates(): StoreCandidate[] {
+    return this.brain.store.listCandidates();
   }
 
   /** Clone the parent repo of a node (if absent), refresh the type registry. */

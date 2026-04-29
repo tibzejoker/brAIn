@@ -166,6 +166,29 @@ export function installFromStore(packageName: string): Promise<StoreInstallResul
   });
 }
 
+export interface StoreCandidate {
+  type_name: string;
+  package_name: string;
+  workspace: string;
+  description: string;
+  tags: string[];
+  has_ui: boolean;
+  created_by?: string;
+  created_at?: string;
+  registry_entry: {
+    name: string;
+    package_name: string;
+    version: string;
+    tags?: string[];
+    description: string;
+    has_ui?: boolean;
+  };
+}
+
+export function getStoreCandidates(): Promise<StoreCandidate[]> {
+  return request("/store/candidates");
+}
+
 // === Agents (distributed runtime) ===
 
 export interface AgentSnapshot {

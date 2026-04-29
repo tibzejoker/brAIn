@@ -61,6 +61,31 @@ export interface StoreInstallResult {
   re_scanned_types: number;
 }
 
+/**
+ * Locally-built node type that's a candidate for being published to the
+ * public store. These come from the developer node's auto-author flow
+ * (origin=dynamic): the framework already registered them so they can
+ * be spawned, but they live in `nodes/_dynamic/` and aren't in any
+ * published repo yet — the user has to copy them out + open a PR
+ * against `brAIn-store/registry.json` to share them.
+ */
+export interface StoreCandidate {
+  type_name: string;
+  /** Suggested package name for the registry — `@brain/node-<name>`. */
+  package_name: string;
+  /** Local workspace path where the built artifacts live. */
+  workspace: string;
+  description: string;
+  tags: string[];
+  has_ui: boolean;
+  /** Whoever authored it (developer node id, brain id, etc.). */
+  created_by?: string;
+  /** ISO date string when the type was first registered. */
+  created_at?: string;
+  /** A registry entry the user can paste into brAIn-store/registry.json. */
+  registry_entry: Pick<StoreNode, "name" | "package_name" | "version" | "tags" | "description" | "has_ui">;
+}
+
 export class StoreService {
   private cache: { fetched_at: number; data: StoreRegistry } | null = null;
 
@@ -148,6 +173,43 @@ export class StoreService {
       cloned_to: repoDir,
       re_scanned_types: scanned,
     };
+  }
+
+  /**
+   * List dynamic node types currently registered locally — i.e. the
+   * developer-authored ones — and turn them into store-candidate
+   * manifests. The user can then copy `registry_entry` into a PR
+   * against the public store. Skips workspaces that haven't built yet
+   * (no `dist/handler.js`).
+   */
+  listCandidates(): StoreCandidate[] {
+    const dyn = this.typeRegistry.list({ origin: "dynamic" });
+    return dyn.flatMap((cfg) => {
+      const workspace = this.typeRegistry.getPath(cfg.name);
+      if (!workspace) return [];
+      const built = fs.existsSync(path.join(workspace, "dist", "handler.js"));
+      if (!built) return [];
+      const packageName = `@brain/node-${cfg.name}`;
+      const candidate: StoreCandidate = {
+        type_name: cfg.name,
+        package_name: packageName,
+        workspace,
+        description: cfg.description,
+        tags: cfg.tags,
+        has_ui: Boolean(cfg.has_ui),
+        created_by: cfg.created_by,
+        created_at: cfg.created_at,
+        registry_entry: {
+          name: cfg.name,
+          package_name: packageName,
+          version: "0.1.0",
+          tags: cfg.tags,
+          description: cfg.description,
+          has_ui: Boolean(cfg.has_ui),
+        },
+      };
+      return [candidate];
+    });
   }
 
   /** Re-scan a freshly-installed repo's `nodes/` directory and register new types. */
