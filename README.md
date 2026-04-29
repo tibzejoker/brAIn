@@ -458,4 +458,4 @@ Must pass `pnpm lint` with **zero errors and zero warnings**.
 
 ## License
 
-[MIT](./LICENSE) — Copyright © 2026 Thibaut Leaux.
+[MIT](./LICENSE) — Copyright © 2026 Thibaut Léaux.
