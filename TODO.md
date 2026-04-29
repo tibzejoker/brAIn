@@ -174,9 +174,13 @@ Le pari le plus ambitieux. Justifie le "N" du sigle.
   - **E2e validé**: `nats-server` + API (NATS) + `brain-agent` →
     `curl /agents` retourne l'annonce avec les 17 types locaux du
     brAIn et un `ts` qui se rafraîchit toutes les 10 s.
-- [ ] **4.5b Spawn ciblé depuis le dashboard**: ajouter un sélecteur
-  "agent cible" dans le Node Creator (drop-down qui liste les agents
-  vivants + "local"), wire à `transport: "remote"` + `target_agent_id`.
+- [x] **4.5b Spawn ciblé depuis le dashboard**: `NodeCreator` fetch
+  `/agents` à l'ouverture et affiche un select "Target" (Local +
+  chaque agent vivant). Sélectionner un agent envoie automatiquement
+  `transport: "remote"` + `target_agent_id` au `POST /nodes`.
+  **E2e validé**: API+NATS+agent → `curl POST /nodes` avec
+  `transport=remote` → l'agent log `agent: spawned remote node
+  locally` avec le même id que celui retourné par l'API.
 - [ ] **4.6 Doc**: setup NATS + déploiement agent sur Raspberry Pi.
 
 ---

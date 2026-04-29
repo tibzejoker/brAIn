@@ -1,6 +1,8 @@
 import { useState, useCallback, useEffect } from "react";
 import type { NodeTypeConfig } from "../api/types";
-import { spawnNode } from "../api/client";
+import { spawnNode, getAgents, type AgentSnapshot } from "../api/client";
+
+const LOCAL_TARGET = "local";
 
 interface NodeCreatorProps {
   types: NodeTypeConfig[];
@@ -20,6 +22,8 @@ export function NodeCreator({
   const [selectedType, setSelectedType] = useState("");
   const [name, setName] = useState("");
   const [subscriptions, setSubscriptions] = useState("");
+  const [target, setTarget] = useState<string>(LOCAL_TARGET);
+  const [agents, setAgents] = useState<AgentSnapshot[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -36,14 +40,20 @@ export function NodeCreator({
     setSubscriptions(defaultSubs);
   }, [selectedType, types, existingNodeCount]);
 
-  // Reset form when opening
+  // Reset form + fetch live agents whenever the modal opens.
   useEffect(() => {
-    if (open) {
-      setSelectedType("");
-      setName("");
-      setSubscriptions("");
-      setError(null);
-    }
+    if (!open) return;
+    setSelectedType("");
+    setName("");
+    setSubscriptions("");
+    setTarget(LOCAL_TARGET);
+    setError(null);
+
+    let cancelled = false;
+    getAgents()
+      .then((list) => { if (!cancelled) setAgents(list); })
+      .catch(() => { if (!cancelled) setAgents([]); });
+    return (): void => { cancelled = true; };
   }, [open]);
 
   const handleSubmit = useCallback((): void => {
@@ -58,10 +68,12 @@ export function NodeCreator({
     setLoading(true);
     setError(null);
 
+    const remote = target !== LOCAL_TARGET;
     spawnNode({
       type: selectedType,
       name,
       subscriptions: subs.length > 0 ? subs : undefined,
+      ...(remote ? { transport: "remote", target_agent_id: target } : {}),
     })
       .then(() => {
         onSpawned();
@@ -73,7 +85,7 @@ export function NodeCreator({
       .finally(() => {
         setLoading(false);
       });
-  }, [selectedType, name, subscriptions, onSpawned, onClose]);
+  }, [selectedType, name, subscriptions, target, onSpawned, onClose]);
 
   if (!open) return null;
 
@@ -131,6 +143,34 @@ export function NodeCreator({
               placeholder="time.*, alerts.*"
               className="w-full px-3 py-2 rounded-md bg-surface-overlay border border-border text-text text-sm focus:outline-none focus:border-accent"
             />
+          </div>
+
+          <div>
+            <label className="block text-xs text-text-muted mb-1">
+              Target {agents.length > 0 && (
+                <span className="text-text-muted/70">
+                  · {agents.length} agent{agents.length > 1 ? "s" : ""} online
+                </span>
+              )}
+            </label>
+            <select
+              value={target}
+              onChange={(e) => setTarget(e.target.value)}
+              className="w-full px-3 py-2 rounded-md bg-surface-overlay border border-border text-text text-sm focus:outline-none focus:border-accent"
+            >
+              <option value={LOCAL_TARGET}>Local (this brAIn process)</option>
+              {agents.map((a) => (
+                <option key={a.agent_id} value={a.agent_id}>
+                  {a.host} · {a.agent_id}
+                </option>
+              ))}
+            </select>
+            {target !== LOCAL_TARGET && (
+              <p className="mt-1 text-[11px] text-text-muted">
+                Spawned via NATS as <code className="text-text">transport: "remote"</code>.
+                The agent must register the type locally.
+              </p>
+            )}
           </div>
 
           {error && (
