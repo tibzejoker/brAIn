@@ -3,14 +3,14 @@ import type Database from "better-sqlite3";
 import { loadAllNodes, loadSubscriptions } from "./db";
 import { logger } from "./logger";
 import { createRunner, type BaseRunner, type SleepService } from "./runner";
-import type { BusService } from "./bus";
+import type { IBusService } from "./bus";
 import type { TypeRegistry, InstanceRegistry } from "./registry";
 
 type HandlerLoader = (typeName: string, typePath: string) => Promise<NodeModule>;
 
 export async function restoreNodes(opts: {
   db: Database.Database;
-  bus: BusService;
+  bus: IBusService;
   typeRegistry: TypeRegistry;
   instanceRegistry: InstanceRegistry;
   sleepService: SleepService;

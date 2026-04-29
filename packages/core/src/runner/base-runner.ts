@@ -18,7 +18,7 @@ import {
   type RunMode,
   NodeState,
 } from "@brain/sdk";
-import type { BusService } from "../bus/bus.service";
+import type { IBusService } from "../bus/bus.interface";
 import type { InstanceRegistry } from "../registry/instance-registry";
 import type { SleepService } from "./sleep.service";
 import { NodeLog, type LogEntry } from "./node-log";
@@ -28,7 +28,7 @@ export const DEFAULT_HANDLER_TIMEOUT_MS = 60_000;
 const WATCHER_INTERVAL_MS = 1_000;
 
 export interface RunnerDeps {
-  bus: BusService;
+  bus: IBusService;
   registry: InstanceRegistry;
   sleepService: SleepService;
 }

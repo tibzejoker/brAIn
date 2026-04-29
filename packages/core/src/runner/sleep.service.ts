@@ -1,7 +1,7 @@
 import { type Message, type WakeCondition, NodeState } from "@brain/sdk";
 import type Database from "better-sqlite3";
 import { matchTopic } from "../bus/bus.matcher";
-import type { BusService } from "../bus/bus.service";
+import type { IBusService } from "../bus/bus.interface";
 import type { InstanceRegistry } from "../registry/instance-registry";
 import { saveSleepState, deleteSleepState, loadAllSleepStates } from "../db";
 import { logger } from "../logger";
@@ -22,7 +22,7 @@ export class SleepService {
   private db: Database.Database | null = null;
 
   constructor(
-    private readonly bus: BusService,
+    private readonly bus: IBusService,
     private readonly registry: InstanceRegistry,
   ) {
     this.bus.on("message:published", (msg: Message) => {

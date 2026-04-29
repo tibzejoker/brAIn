@@ -12,7 +12,7 @@ import type Database from "better-sqlite3";
 import EventEmitter from "eventemitter3";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { BusService } from "./bus";
+import { BusService, type IBusService } from "./bus";
 import { TypeRegistry, InstanceRegistry, DynamicTypeScanner, type DynamicScannerOptions } from "./registry";
 import { AuthorityService } from "./authority";
 import { type BaseRunner, SleepService } from "./runner";
@@ -33,7 +33,10 @@ import { StoreService } from "./store";
 
 export class BrainService extends EventEmitter {
   static current: BrainService | null = null;
-  readonly bus: BusService;
+  // Typed as the interface so consumers don't depend on the in-memory
+  // impl; future NatsBusService swap is a one-line change in the
+  // constructor.
+  readonly bus: IBusService;
   readonly typeRegistry: TypeRegistry;
   readonly instanceRegistry: InstanceRegistry;
   readonly authority: AuthorityService;

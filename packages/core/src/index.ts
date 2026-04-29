@@ -1,5 +1,6 @@
 export { BrainService } from "./brain.service";
-export { BusService, Mailbox, matchTopic } from "./bus";
+export { BusService, NatsBusService, Mailbox, matchTopic } from "./bus";
+export type { IBusService, NatsBusOptions, BusHistoryOptions, BusMailboxView, BusSubscription, SubscribeOptions } from "./bus";
 export {
   TypeRegistry, InstanceRegistry,
   TypeValidatorService, DynamicTypeScanner,

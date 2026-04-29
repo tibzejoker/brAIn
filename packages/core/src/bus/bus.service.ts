@@ -1,6 +1,5 @@
 import {
   type Message,
-  type MailboxConfig,
   type ReadMessagesOptions,
   DEFAULT_MAILBOX_CONFIG,
 } from "@brain/sdk";
@@ -8,6 +7,7 @@ import EventEmitter from "eventemitter3";
 import { v4 as uuid } from "uuid";
 import { matchTopic } from "./bus.matcher";
 import { Mailbox } from "./mailbox";
+import type { IBusService, SubscribeOptions } from "./bus.interface";
 
 interface Subscription {
   id: string;
@@ -16,7 +16,13 @@ interface Subscription {
   mailbox: Mailbox;
 }
 
-export class BusService extends EventEmitter {
+/**
+ * In-memory bus — the default for single-process deployments.
+ * Implements `IBusService`; the upcoming `NatsBusService` (Phase 4.2)
+ * will implement the same interface so consumers can swap transports
+ * without touching their call sites.
+ */
+export class BusService extends EventEmitter implements IBusService {
   // nodeId -> subscriptionId -> Subscription
   private readonly subscriptions = new Map<string, Map<string, Subscription>>();
 
@@ -74,10 +80,7 @@ export class BusService extends EventEmitter {
   subscribe(
     nodeId: string,
     topic: string,
-    config?: {
-      min_criticality?: number;
-      mailbox?: Partial<MailboxConfig>;
-    },
+    config?: SubscribeOptions,
   ): string {
     if (!this.subscriptions.has(nodeId)) {
       this.subscriptions.set(nodeId, new Map());

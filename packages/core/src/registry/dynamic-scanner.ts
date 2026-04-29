@@ -2,7 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import EventEmitter from "eventemitter3";
 import { logger } from "../logger";
-import type { BusService } from "../bus";
+import type { IBusService } from "../bus";
 import type { TypeRegistry } from "./type-registry";
 import { TypeValidatorService, readState, type ValidationResult } from "./type-validator";
 import { computeWorkspaceHashes } from "./hashing";
@@ -10,7 +10,7 @@ import { computeWorkspaceHashes } from "./hashing";
 export interface DynamicScannerOptions {
   /** Full path to the dynamic workspaces directory, e.g. nodes/_dynamic */
   dynamicDir: string;
-  bus: BusService;
+  bus: IBusService;
   typeRegistry: TypeRegistry;
   validator?: TypeValidatorService;
   /** Scan interval in ms (default 5000) */

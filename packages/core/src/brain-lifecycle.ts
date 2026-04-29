@@ -12,7 +12,7 @@ import type Database from "better-sqlite3";
 import { v4 as uuid } from "uuid";
 import { saveNode, saveSubscription, deleteNode } from "./db";
 import { createRunner, type BaseRunner, type SleepService } from "./runner";
-import type { BusService } from "./bus";
+import type { IBusService } from "./bus";
 import type { TypeRegistry, InstanceRegistry } from "./registry";
 import type { AuthorityService } from "./authority";
 
@@ -20,7 +20,7 @@ type HandlerLoader = (typeName: string, typePath: string) => Promise<NodeModule>
 
 export interface LifecycleDeps {
   db: Database.Database;
-  bus: BusService;
+  bus: IBusService;
   typeRegistry: TypeRegistry;
   instanceRegistry: InstanceRegistry;
   authority: AuthorityService;

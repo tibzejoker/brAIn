@@ -123,11 +123,19 @@ nativement (le node peut être sur une autre machine ou en container).
 
 Le pari le plus ambitieux. Justifie le "N" du sigle.
 
-- [ ] **4.1 Abstraire `BusService`** derrière une interface (déjà
-  bien isolé, vérifier).
-- [ ] **4.2 Implémenter `NatsBusService`** comme adapter alternatif
-  (publish → `nats publish`, subscribe → `nats subscribe`). Conserver
-  l'in-memory bus comme fallback dev.
+- [x] **4.1 Abstraire `BusService`**: nouvelle interface
+  `IBusService` (`packages/core/src/bus/bus.interface.ts`) qui liste
+  publish / subscribe / mailbox / history / event-emitter. `BusService`
+  l'implémente. Tous les call-sites (`SleepService`, `BaseRunner`,
+  `BrainService`, lifecycle) pris en référence par interface; swap de
+  backend = changement d'une ligne au constructeur.
+- [x] **4.2 `NatsBusService`** (`packages/core/src/bus/nats-bus.service.ts`):
+  même contract que l'in-memory bus, plus un client NATS qui pousse
+  chaque publish sur `<prefix>.<topic>` et reçoit toutes les autres.
+  Anti-loop par origin id, traduction wildcard (filtre côté brAIn,
+  NATS subscribe est `>` greedy). 9 tests local-routing + 3 tests
+  d'intégration cross-instance avec un vrai `nats-server` (skip auto
+  si binaire absent). Tous verts.
 - [ ] **4.3 Créer `brAIn-agent`** (~500 lignes Node ou Go), daemon
   léger installable sur n'importe quelle machine. Au boot: connect
   au NATS, annonce ses capacités, attend des spawn-requests.
