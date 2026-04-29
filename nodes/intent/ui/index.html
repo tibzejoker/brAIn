@@ -142,6 +142,9 @@
     let voiceProfiles = [];
     let gazeProfiles = [];
     let liveWs = null;
+    /** Intents already rendered, keyed by id. Prevents the loadAll poll
+     *  and the live WS from racing and duplicating rows. */
+    const renderedIntents = new Set();
 
     function escapeHtml(s) {
       return String(s ?? "").replace(/[&<>"']/g, (c) => ({
@@ -149,25 +152,37 @@
       }[c]));
     }
 
-    async function loadAll() {
+    /** Polled every few seconds: refresh persons + upstream voice/gaze profiles
+     *  for the dropdowns. Does NOT touch the intent list — that's append-only
+     *  via initial fetch + live WS, otherwise we'd duplicate every row each
+     *  poll cycle. */
+    async function loadProfiles() {
       try {
-        const [pRes, vRes, gRes, iRes] = await Promise.all([
+        const [pRes, vRes, gRes] = await Promise.all([
           fetch(`${SERVER_URL}/api/persons`),
           fetch(`${SERVER_URL}/api/voice/profiles`).catch(() => null),
           fetch(`${SERVER_URL}/api/gaze/profiles`).catch(() => null),
-          fetch(`${SERVER_URL}/api/intents?limit=50`),
         ]);
         if (pRes?.ok) persons = await pRes.json();
         voiceProfiles = vRes?.ok ? await vRes.json() : [];
         gazeProfiles = gRes?.ok ? await gRes.json() : [];
-        const recent = iRes?.ok ? await iRes.json() : [];
-
         els.status.textContent = `${persons.length} person(s) · ${voiceProfiles.length} voice · ${gazeProfiles.length} face`;
         renderPersons();
-        renderIntents(recent.reverse());
       } catch (e) {
         els.status.textContent = `server unreachable (${e.message})`;
       }
+    }
+
+    /** One-shot at boot: backfill recent intents into the panel. */
+    async function loadInitialIntents() {
+      try {
+        const res = await fetch(`${SERVER_URL}/api/intents?limit=50`);
+        if (!res?.ok) return;
+        const recent = await res.json();
+        // The API returns newest-first; reverse so the oldest renders first
+        // and the newest ends up at the top after all the prepends.
+        renderIntents(recent.reverse());
+      } catch {}
     }
 
     function renderPersons() {
@@ -248,11 +263,12 @@
 
     els.newName.addEventListener("keydown", (e) => { if (e.key === "Enter") els.newCreate.click(); });
 
-    els.refresh.onclick = loadAll;
+    els.refresh.onclick = loadProfiles;
 
     els.clearIntents.onclick = async () => {
       if (!confirm("Clear intent history?")) return;
       await fetch(`${SERVER_URL}/api/intents`, { method: "DELETE" });
+      renderedIntents.clear();
       els.intents.innerHTML = `<div class="empty">No intents yet.</div>`;
     };
 
@@ -263,6 +279,13 @@
     }
 
     function appendIntent(intent) {
+      // Dedup by id — both the initial fetch and the live WS may surface
+      // the same record. Without this, each poll cycle would re-prepend
+      // every visible intent forever.
+      if (intent && intent.id !== undefined) {
+        if (renderedIntents.has(intent.id)) return;
+        renderedIntents.add(intent.id);
+      }
       els.intents.querySelector(".empty")?.remove();
       const div = document.createElement("div");
       const cls = intent.target_kind === "camera" ? "cam"
@@ -297,9 +320,11 @@
       };
     }
 
-    loadAll();
+    loadProfiles();
+    loadInitialIntents();
     ensureWs();
-    setInterval(loadAll, 5000);
+    // Poll only the profile dropdowns, not the intent list.
+    setInterval(loadProfiles, 5000);
   </script>
 </body>
 </html>
