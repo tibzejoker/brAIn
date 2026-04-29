@@ -14,7 +14,7 @@
     "dev:voice:server": "cd nodes/voice/server && VOICE_ENGINE=real .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload",
     "dev:intent": "pnpm --filter @brain/sdk build && pnpm --filter @brain/core build && pnpm --filter @brain/node-voice build && pnpm --filter @brain/node-gaze build && pnpm --filter @brain/node-intent build && concurrently --kill-others --kill-signal SIGTERM -n api,dashboard,voice-tsc,gaze-tsc,intent-tsc,seed -c blue,magenta,cyan,yellow,pink,green \"pnpm --filter @brain/api dev\" \"wait-on http-get://localhost:${API_PORT:-3000}/network -t 30000 && pnpm --filter @brain/dashboard dev\" \"pnpm --filter @brain/node-voice dev\" \"pnpm --filter @brain/node-gaze dev\" \"pnpm --filter @brain/node-intent dev\" \"wait-on http-get://localhost:${API_PORT:-3000}/network -t 30000 && node scripts/seed-intent.mjs\"",
     "build": "pnpm -r build",
-    "clean": "pnpm -r exec rm -rf di  st",
+    "clean": "pnpm -r exec rm -rf dist",
     "kill-orphans": "node scripts/kill-orphans.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
