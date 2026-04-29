@@ -58,8 +58,14 @@ class LocalCapture:
         }
 
     async def start(self, device: int | str | None, session_id: str = "default") -> dict[str, object]:
+        # Already running on the same device → no-op. Different device →
+        # stop the current stream first so the user's selection actually
+        # takes effect (Windows/Mac sounddevice fall back to the host
+        # default if you don't explicitly close the previous stream).
         if self._stream is not None:
-            return self.status()
+            if device is None or device == self._device:
+                return self.status()
+            await self.stop()
 
         try:
             import sounddevice as sd
