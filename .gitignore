@@ -8,3 +8,9 @@ nodes/_dynamic/
 !nodes/_dynamic/.gitkeep
 /.prompt.tmp
 .claude/
+
+# Python venvs + caches under any node / SDK
+.venv/
+__pycache__/
+*.pyc
+*.pyo
