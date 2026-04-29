@@ -79,7 +79,7 @@ based on its tags:
 - **`ServiceRunner`** — for reactive non-LLM nodes (memory, http-bridge,
   terminal, voice/gaze handlers, …). Pattern: message arrives →
   handler called once → auto-sleep on `[any]`.
-- **`LLMRunner`** — for LLM nodes (brain, analyst, memory-proxy).
+- **`LLMRunner`** — for LLM nodes (brain, memory-proxy, memory-consolidator).
   Pattern: message arrives → handler called in a **budget loop**
   (5 iterations by default). New messages **reset the budget** (fresh
   attention). When exhausted → forced sleep with configurable duration.
@@ -162,10 +162,10 @@ leaking.
 
 ### Anti-orphan child processes
 
-`packages/core/src/child-server` + `nodes/voice/server/app/heartbeat.py`
-+ `nodes/gaze/server/app/heartbeat.py` — guarantees **zero orphan
-processes** when a node spawns an external binary (typically a Python
-server):
+`packages/core/src/child-server` (TS helper) + the perception nodes'
+Python `heartbeat.py` modules (in the sibling repo) — guarantees
+**zero orphan processes** when a node spawns an external binary
+(typically a Python server):
 
 - Node side: `startChildServer()` spawns with `BRAIN_PARENT_PID` in
   env, then `SIGTERM → grace period → SIGKILL` on teardown.
@@ -268,7 +268,7 @@ adds the path to its `bootstrap()` automatically.
 
 Three independent nodes on the bus:
 
-**`voice`** (`nodes/voice/`, ~180 lines TS + ~2200 Python)
+**`voice`** (`brAIn-perception/nodes/voice/`, ~180 lines TS + ~2200 Python)
 Server-side mic capture (sounddevice), Silero VAD + faster-whisper STT
 + WeSpeaker speaker diarization. Maintains a SQLite `profiles` table
 with rename / recolor / merge / extract-voiceprint operations. The TS
@@ -278,7 +278,7 @@ segments), `voice.speaker.detected`. UI: device picker, canvas
 timeline, live transcript, full speakers panel, tuning sliders (VAD
 threshold, match, EMA decay, …).
 
-**`gaze`** (`nodes/gaze/`, ~180 lines TS + ~7500 Python)
+**`gaze`** (`brAIn-perception/nodes/gaze/`, ~180 lines TS + ~7500 Python)
 Server-side webcam capture (cv2.VideoCapture in a dedicated thread),
 InsightFace for detection + recognition (ArcFace 512d), Gazelle
 (DINOv2) for gaze direction, MediaPipe for iris signal, Moondream for
@@ -289,7 +289,7 @@ JPEG preview. The TS handler polls `/api/events` and republishes on
 `gaze.target.resolved`. UI: live preview, faces panel CRUD/merge,
 tuning sliders, describe toggle.
 
-**`intent`** (`nodes/intent/`, ~840 lines pure TS, **zero Python**)
+**`intent`** (`brAIn-perception/nodes/intent/`, ~840 lines pure TS, **zero Python**)
 Correlator answering "who is talking to whom?". Subscribes to
 `voice.transcript` + `gaze.target.resolved`, runs a sliding window
 correlation by timecode (with state-freshness + lag adjustments),
@@ -360,9 +360,13 @@ CLI agents (Claude, Codex, Gemini). Used by other nodes via
 
 - **Node.js** ≥ 20 (declared in `package.json`)
 - **pnpm** (tested with 10.x; the workspaces work with pnpm 7+)
-- **Python 3.11** (only for the voice / gaze nodes)
-- **Ollama** (only for the local-LLM nodes: brain, memory-proxy,
-  memory-consolidator, analyst — no model is bundled)
+- **Python 3.11** — only if you check out
+  [brAIn-perception](https://github.com/tibzejoker/brAIn-perception)
+  for the voice / gaze nodes.
+- **Ollama** — only for the local-LLM nodes (brain, memory-proxy,
+  memory-consolidator); no model is bundled.
+- **NATS** — only for distributed deployments
+  (`brew install nats-server`).
 
 ### Install
 
@@ -383,6 +387,11 @@ pnpm start
 
 ### Pre-wired stacks
 
+The voice / gaze / intent / vocal-chat stacks require
+[brAIn-perception](https://github.com/tibzejoker/brAIn-perception)
+checked out as a sibling of `brAIn/` — pnpm-workspace.yaml resolves
+the perception nodes from there automatically.
+
 - `pnpm dev:voice` — API + dashboard + voice node (spawns uvicorn) + seed.
 - `pnpm dev:gaze` — API + dashboard + gaze node (spawns uvicorn) + seed.
 - `pnpm dev:intent` — API + dashboard + voice + gaze + intent + seed.
@@ -396,10 +405,11 @@ parent-PID heartbeat (anti-orphan).
 
 ### Python setup
 
-Each Python-backed node has its own venv and one-time model
-downloads:
+The Python-backed perception nodes ship with their own venv + model
+download scripts in the sibling repo:
 
 ```bash
+# in ../brAIn-perception
 pnpm setup:voice      # venv + STT models (~200 MB)
 pnpm setup:gaze       # venv + Gazelle + InsightFace + Moondream (~500 MB)
 ```
@@ -569,18 +579,31 @@ under `nodes/_dynamic/`).
 ## Tests
 
 ```bash
-pnpm test                         # all vitest files (23)
+pnpm test                         # all vitest files
 npx vitest run tests/<single>.test.ts
 ```
 
-Coverage: bus topic matching, registry, runner lifecycle (incl.
-idempotent teardown + onSpawn), child-server spawn / SIGTERM / SIGKILL
-escalation, memory handlers (KV + vector), HTTP bridge, message
-formatter, brain conversation flows, end-to-end multi-node workflows,
-budget exhaustion, …
+Coverage (~27 files in `tests/`):
 
-Per-node Python tests live under `nodes/<x>/server/tests/` (heartbeat,
-local_capture, etc.); run them with `.venv/bin/python -m unittest`.
+- **Engine core**: bus topic matching, mailbox + backpressure
+  metrics, type & instance registry, dynamic-scanner hash dance,
+  type-validator, tool-parser hardening, message-formatter aliases.
+- **Runners**: lifecycle (start / stop / wake), idempotent teardown
+  + onSpawn, handler-crash recovery, dead-letter capture, handler
+  timeout, concurrent-message ordering.
+- **Distributed**: NatsBusService routing + anti-loop, real
+  `nats-server` integration (skips when not on PATH), agent
+  announcements + zombie cleanup, remote-spawn full cycle (spawn /
+  control / read-back / kill).
+- **End-to-end with LLM**: brain conversation flows, secret retrieval
+  via memory-proxy, multi-service workflows, consolidator,
+  budget exhaustion.
+- **Misc**: child-server spawn / SIGTERM → SIGKILL escalation, HTTP
+  bridge, memory handlers (KV + vector with mocked + real Ollama).
+
+Per-node Python tests for the perception stack live in the sibling
+[brAIn-perception](https://github.com/tibzejoker/brAIn-perception)
+repo, not here.
 
 ---
 
