@@ -136,9 +136,14 @@ Le pari le plus ambitieux. Justifie le "N" du sigle.
   NATS subscribe est `>` greedy). 9 tests local-routing + 3 tests
   d'intégration cross-instance avec un vrai `nats-server` (skip auto
   si binaire absent). Tous verts.
-- [ ] **4.3 Créer `brAIn-agent`** (~500 lignes Node ou Go), daemon
-  léger installable sur n'importe quelle machine. Au boot: connect
-  au NATS, annonce ses capacités, attend des spawn-requests.
+- [x] **4.3 `brAIn-agent` daemon** (`packages/agent/`, ~250 lignes TS):
+  binaire `brain-agent` config par env (`BRAIN_NATS_URL`, etc.). Boot
+  une `BrainService` câblée sur `NatsBusService`, scanne ses node types
+  locaux, annonce sur `brain.agents.discover` toutes les 10s.
+  `AgentDirectory` côté API collecte les annonces avec TTL pour
+  surfacer une liste live des agents. `BrainService` accepte maintenant
+  un bus injectable au constructeur. 2 tests d'intégration verts
+  (annonce reçue + bus cross-process).
 - [ ] **4.4 Étendre le `transport` à `"remote"`**: le runner remote
   spawn un node sur un agent distant via un message NATS au lieu
   d'un child_process local.

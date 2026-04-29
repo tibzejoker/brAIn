@@ -1,0 +1,23 @@
+{
+  "name": "@brain/agent",
+  "version": "0.1.0",
+  "private": true,
+  "description": "brAIn agent — a lightweight daemon that hosts nodes on a remote machine and joins the shared NATS bus.",
+  "license": "MIT",
+  "main": "dist/agent.js",
+  "bin": {
+    "brain-agent": "dist/cli.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch"
+  },
+  "dependencies": {
+    "@brain/core": "workspace:*",
+    "@brain/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "typescript": "^5.4.0"
+  }
+}

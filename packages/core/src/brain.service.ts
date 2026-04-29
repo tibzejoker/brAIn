@@ -50,12 +50,19 @@ export class BrainService extends EventEmitter {
   readonly cli = CLIRegistry.getInstance();
   store!: StoreService;  // wired in bootstrap() once we know siblingsRoot
 
-  constructor(dbPath?: string) {
+  /**
+   * @param dbPath SQLite path; falls back to the default in-memory db.
+   * @param bus    Optional `IBusService` to wire up — pass a
+   *               `NatsBusService` to join a distributed bus instead of
+   *               the default in-process `BusService`. The agent uses
+   *               this hook.
+   */
+  constructor(dbPath?: string, bus?: IBusService) {
     super();
     BrainService.current = this;
     (globalThis as Record<string, unknown>).__brainService = this;
     this.db = getDb(dbPath);
-    this.bus = new BusService();
+    this.bus = bus ?? new BusService();
     this.typeRegistry = new TypeRegistry();
     this.instanceRegistry = new InstanceRegistry();
     this.authority = new AuthorityService();

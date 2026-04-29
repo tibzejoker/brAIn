@@ -329,6 +329,22 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
+  packages/agent:
+    dependencies:
+      '@brain/core':
+        specifier: workspace:*
+        version: link:../core
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+
   packages/api:
     dependencies:
       '@brain/core':
