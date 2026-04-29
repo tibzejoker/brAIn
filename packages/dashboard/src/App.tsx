@@ -9,6 +9,7 @@ import { NodeCreator } from "./components/NodeCreator";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { SeedManager } from "./components/SeedManager";
 import { StorePanel } from "./components/StorePanel";
+import { AgentsPanel } from "./components/AgentsPanel";
 import { NodeUiModal } from "./components/NodeUiModal";
 import { useNetwork } from "./hooks/useNetwork";
 import { useMessages } from "./hooks/useMessages";
@@ -164,6 +165,8 @@ export function App(): React.ReactElement {
         {activeView === "seeds" && <SeedManager onApplied={handleSeedApplied} />}
 
         {activeView === "store" && <StorePanel onInstalled={refreshNetwork} />}
+
+        {activeView === "agents" && <AgentsPanel />}
       </div>
 
       {activeView === "graph" && (

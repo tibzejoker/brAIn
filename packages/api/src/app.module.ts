@@ -1,11 +1,12 @@
 import { Module, Logger, type OnModuleInit } from "@nestjs/common";
-import { BrainService } from "@brain/core";
+import { BrainService, NatsBusService } from "@brain/core";
 import { NodesController } from "./rest/nodes.controller";
 import { TypesController } from "./rest/types.controller";
 import { NetworkController } from "./rest/network.controller";
 import { SeedsController } from "./rest/seeds.controller";
 import { NodeUiController } from "./rest/node-ui.controller";
 import { StoreController } from "./rest/store.controller";
+import { AgentsController } from "./rest/agents.controller";
 import { DashboardGateway } from "./ws/dashboard.gateway";
 import * as path from "path";
 
@@ -20,9 +21,26 @@ function resolveFromRoot(envVar: string | undefined, fallback: string): string {
 
 const brainServiceProvider = {
   provide: BrainService,
-  useFactory: (): BrainService => {
+  useFactory: async (): Promise<BrainService> => {
     const dbPath = resolveFromRoot(process.env.BRAIN_DB_PATH, "data/brain.db");
-    const brain = new BrainService(dbPath);
+
+    // Optional NATS wiring: when BRAIN_NATS_URL is set, the API joins the
+    // distributed bus so brain-agents on other hosts share its topics.
+    // Without it, BrainService falls back to its in-process BusService.
+    let natsBus: NatsBusService | undefined;
+    const natsUrl = process.env.BRAIN_NATS_URL;
+    if (natsUrl) {
+      const log = new Logger("AppModule");
+      natsBus = new NatsBusService({
+        url: natsUrl,
+        prefix: process.env.BRAIN_NATS_PREFIX ?? "brain",
+        token: process.env.BRAIN_NATS_TOKEN,
+      });
+      await natsBus.connect();
+      log.log(`Joined NATS bus at ${natsUrl}`);
+    }
+
+    const brain = new BrainService(dbPath, natsBus);
 
     const nodesDir = resolveFromRoot(process.env.BRAIN_NODES_DIR, "nodes");
     // Extra node directories (sibling repos, e.g. ../brAIn-perception/nodes).
@@ -55,7 +73,7 @@ const brainServiceProvider = {
 };
 
 @Module({
-  controllers: [NodesController, TypesController, NetworkController, SeedsController, NodeUiController, StoreController],
+  controllers: [NodesController, TypesController, NetworkController, SeedsController, NodeUiController, StoreController, AgentsController],
   providers: [brainServiceProvider, DashboardGateway],
 })
 export class AppModule implements OnModuleInit {

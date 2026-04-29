@@ -15,8 +15,16 @@
 import { hostname } from "node:os";
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { BrainService, NatsBusService, logger } from "@brain/core";
+import {
+  BrainService, NatsBusService, logger,
+  AGENT_ANNOUNCE_TOPIC,
+  AGENT_ANNOUNCE_DEFAULT_MS,
+  type AgentAnnouncement,
+} from "@brain/core";
 import type { NodeInstanceConfig } from "@brain/sdk";
+
+export type { AgentAnnouncement } from "@brain/core";
+export { AgentDirectory } from "@brain/core";
 
 export interface AgentOptions {
   /** Stable id for this agent. Defaults to `<host>-<8 random>`. */
@@ -38,18 +46,6 @@ export interface AgentOptions {
 }
 
 const DEFAULT_PREFIX = "brain";
-const DEFAULT_ANNOUNCE_MS = 10_000;
-const ANNOUNCE_TOPIC = "brain.agents.discover";
-
-export interface AgentAnnouncement {
-  agent_id: string;
-  host: string;
-  pid: number;
-  started_at: number;
-  types: string[];
-  /** Wall-clock ms — receivers expire stale agents past 3× announce interval. */
-  ts: number;
-}
 
 export class Agent {
   readonly id: string;
@@ -91,7 +87,7 @@ export class Agent {
     this.announce();
     this.announceTimer = setInterval(
       () => this.announce(),
-      this.opts.announceIntervalMs ?? DEFAULT_ANNOUNCE_MS,
+      this.opts.announceIntervalMs ?? AGENT_ANNOUNCE_DEFAULT_MS,
     );
 
     // Listen for remote spawn/kill requests addressed to this agent.
@@ -177,7 +173,7 @@ export class Agent {
     };
     bus.publish({
       from: `agent:${this.id}`,
-      topic: ANNOUNCE_TOPIC,
+      topic: AGENT_ANNOUNCE_TOPIC,
       type: "text",
       criticality: 0,
       payload: { content: JSON.stringify(payload) },
@@ -186,43 +182,8 @@ export class Agent {
   }
 }
 
-/**
- * Helper for the API side: subscribes to discovery announcements and
- * returns a snapshot of currently-live agents (with TTL pruning).
- */
-export class AgentDirectory {
-  private readonly seen = new Map<string, AgentAnnouncement>();
-  private readonly ttlMs: number;
-
-  constructor(private readonly bus: NatsBusService, opts?: { ttlMs?: number }) {
-    this.ttlMs = opts?.ttlMs ?? DEFAULT_ANNOUNCE_MS * 3;
-  }
-
-  attach(): void {
-    // brAIn API process subscribes via a synthetic node id; the bus's
-    // anti-loop is by `from`, and the API never publishes from this id,
-    // so we'll receive every agent's announcement.
-    const apiId = "__brain.api.agents__";
-    this.bus.subscribe(apiId, ANNOUNCE_TOPIC);
-    this.bus.on(`message:${apiId}`, (msg) => {
-      try {
-        const ann = JSON.parse(
-          (msg.payload as { content: string }).content,
-        ) as AgentAnnouncement;
-        this.seen.set(ann.agent_id, ann);
-      } catch { /* malformed announcement — ignore */ }
-    });
-  }
-
-  list(): AgentAnnouncement[] {
-    const cutoff = Date.now() - this.ttlMs;
-    const out: AgentAnnouncement[] = [];
-    for (const [id, ann] of this.seen) {
-      if (ann.ts < cutoff) this.seen.delete(id);
-      else out.push(ann);
-    }
-    return out.sort((a, b) => a.host.localeCompare(b.host));
-  }
-}
-
-export const ANNOUNCE = { topic: ANNOUNCE_TOPIC, defaultIntervalMs: DEFAULT_ANNOUNCE_MS };
+/** Convenience constants for callers preferring named exports. */
+export const ANNOUNCE = {
+  topic: AGENT_ANNOUNCE_TOPIC,
+  defaultIntervalMs: AGENT_ANNOUNCE_DEFAULT_MS,
+};

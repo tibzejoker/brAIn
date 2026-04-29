@@ -30,6 +30,7 @@ import {
 import { LLMRegistry, type ProviderStatus } from "./llm/llm-registry";
 import { CLIRegistry, type CLIStatus } from "./llm/cli-registry";
 import { StoreService } from "./store";
+import { AgentDirectory } from "./agents";
 
 export class BrainService extends EventEmitter {
   static current: BrainService | null = null;
@@ -51,6 +52,7 @@ export class BrainService extends EventEmitter {
   readonly llm = LLMRegistry.getInstance();
   readonly cli = CLIRegistry.getInstance();
   store!: StoreService;  // wired in bootstrap() once we know siblingsRoot
+  readonly agents: AgentDirectory;
 
   /**
    * @param dbPath SQLite path; falls back to the default in-memory db.
@@ -70,6 +72,8 @@ export class BrainService extends EventEmitter {
     this.authority = new AuthorityService();
     this.sleepService = new SleepService(this.bus, this.instanceRegistry);
     this.sleepService.setDb(this.db);
+    this.agents = new AgentDirectory(this.bus);
+    this.agents.attach();
     this.forwardEvents();
     this.setupHistoryRecording();
   }

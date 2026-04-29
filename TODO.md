@@ -156,8 +156,27 @@ Le pari le plus ambitieux. Justifie le "N" du sigle.
   **E2e validé**: 1 test full-cycle (API spawn remote → agent héberge
   le runner → message bus voyage cross-process → kill via API →
   l'agent supprime son instance).
-- [ ] **4.5 Dashboard**: vue "agents connectés" + ability à choisir
-  où spawner un node (local / agent X).
+- [x] **4.5 Dashboard — onglet "Agents"**: vue live des agents
+  connectés sur le bus partagé.
+  - `AgentDirectory` (déjà présent côté agent) déplacé dans
+    `@brain/core/src/agents/agent-directory.ts` pour que l'API puisse
+    s'abonner au topic d'annonce sans dépendre de `@brain/agent`.
+  - `BrainService` instancie l'annuaire dans son constructeur
+    (`brain.agents = new AgentDirectory(this.bus); attach()`) et l'API
+    expose `GET /agents` (`AgentsController`).
+  - L'API peut désormais joindre le bus distribué: si
+    `BRAIN_NATS_URL` est défini, `app.module.ts` instancie un
+    `NatsBusService` partagé et le passe au `BrainService` (sinon le
+    bus en mémoire reste la valeur par défaut).
+  - `AgentsPanel` (icône ⚯ dans le menu) poll `GET /agents` toutes les
+    3 s, affiche host / pid / uptime / types[], avec un état vide qui
+    explique comment câbler NATS.
+  - **E2e validé**: `nats-server` + API (NATS) + `brain-agent` →
+    `curl /agents` retourne l'annonce avec les 17 types locaux du
+    brAIn et un `ts` qui se rafraîchit toutes les 10 s.
+- [ ] **4.5b Spawn ciblé depuis le dashboard**: ajouter un sélecteur
+  "agent cible" dans le Node Creator (drop-down qui liste les agents
+  vivants + "local"), wire à `transport: "remote"` + `target_agent_id`.
 - [ ] **4.6 Doc**: setup NATS + déploiement agent sur Raspberry Pi.
 
 ---

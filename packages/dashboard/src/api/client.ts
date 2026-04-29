@@ -166,6 +166,21 @@ export function installFromStore(packageName: string): Promise<StoreInstallResul
   });
 }
 
+// === Agents (distributed runtime) ===
+
+export interface AgentSnapshot {
+  agent_id: string;
+  host: string;
+  pid: number;
+  started_at: number;
+  types: string[];
+  ts: number;
+}
+
+export function getAgents(): Promise<AgentSnapshot[]> {
+  return request("/agents");
+}
+
 // === History ===
 
 export interface HistoryEntry {

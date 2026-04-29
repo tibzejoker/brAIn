@@ -22,6 +22,10 @@ export { LLMRegistry, CLIRegistry, generateText } from "./llm";
 export type { ProviderStatus, CLIStatus } from "./llm";
 export { startChildServer } from "./child-server";
 export type { ChildServerOptions, ChildServerHandle } from "./child-server";
+export {
+  AgentDirectory, AGENT_ANNOUNCE_TOPIC, AGENT_ANNOUNCE_DEFAULT_MS,
+} from "./agents";
+export type { AgentAnnouncement, AgentDirectoryOptions } from "./agents";
 export { StoreService } from "./store";
 export type {
   StoreRegistry, StoreRepo, StoreNode, StoreNodeStatus, StoreInstallResult,
