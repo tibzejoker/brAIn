@@ -12,3 +12,11 @@ sounddevice==0.5.1
 # Phase 2 engine
 faster-whisper==1.1.0
 sherpa-onnx==1.12.39
+
+# Optional GPU runtime for ctranslate2 (faster-whisper). Installed on
+# Linux/Windows; pip skips them on macOS where the nvidia wheels aren't
+# available. Loaded lazily by app/stt.py only when CUDA is detected — safe
+# to ship as defaults so any machine with an NVIDIA GPU gets accelerated
+# transcription out of the box.
+nvidia-cudnn-cu12>=9.0; sys_platform != "darwin"
+nvidia-cublas-cu12; sys_platform != "darwin"

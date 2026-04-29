@@ -97,8 +97,17 @@ export async function startChildServer(opts: ChildServerOptions): Promise<ChildS
     detached: false,
   });
 
+  // Capture spawn errors (ENOENT, EACCES, …). Without a listener, an 'error'
+  // event from a failed spawn would crash the parent process.
+  const spawnErrorRef: { current: Error | null } = { current: null };
+  proc.on("error", (err: Error) => {
+    spawnErrorRef.current = err;
+    logger.error({ name: opts.name, command: opts.command, err: err.message },
+      "child-server: process error");
+  });
+
   if (proc.pid === undefined) {
-    throw new Error(`child-server: failed to spawn ${opts.command}`);
+    throw new Error(`child-server: failed to spawn ${opts.command}: ${spawnErrorRef.current?.message ?? "unknown"}`);
   }
 
   const onStdout = (buf: Buffer): void => {
