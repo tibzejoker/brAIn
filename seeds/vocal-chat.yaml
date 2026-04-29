@@ -1,67 +1,71 @@
-# Full conscience stack: perception (voice + gaze) → intent correlation →
-# attention (LLM addressed-or-not gate) → brain (consciousness LLM) ↔ chat
-# (human keyboard fallback / transcript view).
+# Vocal-chat: parler au LLM par la voix, voir et répondre par clavier dans le chat.
 #
-# Run via `pnpm dev:conscience`. Requires Ollama for the brain + attention
-# LLMs; voice/gaze auto-detect GPU (cuda/mps) and fall back to CPU.
+# Topology (real one — checked against each node's config.json):
+#
+#   voice  ──voice.transcript──────┐
+#   gaze   ──gaze.target.resolved──┤
+#                                  ▼
+#                              intent  (also exposes HTTP API on :8767)
+#                                  │
+#                                  ▼ (HTTP poll, NOT bus)
+#                              attention ──intent.output──> chat (visu)
+#                                        ──brain.input────> brain (consciousness)
+#
+#   chat   ──chat.input───────────────────> brain
+#   brain  ──chat.response────────────────> chat
+#
+# Run: `pnpm dev:vocal-chat` (requires `ollama serve` + `ollama pull gemma4:e4b`).
 nodes:
   # ── PERCEPTION ────────────────────────────────────────────────
+  # Both voice and gaze keep their default subscriptions/publishes
+  # from each node's config.json. No overrides needed here.
   - type: voice
     name: voice
-    description: "Local STT + diarization (mic → voice.transcript)."
+    description: "Local STT + diarization. Mic → voice.transcript."
     priority: 5
     position: { x: 50, y: 200 }
-    subscriptions:
-      - topic: "voice.control"
-      - topic: "voice.speaker.rename"
-    config_overrides:
-      response_topic: "voice.status"
 
   - type: gaze
     name: gaze
-    description: "Local face detection + gaze direction (cam → gaze.target.resolved)."
+    description: "Face detection + gaze direction. Cam → gaze.target.resolved."
     priority: 5
     position: { x: 50, y: 400 }
-    subscriptions:
-      - topic: "gaze.control"
-      - topic: "gaze.face.rename"
-    config_overrides:
-      response_topic: "gaze.status"
 
   # ── CORRELATION ───────────────────────────────────────────────
+  # intent's defaults already cover voice.transcript + gaze.target.resolved
+  # as inputs and intent.detected + intent.persons.changed as outputs.
   - type: intent
     name: intent
-    description: "Correlator over voice + gaze. Emits intent.detected when a finalised utterance is paired with a gaze target."
+    description: "Pairs voice utterances with gaze targets. Emits intent.detected; HTTP API consumed by attention."
     priority: 5
     position: { x: 400, y: 300 }
-    subscriptions:
-      - topic: "voice.transcript"
-      - topic: "gaze.target.resolved"
-      - topic: "intent.persons.create"
-      - topic: "intent.persons.update"
-      - topic: "intent.persons.delete"
-    config_overrides:
-      response_topic: "intent.detected"
 
-  # ── ATTENTION (LLM gate) ──────────────────────────────────────
-  # Reads intent.detected, asks the LLM "is the network being addressed?",
-  # and forwards the addressed utterances onto brain.input.
+  # ── BRIDGE (HTTP poll → bus) ──────────────────────────────────
+  # attention is "dumb" — it doesn't gate. It polls intent's HTTP API
+  # and fans out every utterance to:
+  #   - intent.output  (raw — chat displays it)
+  #   - brain.input    (consciousness gets every spoken line and decides
+  #                     for itself whether/how to reply)
   - type: attention
     name: attention
-    description: "Decides whether the consciousness is being addressed and forwards the utterance to the brain."
+    description: "Polls intent's HTTP API and forwards every utterance to brain.input + intent.output."
     priority: 8
     position: { x: 750, y: 300 }
 
-  # ── CONSCIOUSNESS (brain LLM) ─────────────────────────────────
+  # ── CONSCIOUSNESS ─────────────────────────────────────────────
+  # Subscribes to:
+  #   - brain.*    catches brain.input from attention (default already covers this)
+  #   - chat.input typed human messages
+  #   - alerts.*   urgent broadcasts
+  # Publishes its replies on chat.response via response_topic.
   - type: brain
     name: consciousness
-    description: "Central LLM. Reads typed (chat.input) and spoken-addressed (brain.input via attention) messages and replies."
+    description: "LLM brain. Reads spoken (brain.input via attention) + typed (chat.input) messages; replies on chat.response."
     priority: 10
     position: { x: 1100, y: 300 }
     subscriptions:
       - topic: "brain.*"
       - topic: "chat.input"
-      - topic: "intent.output"
       - topic: "alerts.*"
     config_overrides:
       model: "ollama/gemma4:e4b"
@@ -70,13 +74,14 @@ nodes:
       max_steps: 6
 
   # ── HUMAN INTERFACE ───────────────────────────────────────────
+  # chat already publishes chat.input by default. We override its
+  # subscriptions so the user sees both the brain's replies and the
+  # raw spoken stream the network is hearing in real time.
   - type: chat
     name: human
-    description: "Keyboard chat + transcript viewer. Type to bypass voice; replies and intent events surface here."
+    description: "Keyboard chat + transcript viewer. Type to talk to the brain; spoken utterances surface here too."
     priority: 5
     position: { x: 1100, y: 100 }
     subscriptions:
       - topic: "chat.response"
-      - topic: "brain.output"
       - topic: "intent.output"
-      - topic: "attention.response"
