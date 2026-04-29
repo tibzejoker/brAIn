@@ -84,6 +84,20 @@ export interface Message {
   reply_to?: string;
   ttl?: number;
   metadata?: Record<string, unknown>;
+  /**
+   * Causal trace identifier. All messages in the same logical
+   * conversation share a `trace_id`. The bus auto-allocates one if
+   * absent at publish time; replies / forwarded messages inherit from
+   * their parent. Used by `GET /network/traces/:id` to walk the chain.
+   */
+  trace_id?: string;
+  /**
+   * The id of the message whose handler caused this one to be published,
+   * if any. Set automatically by the runner when the handler calls
+   * `ctx.publish` while processing a message; kept for direct calls
+   * to `bus.publish` from system code.
+   */
+  parent_id?: string;
 }
 
 // === Mailbox ===

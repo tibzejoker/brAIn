@@ -162,8 +162,12 @@ parallèle de la phase 4.
 
 Pour répondre à la critique "pub/sub = enfer à debugger en prod".
 
-- [ ] **6.1 Tracing causal**: chaque message porte un `trace_id` +
-  `parent_message_id`. Le bus log la chaîne complète.
+- [x] **6.1 Tracing causal**: chaque message porte un `trace_id` +
+  `parent_id`. Le bus alloue un trace_id à la racine et hérite via
+  `parent_id`. Le runner injecte automatiquement `parent_id` quand un
+  handler appelle `ctx.publish` / `ctx.respond`. Le `WebRunner` propage
+  via les frames pour préserver la chaîne au-delà du process. Endpoint
+  `GET /network/traces/:trace_id` renvoie la chaîne ordonnée.
 - [ ] **6.2 Dead-letter queue**: messages qui causent un crash
   handler 3x sont déplacés dans un mailbox dédié pour inspection.
 - [ ] **6.3 Backpressure metrics**: par souscription, exposer

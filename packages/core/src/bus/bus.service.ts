@@ -25,10 +25,20 @@ export class BusService extends EventEmitter {
   private readonly maxHistory = 10000;
 
   publish(msg: Omit<Message, "id" | "timestamp"> & { from: string }): Message {
+    // Causal tracing: every published message lands with a trace_id.
+    // - explicit trace_id wins (system code can pin one)
+    // - else inherit from the parent message if known
+    // - else allocate a fresh one (this message is the chain root)
+    let traceId = msg.trace_id;
+    if (!traceId && msg.parent_id) {
+      const parent = this.findById(msg.parent_id);
+      if (parent?.trace_id) traceId = parent.trace_id;
+    }
     const message: Message = {
       ...msg,
       id: uuid(),
       timestamp: Date.now(),
+      trace_id: traceId ?? uuid(),
     };
 
     // Store in history
@@ -293,5 +303,24 @@ export class BusService extends EventEmitter {
 
     const last = opts?.last ?? 20;
     return result.slice(-last);
+  }
+
+  /** Look up a message by id in the history buffer (recent ~10k only). */
+  findById(messageId: string): Message | undefined {
+    // Reverse scan because lookups are usually for very recent messages
+    // (in-flight chain expansion, replays, …).
+    for (let i = this.messageHistory.length - 1; i >= 0; i--) {
+      if (this.messageHistory[i].id === messageId) return this.messageHistory[i];
+    }
+    return undefined;
+  }
+
+  /**
+   * Return every message in the same causal chain (same trace_id),
+   * oldest first. Used by the dashboard to render a flow / by debug
+   * tools to replay an interaction.
+   */
+  getTrace(traceId: string): Message[] {
+    return this.messageHistory.filter((m) => m.trace_id === traceId);
   }
 }

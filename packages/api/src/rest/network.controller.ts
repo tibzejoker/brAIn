@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Query, HttpException, HttpStatus } from "@nestjs/common";
+import { Controller, Get, Post, Body, Query, Param, HttpException, HttpStatus } from "@nestjs/common";
 import { BrainService, type HistoryEntry, type ProviderStatus, type CLIStatus } from "@brain/core";
 import { type Message, type NodeInfo, type NodeState } from "@brain/sdk";
 
@@ -50,6 +50,22 @@ export class NetworkController {
         ? parseInt(minCriticality, 10)
         : undefined,
     });
+  }
+
+  /**
+   * Walk the causal chain for a given trace_id. Returns every message
+   * that shares the trace, oldest first — used by the dashboard to
+   * render conversation flows and by debug tools to replay an
+   * interaction. 404 if no message in the in-memory history carries
+   * that trace.
+   */
+  @Get("traces/:trace_id")
+  trace(@Param("trace_id") traceId: string): Message[] {
+    const chain = this.brain.bus.getTrace(traceId);
+    if (chain.length === 0) {
+      throw new HttpException(`trace not found: ${traceId}`, HttpStatus.NOT_FOUND);
+    }
+    return chain;
   }
 
   @Get("history")

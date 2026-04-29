@@ -264,6 +264,13 @@ export abstract class BaseRunner {
       ?? self.nodeInfo.default_publishes?.[0]
       ?? "";
 
+    // Causal-trace inheritance: when the handler publishes during an
+    // iteration, fold in the trace_id of one of the messages it's
+    // processing as `parent_id`. The bus then inherits trace_id from
+    // that parent. We pick the first message's id for stability —
+    // handlers fanning out to many topics still share one trace.
+    const parentId = messages.length > 0 ? messages[0].id : undefined;
+
     return {
       messages,
       readMessages: (opts?: ReadMessagesOptions): Message[] => bus.readMessages(nodeId, opts),
@@ -278,11 +285,12 @@ export abstract class BaseRunner {
           type: "text", criticality: 1,
           payload: { content },
           metadata,
+          parent_id: parentId,
         });
       },
       publish(topic: string, msg: Omit<Message, "id" | "from" | "timestamp" | "topic">): void {
         self.log.info(`publish ${topic} (crit:${msg.criticality})`);
-        bus.publish({ ...msg, from: nodeId, topic });
+        bus.publish({ ...msg, from: nodeId, topic, parent_id: msg.parent_id ?? parentId });
       },
       subscribe(topic: string, mailbox?: Partial<MailboxConfig>): void {
         self.log.info(`+ subscribe ${topic}`);

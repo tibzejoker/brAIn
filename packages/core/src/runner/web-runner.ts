@@ -38,6 +38,11 @@ interface PublishFrame {
   criticality: number;
   message_type?: "text" | "file" | "alert";
   metadata?: Record<string, unknown>;
+  /** If the node received a `messages` frame whose ids are still in
+   *  scope, it can reference one here so the bus inherits trace_id.
+   *  Optional — falls back to "first inbound message of the iteration"
+   *  the same way local handlers do. */
+  parent_id?: string;
 }
 interface SubscribeFrame { type: "subscribe"; topic: string; mailbox?: { max_size?: number; retention?: "latest" | "lowest_priority" } }
 interface UnsubscribeFrame { type: "unsubscribe"; topic: string }
@@ -66,6 +71,9 @@ export class WebRunner extends BaseRunner {
   private reconnectTimer: NodeJS.Timeout | null = null;
   private pingTimer: NodeJS.Timeout | null = null;
   private currentBackoffMs: number;
+  /** Last batch's first message id, used as default `parent_id` for
+   *  outgoing publishes — same heuristic as BaseRunner.buildContext. */
+  private lastInboundId: string | undefined;
 
   constructor(
     nodeInfo: NodeInfo,
@@ -113,6 +121,7 @@ export class WebRunner extends BaseRunner {
     const messages = this.deps.bus.getUnreadMessages(this.nodeInfo.id);
     if (messages.length === 0) return;
     this.iteration++;
+    this.lastInboundId = messages[0].id;
     this.log.info(`Iteration ${this.iteration}: forwarding ${messages.length} message(s) via web`);
     this.send({ type: "messages", messages });
   }
@@ -229,6 +238,7 @@ export class WebRunner extends BaseRunner {
           criticality: frame.criticality,
           payload: frame.payload,
           metadata: frame.metadata,
+          parent_id: frame.parent_id ?? this.lastInboundId,
         });
         break;
       case "subscribe":
