@@ -15,7 +15,7 @@ import { createRunner, type BaseRunner, type SleepService } from "./runner";
 import type { IBusService } from "./bus";
 import type { TypeRegistry, InstanceRegistry } from "./registry";
 import type { AuthorityService } from "./authority";
-import { dispatchRemoteSpawn } from "./brain-remote";
+import { dispatchRemoteSpawn, dispatchRemoteAction } from "./brain-remote";
 
 type HandlerLoader = (typeName: string, typePath: string) => Promise<NodeModule>;
 
@@ -191,6 +191,7 @@ export function killNode(
       metadata: { node_id: nodeId, agent_id: remoteAgent, reason },
     });
     deps.remoteNodes.delete(nodeId);
+    deps.instanceRegistry.remove(nodeId);
     return true;
   }
 
@@ -226,6 +227,8 @@ export function stopNode(
   _reason?: string,
   bufferMessages = false,
 ): boolean {
+  if (dispatchRemoteAction(deps, nodeId, "stop", callerNodeId)) return true;
+
   const node = deps.instanceRegistry.get(nodeId);
   if (!node) return false;
 
@@ -250,6 +253,8 @@ export async function startNode(
   callerNodeId?: string,
   message?: string,
 ): Promise<boolean> {
+  if (dispatchRemoteAction(deps, nodeId, "start", callerNodeId, message)) return true;
+
   const node = deps.instanceRegistry.get(nodeId);
   if (!node || node.state !== NodeState.STOPPED) return false;
 
@@ -297,6 +302,8 @@ export function wakeNode(
   callerNodeId?: string,
   message?: string,
 ): boolean {
+  if (dispatchRemoteAction(deps, nodeId, "wake", callerNodeId, message)) return true;
+
   const node = deps.instanceRegistry.get(nodeId);
   if (!node || node.state !== NodeState.SLEEPING) return false;
 

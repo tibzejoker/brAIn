@@ -126,4 +126,82 @@ describe.skipIf(!HAS_NATS)("Remote spawn (transport: remote)", () => {
     await apiBus.close();
     await agentBus.close();
   });
+
+  it("API stop/start/wake commands route over NATS to the agent runner", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "remote-control-"));
+    const nodesDir = resolve(__dirname, "..", "nodes");
+
+    const apiBus = new NatsBusService({ url: `nats://127.0.0.1:${PORT}`, prefix: "rc" });
+    const agentBus = new NatsBusService({ url: `nats://127.0.0.1:${PORT}`, prefix: "rc" });
+    await apiBus.connect();
+    await agentBus.connect();
+
+    const api = new BrainService(join(scratch, "api.db"), apiBus);
+    api.bootstrap(nodesDir);
+    const agent = new BrainService(join(scratch, "agent.db"), agentBus);
+    agent.bootstrap(nodesDir);
+
+    const controlNodeId = "agent:agent-B:control";
+    for (const action of ["spawn", "kill", "stop", "start", "wake"]) {
+      agentBus.subscribe(controlNodeId, `brain.agents.agent-B.${action}`);
+    }
+    agentBus.on(`message:${controlNodeId}`, (msg) => {
+      void (async (): Promise<void> => {
+        const data = JSON.parse((msg.payload as { content: string }).content);
+        const action = msg.topic.split(".").pop() ?? "";
+        const nodeId = (data.node_id as string | undefined) ?? (data.id as string | undefined);
+        if (action === "spawn") {
+          const cfg = { ...data.config, id: data.id, transport: "process" as const };
+          await agent.spawnNode(cfg);
+          return;
+        }
+        if (!nodeId) return;
+        switch (action) {
+          case "stop": agent.stopNode(nodeId); break;
+          case "start": await agent.startNode(nodeId); break;
+          case "wake": agent.wakeNode(nodeId); break;
+          case "kill": agent.killNode(nodeId); break;
+        }
+      })();
+    });
+
+    const stub = await api.spawnNode({
+      type: "echo",
+      name: "echo-controlled",
+      transport: "remote",
+      target_agent_id: "agent-B",
+      subscriptions: [{ topic: "ctl.test.in" }],
+    });
+
+    // Wait for the agent to spawn the runner
+    const t0 = Date.now() + 2000;
+    while (Date.now() < t0 && !agent.instanceRegistry.get(stub.id)) await wait(50);
+    expect(agent.instanceRegistry.get(stub.id)).toBeDefined();
+
+    // 1) stop → agent's local state goes STOPPED
+    expect(api.stopNode(stub.id)).toBe(true);
+    const t1 = Date.now() + 1500;
+    while (Date.now() < t1 && agent.instanceRegistry.get(stub.id)?.state !== "stopped") await wait(50);
+    expect(agent.instanceRegistry.get(stub.id)?.state).toBe("stopped");
+    // API mirrors the state optimistically
+    expect(api.instanceRegistry.get(stub.id)?.state).toBe("stopped");
+
+    // 2) start → agent comes back ACTIVE
+    expect(await api.startNode(stub.id)).toBe(true);
+    const t2 = Date.now() + 1500;
+    while (Date.now() < t2 && agent.instanceRegistry.get(stub.id)?.state !== "active") await wait(50);
+    expect(agent.instanceRegistry.get(stub.id)?.state).toBe("active");
+
+    // 3) kill cleans up both sides
+    api.killNode(stub.id);
+    const t3 = Date.now() + 1500;
+    while (Date.now() < t3 && agent.instanceRegistry.get(stub.id)) await wait(50);
+    expect(agent.instanceRegistry.get(stub.id)).toBeUndefined();
+    expect(api.instanceRegistry.get(stub.id)).toBeUndefined();
+
+    api.killAll();
+    agent.killAll();
+    await apiBus.close();
+    await agentBus.close();
+  });
 });

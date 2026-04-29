@@ -147,6 +147,11 @@ export interface NodeInfo {
   priority: number;
   subscriptions: SubscriptionConfig[];
   transport: TransportMode;
+  /**
+   * Set when `transport === "remote"`: the brain-agent currently hosting
+   * this node. Used by the API to route control actions over NATS.
+   */
+  target_agent_id?: string;
   position: { x: number; y: number };
   config_overrides?: Record<string, unknown>;
   default_publishes?: string[];

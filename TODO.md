@@ -181,7 +181,22 @@ Le pari le plus ambitieux. Justifie le "N" du sigle.
   **E2e validé**: API+NATS+agent → `curl POST /nodes` avec
   `transport=remote` → l'agent log `agent: spawned remote node
   locally` avec le même id que celui retourné par l'API.
-- [ ] **4.6 Doc**: setup NATS + déploiement agent sur Raspberry Pi.
+- [x] **4.5c Control plane distant**: les ops d'état lifecycle
+  (`stop`, `start`, `wake`) routent automatiquement vers l'agent
+  hôte quand le node est `transport: "remote"`. `dispatchRemoteAction`
+  publie `brain.agents.<id>.<action>` et met à jour optimistement
+  l'état local. L'agent souscrit aux topics `.stop/.start/.wake` (en
+  plus de `.spawn/.kill`) et appelle ses brainService locaux. Les
+  nodes distants sont aussi enregistrés dans `instanceRegistry` côté
+  API → ils apparaissent dans `/network` (et donc le graphe du
+  dashboard) avec `target_agent_id`. **Test**: nouveau cas dans
+  `tests/remote-spawn.test.ts` qui spawn un echo distant, applique
+  stop puis start puis kill et vérifie l'état des deux côtés.
+- [ ] **4.5d Read-back distant** (logs / mailbox): pour qu'un node
+  distant soit aussi observable qu'un local, ajouter request-reply
+  NATS — `brain.agents.<id>.read.logs` / `.read.mailboxes` — et
+  variantes async sur `BrainService` consommées par les controllers.
+  Plus invasif, séparé du control plane.
 
 ---
 
