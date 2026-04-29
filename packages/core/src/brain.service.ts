@@ -6,9 +6,12 @@ import {
   type NodeTeardown,
   type NodeInstanceConfig,
   type NodeState,
+  type NodeTypeConfig,
 } from "@brain/sdk";
 import type Database from "better-sqlite3";
 import EventEmitter from "eventemitter3";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { BusService } from "./bus";
 import { TypeRegistry, InstanceRegistry, DynamicTypeScanner, type DynamicScannerOptions } from "./registry";
 import { AuthorityService } from "./authority";
@@ -26,6 +29,7 @@ import {
 } from "./brain-lifecycle";
 import { LLMRegistry, type ProviderStatus } from "./llm/llm-registry";
 import { CLIRegistry, type CLIStatus } from "./llm/cli-registry";
+import { StoreService } from "./store";
 
 export class BrainService extends EventEmitter {
   static current: BrainService | null = null;
@@ -41,6 +45,7 @@ export class BrainService extends EventEmitter {
   private globalRunMode: "auto" | "manual" = "auto";
   readonly llm = LLMRegistry.getInstance();
   readonly cli = CLIRegistry.getInstance();
+  store!: StoreService;  // wired in bootstrap() once we know siblingsRoot
 
   constructor(dbPath?: string) {
     super();
@@ -86,9 +91,46 @@ export class BrainService extends EventEmitter {
     return this.instanceRegistry.list(filter);
   }
 
-  bootstrap(nodesDir: string): void {
-    const types = this.typeRegistry.scanDirectory(nodesDir);
-    logger.info({ count: types.length, types: types.map((t) => t.name) }, "Registered node types");
+  bootstrap(
+    nodesDir: string | string[],
+    opts?: { nodeModulesDir?: string; siblingsRoot?: string },
+  ): void {
+    // Accept either a single path (legacy) or a list. Multiple paths support
+    // the cross-repo workspace setup: brAIn ships its catalog under `nodes/`,
+    // brAIn-perception under `../brAIn-perception/nodes/`, etc. Each entry
+    // is treated as a directory of node subdirs (mirror of the original
+    // single-dir scan).
+    const dirs = Array.isArray(nodesDir) ? nodesDir : [nodesDir];
+    const staticTypes: NodeTypeConfig[] = [];
+    for (const dir of dirs) {
+      staticTypes.push(...this.typeRegistry.scanDirectory(dir));
+    }
+
+    // Initialise the store service once. The siblings root is where the
+    // store will clone parent repos (default: parent of the first nodesDir).
+    const siblingsRoot = opts?.siblingsRoot
+      ?? path.resolve(dirs[0], "..", "..");
+    this.store = new StoreService(this.typeRegistry, siblingsRoot);
+
+    // Discover nodes installed as npm packages under @brain/node-*. Once
+    // the perception/memory/etc. domains ship via `pnpm add @brain/node-foo`,
+    // they surface here. Default lookup walks up from the framework's own
+    // node_modules to the workspace root, hitting both pnpm install
+    // layouts (hoisted + isolated).
+    const installedTypes: NodeTypeConfig[] = [];
+    for (const dir of resolveNodeModulesDirs(opts?.nodeModulesDir)) {
+      installedTypes.push(...this.typeRegistry.scanInstalledPackages(dir));
+    }
+
+    logger.info(
+      {
+        static: staticTypes.length,
+        installed: installedTypes.length,
+        dirs,
+        types: [...staticTypes, ...installedTypes].map((t) => t.name),
+      },
+      "Registered node types",
+    );
   }
 
   startDynamicScanner(opts: Omit<DynamicScannerOptions, "bus" | "typeRegistry"> & Partial<Pick<DynamicScannerOptions, "bus" | "typeRegistry">>): DynamicTypeScanner {
@@ -212,4 +254,25 @@ export class BrainService extends EventEmitter {
     const onSpawn = mod.onSpawn as NodeOnSpawn | undefined;
     return { handler: h, teardown, onSpawn };
   }
+}
+
+/**
+ * Find the `node_modules` directories where `@brain/node-*` packages
+ * may live. Caller can override with an explicit path; otherwise we
+ * walk up from the framework's own `__dirname` collecting every
+ * `node_modules/` along the way (pnpm hoists at the workspace root,
+ * isolates per-package, sometimes both).
+ */
+function resolveNodeModulesDirs(override?: string): string[] {
+  if (override) return [override];
+  const dirs: string[] = [];
+  let cur = __dirname;
+  for (let i = 0; i < 8; i++) {  // bounded climb
+    const nm = path.join(cur, "node_modules");
+    if (fs.existsSync(nm) && !dirs.includes(nm)) dirs.push(nm);
+    const parent = path.dirname(cur);
+    if (parent === cur) break;
+    cur = parent;
+  }
+  return dirs;
 }

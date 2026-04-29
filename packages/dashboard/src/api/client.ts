@@ -130,6 +130,42 @@ export function applySeed(name: string): Promise<{ seeded: number; seed: string 
   return request(`/network/seeds/${name}/apply`, { method: "POST" });
 }
 
+// === Store ===
+
+export interface StoreNodeStatus {
+  name: string;
+  package_name: string;
+  repo: string;
+  subpath: string;
+  version: string;
+  description: string;
+  tags?: string[];
+  has_ui?: boolean;
+  needs_python?: boolean;
+  needs_ollama?: boolean;
+  installed: boolean;
+  install_path: string | null;
+}
+
+export interface StoreInstallResult {
+  status: "installed" | "already_present" | "failed";
+  message: string;
+  cloned_to: string | null;
+  re_scanned_types: number;
+}
+
+export function getStoreNodes(): Promise<StoreNodeStatus[]> {
+  return request("/store/nodes");
+}
+
+export function installFromStore(packageName: string): Promise<StoreInstallResult> {
+  return request("/store/install", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ package_name: packageName }),
+  });
+}
+
 // === History ===
 
 export interface HistoryEntry {

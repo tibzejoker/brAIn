@@ -1,6 +1,8 @@
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, afterAll } from "vitest";
 import { TypeRegistry, InstanceRegistry } from "@brain/core";
 import { NodeState, AuthorityLevel } from "@brain/sdk";
+import * as fs from "fs";
+import * as os from "os";
 import * as path from "path";
 
 describe("TypeRegistry", () => {
@@ -36,6 +38,80 @@ describe("TypeRegistry", () => {
     const llmTypes = reg.list({ tags: ["llm"] });
     expect(llmTypes.length).toBeGreaterThanOrEqual(1);
     expect(llmTypes.every((t) => t.tags.includes("llm"))).toBe(true);
+  });
+
+  describe("scanInstalledPackages", () => {
+    let scratch: string;
+
+    beforeEach(() => {
+      scratch = fs.mkdtempSync(path.join(os.tmpdir(), "brain-registry-test-"));
+    });
+
+    afterAll(() => {
+      // Best-effort cleanup; ignore if a test forgot to set scratch.
+      // (Per-test scratch dirs are leaked to /tmp but the OS rotates that.)
+    });
+
+    function makePackage(scopeDir: string, name: string, config: Record<string, unknown>): void {
+      const pkgDir = path.join(scopeDir, name);
+      fs.mkdirSync(pkgDir, { recursive: true });
+      fs.writeFileSync(path.join(pkgDir, "config.json"), JSON.stringify(config));
+    }
+
+    it("registers @brain/node-* packages from node_modules", () => {
+      const scope = path.join(scratch, "@brain");
+      fs.mkdirSync(scope, { recursive: true });
+      makePackage(scope, "node-foo", {
+        name: "foo", description: "Foo node", tags: ["test"],
+        default_authority: 0, default_priority: 1,
+        default_subscriptions: [], supports_transport: ["process"],
+      });
+      makePackage(scope, "node-bar", {
+        name: "bar", description: "Bar node", tags: ["test"],
+        default_authority: 0, default_priority: 1,
+        default_subscriptions: [], supports_transport: ["process"],
+      });
+      // A non-node sibling that should be ignored.
+      makePackage(scope, "sdk", { name: "sdk-noise" });
+
+      const reg = new TypeRegistry();
+      const out = reg.scanInstalledPackages(scratch);
+      expect(out.map((t) => t.name).sort()).toEqual(["bar", "foo"]);
+      expect(reg.has("foo")).toBe(true);
+      expect(reg.has("bar")).toBe(true);
+      expect(reg.has("sdk-noise")).toBe(false);
+    });
+
+    it("skips entries without config.json", () => {
+      const scope = path.join(scratch, "@brain");
+      const pkgDir = path.join(scope, "node-empty");
+      fs.mkdirSync(pkgDir, { recursive: true });
+      // No config.json — should be silently skipped.
+      const reg = new TypeRegistry();
+      expect(reg.scanInstalledPackages(scratch)).toEqual([]);
+    });
+
+    it("returns [] when node_modules has no @brain scope", () => {
+      const reg = new TypeRegistry();
+      expect(reg.scanInstalledPackages(scratch)).toEqual([]);
+    });
+
+    it("can run alongside scanDirectory and merge type sources", () => {
+      const scope = path.join(scratch, "@brain");
+      fs.mkdirSync(scope, { recursive: true });
+      makePackage(scope, "node-from-npm", {
+        name: "from-npm", description: "installed", tags: [],
+        default_authority: 0, default_priority: 1,
+        default_subscriptions: [], supports_transport: ["process"],
+      });
+
+      const reg = new TypeRegistry();
+      reg.scanDirectory(path.resolve(__dirname, "../nodes"));
+      const installed = reg.scanInstalledPackages(scratch);
+      expect(installed).toHaveLength(1);
+      expect(reg.has("from-npm")).toBe(true);
+      expect(reg.has("clock")).toBe(true);  // still has the in-tree types
+    });
   });
 });
 

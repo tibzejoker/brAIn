@@ -84,4 +84,39 @@ export class TypeRegistry {
 
     return registered;
   }
+
+  /**
+   * Scan `node_modules/@brain/node-*` and register each package whose
+   * `config.json` validates. Mirrors `scanDirectory()` for nodes shipped
+   * as npm packages instead of in-tree workspaces — the install path
+   * for the upcoming domain-split (brAIn-perception, brAIn-memory, …).
+   *
+   * Resolution: each matched directory under `@brain/` is treated as
+   * the node root. The package's `dist/handler.js` (referenced by
+   * `package.json:main`) is what `BrainService.loadHandler` will
+   * dynamically import — same contract as in-tree nodes.
+   */
+  scanInstalledPackages(nodeModulesDir: string): NodeTypeConfig[] {
+    const registered: NodeTypeConfig[] = [];
+    const scopeDir = path.join(nodeModulesDir, "@brain");
+    if (!fs.existsSync(scopeDir)) return registered;
+
+    const entries = fs.readdirSync(scopeDir, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (!entry.name.startsWith("node-")) continue;
+
+      const dirPath = path.join(scopeDir, entry.name);
+      const configPath = path.join(dirPath, "config.json");
+      if (!fs.existsSync(configPath)) continue;
+
+      try {
+        registered.push(this.register(dirPath));
+      } catch {
+        logger.warn({ dirPath }, "Failed to register installed node type");
+      }
+    }
+
+    return registered;
+  }
 }

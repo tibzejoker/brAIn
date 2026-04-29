@@ -21,3 +21,7 @@ export { LLMRegistry, CLIRegistry, generateText } from "./llm";
 export type { ProviderStatus, CLIStatus } from "./llm";
 export { startChildServer } from "./child-server";
 export type { ChildServerOptions, ChildServerHandle } from "./child-server";
+export { StoreService } from "./store";
+export type {
+  StoreRegistry, StoreRepo, StoreNode, StoreNodeStatus, StoreInstallResult,
+} from "./store";

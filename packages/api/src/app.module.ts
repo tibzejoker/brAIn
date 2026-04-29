@@ -5,6 +5,7 @@ import { TypesController } from "./rest/types.controller";
 import { NetworkController } from "./rest/network.controller";
 import { SeedsController } from "./rest/seeds.controller";
 import { NodeUiController } from "./rest/node-ui.controller";
+import { StoreController } from "./rest/store.controller";
 import { DashboardGateway } from "./ws/dashboard.gateway";
 import * as path from "path";
 
@@ -24,7 +25,26 @@ const brainServiceProvider = {
     const brain = new BrainService(dbPath);
 
     const nodesDir = resolveFromRoot(process.env.BRAIN_NODES_DIR, "nodes");
-    brain.bootstrap(nodesDir);
+    // Extra node directories (sibling repos, e.g. ../brAIn-perception/nodes).
+    // BRAIN_EXTRA_NODES_DIRS is path-list separated by `:` (or `;` on win).
+    // The default falls back to the conventional sibling paths so the local
+    // dev experience "just works" once you check out brAIn-perception next
+    // to brAIn — no env config needed.
+    const extras = (process.env.BRAIN_EXTRA_NODES_DIRS ?? "")
+      .split(process.platform === "win32" ? ";" : ":")
+      .map((p) => p.trim()).filter(Boolean)
+      .map((p) => resolveFromRoot(p, p));
+    const conventional = [
+      path.resolve(MONOREPO_ROOT, "..", "brAIn-perception", "nodes"),
+      path.resolve(MONOREPO_ROOT, "..", "brAIn-memory", "nodes"),
+      path.resolve(MONOREPO_ROOT, "..", "brAIn-reasoning", "nodes"),
+      path.resolve(MONOREPO_ROOT, "..", "brAIn-tools", "nodes"),
+    ];
+    const allExtras = [...extras, ...conventional].filter((p) => {
+      try { return path.resolve(p) !== path.resolve(nodesDir) && require("fs").existsSync(p); }
+      catch { return false; }
+    });
+    brain.bootstrap([nodesDir, ...allExtras]);
     brain.startDynamicScanner({ dynamicDir: path.join(nodesDir, "_dynamic") });
 
     const seedsDir = resolveFromRoot(process.env.BRAIN_SEEDS_DIR, "seeds");
@@ -35,7 +55,7 @@ const brainServiceProvider = {
 };
 
 @Module({
-  controllers: [NodesController, TypesController, NetworkController, SeedsController, NodeUiController],
+  controllers: [NodesController, TypesController, NetworkController, SeedsController, NodeUiController, StoreController],
   providers: [brainServiceProvider, DashboardGateway],
 })
 export class AppModule implements OnModuleInit {

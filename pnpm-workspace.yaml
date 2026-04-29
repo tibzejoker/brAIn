@@ -2,3 +2,10 @@ packages:
   - "packages/*"
   - "nodes/*"
   - "nodes/_dynamic/*"
+  # Perception nodes live in their own repo (brAIn-perception) checked out
+  # as a sibling. Picked up here so `pnpm --filter @brain/node-voice ...`
+  # still works and workspace:* refs to @brain/core / @brain/sdk resolve.
+  # If the sibling repo isn't checked out, pnpm just ignores the missing
+  # path. Once the perception packages are published to npm, this line
+  # can be dropped and they get installed as regular deps.
+  - "../brAIn-perception/nodes/*"
