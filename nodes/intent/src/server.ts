@@ -19,6 +19,7 @@
  */
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { WebSocketServer, type WebSocket } from "ws";
+import { logger } from "@brain/core";
 import type { IntentRecord, IntentStore, Person } from "./store";
 import type { Timeline } from "./timeline";
 
@@ -54,16 +55,15 @@ export async function startIntentServer(opts: {
     }
   });
 
-  const wss = new WebSocketServer({ server: httpServer, path: "/ws/intents" });
-  wss.on("connection", (ws) => {
-    subscribers.add(ws);
-    ws.on("close", () => subscribers.delete(ws));
-  });
-
   // Bind with proper error handling. If another intent server is already
   // listening (orphan from a prior run, or another `dev` shell), don't
   // crash the API process — log and return a no-op handle that lets the
   // correlator keep running. Attention will poll the existing server.
+  //
+  // Probe FIRST. WebSocketServer attached to httpServer also emits 'error'
+  // on bind failures, so attaching wss before we know listen() succeeded
+  // would re-throw the EADDRINUSE event from a second emitter that we
+  // can't fully silence. Probe → bind → wss is the safest order.
   try {
     await new Promise<void>((resolve, reject) => {
       const onError = (err: NodeJS.ErrnoException): void => {
@@ -87,7 +87,6 @@ export async function startIntentServer(opts: {
       // intent server, so that's fine). The downside: writes via this
       // node's API surface go to the orphan's store, not ours. Logged
       // loudly so the dev notices and kills the orphan.
-      try { wss.close(); } catch { /* ignore */ }
       try { httpServer.close(); } catch { /* ignore */ }
       const noop: IntentServerHandle = {
         spawned: false,
@@ -98,6 +97,17 @@ export async function startIntentServer(opts: {
     }
     throw err;
   }
+
+  // httpServer is now listening — safe to attach the WebSocket server.
+  const wss = new WebSocketServer({ server: httpServer, path: "/ws/intents" });
+  wss.on("connection", (ws) => {
+    subscribers.add(ws);
+    ws.on("close", () => subscribers.delete(ws));
+  });
+  wss.on("error", (err: Error) => {
+    // Defensive: log but don't let a runtime ws error tear down the api.
+    logger.warn({ err: err.message }, "intent: wss runtime error");
+  });
 
   return {
     spawned: true,

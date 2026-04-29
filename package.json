@@ -17,6 +17,7 @@
     "build": "pnpm -r build",
     "clean": "pnpm -r exec rm -rf di  st",
     "kill-orphans": "node scripts/kill-orphans.mjs",
+    "kill-ports": "node scripts/kill-ports.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "vitest run",
