@@ -59,6 +59,12 @@ export abstract class BaseRunner {
   protected readonly handlerTimeoutMs: number;
   readonly log = new NodeLog();
 
+  // Dead-letter queue: messages that were in flight when the handler
+  // crashed or timed out. Bounded ring; the dashboard's NodePanel
+  // surfaces it under a "DLQ" badge so users can spot poison messages.
+  private readonly deadLetters: Array<{ ts: number; error: string; message: Message }> = [];
+  private static readonly DLQ_MAX = 50;
+
   constructor(
     protected readonly nodeInfo: NodeInfo,
     protected readonly handler: NodeHandler,
@@ -218,7 +224,21 @@ export abstract class BaseRunner {
       const errMsg = err instanceof Error ? err.message : String(err);
       this.log.error(`Handler error: ${errMsg}`);
       logger.error({ err, node: this.nodeInfo.name, iteration: this.iteration }, "Handler error");
+      const ts = Date.now();
+      for (const m of messages) {
+        this.deadLetters.push({ ts, error: errMsg, message: m });
+        if (this.deadLetters.length > BaseRunner.DLQ_MAX) this.deadLetters.shift();
+      }
     }
+  }
+
+  /**
+   * Snapshot of the dead-letter queue (oldest → newest). Each entry
+   * pairs a message that was being processed when the handler failed
+   * with the error string + timestamp. Bounded ring of 50 entries.
+   */
+  getDeadLetters(): Array<{ ts: number; error: string; message: Message }> {
+    return [...this.deadLetters];
   }
 
   protected enterSleep(): void {

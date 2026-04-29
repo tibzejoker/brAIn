@@ -257,8 +257,20 @@ Pour répondre à la critique "pub/sub = enfer à debugger en prod".
   toute la chaîne causale (récupérée via `GET /network/traces/:id`).
   Indentation par profondeur basée sur `parent_id` → on voit qui a
   causé qui. Loading + 404 friendly handlés.
-- [ ] **6.2 Dead-letter queue**: messages qui causent un crash
-  handler 3x sont déplacés dans un mailbox dédié pour inspection.
+- [x] **6.2 Dead-letter queue**: `BaseRunner` capture désormais les
+  messages en flight quand le handler throw ou timeout — ring borné
+  de 50 entrées par node, exposé via `getDeadLetters()` côté runner
+  et `BrainService.getNodeDeadLetters(id)` côté API. Endpoint REST
+  `GET /nodes/:id/dead-letters`. Le `NodePanel` du dashboard ajoute
+  un onglet "DLQ" qui poll toutes les 4 s, montre `{ts, topic, from,
+  error, payload}` par entrée. Le label de l'onglet passe en rouge
+  avec un compteur dès qu'il y a au moins une dead letter, même
+  quand l'utilisateur est sur Info / Logs / Mailbox. Test ajouté
+  dans `runner-resilience.test.ts` qui vérifie qu'un crash handler
+  pousse le message dans le DLQ avec l'erreur attendue.
+  **Note**: pour les nodes remote, le DLQ vit côté agent — la lecture
+  via API renverra `[]`. Read-back via NATS request-reply est un
+  follow-up direct (cf 4.5d / 6.2b).
 - [x] **6.3 Backpressure metrics**: `Mailbox` expose `dropped`
   (compteur cumulatif d'évictions) + `capacity` (`max_size`).
   `BusMailboxView` (et donc `GET /nodes/:id/mailboxes`) renvoient ces

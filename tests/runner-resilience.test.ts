@@ -79,6 +79,12 @@ describe("Runner resilience", () => {
     expect(recovered).toBe(true);
     expect(callCount).toBeGreaterThanOrEqual(2);
 
+    // The crashing first message lands in the DLQ for inspection.
+    const dlq = runner.getDeadLetters();
+    expect(dlq.length).toBeGreaterThanOrEqual(1);
+    expect(dlq[0].error).toContain("boom");
+    expect(dlq[0].message.topic).toBe("test.input");
+
     runner.stop();
   });
 

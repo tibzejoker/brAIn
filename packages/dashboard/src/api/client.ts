@@ -263,6 +263,16 @@ export function getNodeMailboxes(id: string): Promise<MailboxInfo[]> {
   return request(`/nodes/${id}/mailboxes`);
 }
 
+export interface DeadLetterEntry {
+  ts: number;
+  error: string;
+  message: Message;
+}
+
+export function getNodeDeadLetters(id: string): Promise<DeadLetterEntry[]> {
+  return request(`/nodes/${id}/dead-letters`);
+}
+
 // === Node logs ===
 
 export interface NodeLogEntry {

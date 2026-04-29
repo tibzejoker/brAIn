@@ -1,9 +1,10 @@
 import { useCallback, useState, useEffect, useRef } from "react";
 import type { NodeSnapshot } from "../api/types";
-import { killNode, stopNode, startNode, wakeNode, tickNode, getNodeLogs, getNodeMailboxes, type NodeLogEntry, type MailboxInfo } from "../api/client";
+import { killNode, stopNode, startNode, wakeNode, tickNode, getNodeLogs, getNodeMailboxes, getNodeDeadLetters, type NodeLogEntry, type MailboxInfo, type DeadLetterEntry } from "../api/client";
+import { DeadLetterTab } from "./DeadLetterTab";
 
 function noop(): void { /* best-effort */ }
-type PanelTab = "info" | "logs" | "mailbox";
+type PanelTab = "info" | "logs" | "mailbox" | "dlq";
 
 interface NodePanelProps {
   node: NodeSnapshot;
@@ -50,8 +51,9 @@ export function NodePanel({
   );
 
   const [mailboxes, setMailboxes] = useState<MailboxInfo[]>([]);
+  const [deadLetters, setDeadLetters] = useState<DeadLetterEntry[]>([]);
 
-  // Poll logs or mailboxes depending on active tab
+  // Poll the active tab's data source.
   useEffect(() => {
     if (tab === "logs") {
       const poll = (): void => { getNodeLogs(node.id, 100).then(setLogs).catch(noop); };
@@ -65,8 +67,25 @@ export function NodePanel({
       const iv = setInterval(poll, 3000);
       return (): void => { clearInterval(iv); };
     }
+    if (tab === "dlq") {
+      const poll = (): void => { getNodeDeadLetters(node.id).then(setDeadLetters).catch(noop); };
+      poll();
+      const iv = setInterval(poll, 4000);
+      return (): void => { clearInterval(iv); };
+    }
     return undefined;
   }, [tab, node.id]);
+
+  // Always poll the DLQ count (cheap) so the tab badge stays up-to-date
+  // even when the user is on Info / Logs / Mailbox.
+  useEffect(() => {
+    const refreshCount = (): void => {
+      getNodeDeadLetters(node.id).then(setDeadLetters).catch(noop);
+    };
+    refreshCount();
+    const iv = setInterval(refreshCount, 5000);
+    return (): void => { clearInterval(iv); };
+  }, [node.id]);
 
   // Auto-scroll logs
   useEffect(() => {
@@ -101,6 +120,12 @@ export function NodePanel({
         <TabButton label="Info" active={tab === "info"} onClick={() => setTab("info")} />
         <TabButton label="Mailbox" active={tab === "mailbox"} onClick={() => setTab("mailbox")} />
         <TabButton label="Logs" active={tab === "logs"} onClick={() => setTab("logs")} />
+        <TabButton
+          label={deadLetters.length > 0 ? `DLQ (${deadLetters.length})` : "DLQ"}
+          active={tab === "dlq"}
+          onClick={() => setTab("dlq")}
+          warn={deadLetters.length > 0}
+        />
       </div>
 
       {/* Tab content */}
@@ -220,6 +245,8 @@ export function NodePanel({
         </div>
       )}
 
+      {tab === "dlq" && <DeadLetterTab entries={deadLetters} />}
+
       {/* Actions */}
       <div className="p-4 border-t border-border flex flex-wrap gap-2">
         {node.state === "active" && (
@@ -240,16 +267,20 @@ export function NodePanel({
   );
 }
 
-function TabButton({ label, active, onClick }: { label: string; active: boolean; onClick: () => void }): React.ReactElement {
+function TabButton({ label, active, onClick, warn = false }: {
+  label: string;
+  active: boolean;
+  onClick: () => void;
+  warn?: boolean;
+}): React.ReactElement {
+  const base = "px-4 py-2 text-xs font-medium transition-colors";
+  const tone = active
+    ? "text-accent border-b-2 border-accent"
+    : warn
+      ? "text-node-stopped hover:text-node-stopped/80"
+      : "text-text-muted hover:text-text";
   return (
-    <button
-      onClick={onClick}
-      className={`px-4 py-2 text-xs font-medium transition-colors ${
-        active
-          ? "text-accent border-b-2 border-accent"
-          : "text-text-muted hover:text-text"
-      }`}
-    >
+    <button onClick={onClick} className={`${base} ${tone}`}>
       {label}
     </button>
   );

@@ -163,4 +163,13 @@ export class NodesController {
   }>> {
     return this.brain.getNodeMailboxesAny(id);
   }
+
+  /**
+   * Messages in flight when the handler crashed or timed out — the
+   * dead-letter queue. Bounded ring of 50 entries per node.
+   */
+  @Get(":id/dead-letters")
+  deadLetters(@Param("id") id: string): ReturnType<BrainService["getNodeDeadLetters"]> {
+    return this.brain.getNodeDeadLetters(id);
+  }
 }

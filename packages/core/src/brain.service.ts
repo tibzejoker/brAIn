@@ -263,6 +263,15 @@ export class BrainService extends EventEmitter {
   getNodeLogs(id: string, last?: number): Array<{ timestamp: number; level: string; message: string; data?: Record<string, unknown> }> { return this.runners.get(id)?.getLogs(last) ?? []; }
 
   /**
+   * Dead-letter queue for a node: every message that was in flight when
+   * its handler crashed or timed out. Bounded by the runner (50). For
+   * remote nodes this returns [] — see follow-up TODO 6.2b.
+   */
+  getNodeDeadLetters(id: string): ReturnType<BaseRunner["getDeadLetters"]> {
+    return this.runners.get(id)?.getDeadLetters() ?? [];
+  }
+
+  /**
    * Read logs for a node regardless of locality. Local nodes return
    * synchronously via the runner buffer; remote nodes are fetched via
    * NATS request-reply against the hosting agent. Returns [] if the
