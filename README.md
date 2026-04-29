@@ -12,16 +12,25 @@
 ```
 
 brAIn is an **orchestration framework for autonomous nodes** loosely
-modeled after how the brain works. The vast majority of the codebase
-(~7000 lines of TypeScript across `packages/sdk`, `packages/core`,
-`packages/api`, `packages/dashboard`) is the **engine itself**: a
-pub/sub bus, two runners with criticality-aware scheduling, lifecycle
-hooks, a dynamic type registry, and a live dashboard.
+modeled after how the brain works. The codebase splits into:
 
-On top of the engine, a **catalog of ready-made nodes** covers three
-domains: perception (voice / gaze / intent — the most fully-fledged
-use case at the moment), reasoning (LLM brain, developer, attention),
-and memory (KV, vector, intelligent proxy, autonomous consolidator).
+- **The engine** (`packages/sdk`, `packages/core`, `packages/api`,
+  `packages/dashboard`, `packages/agent`, `packages/python-sdk`):
+  pub/sub bus (in-memory **or** distributed over NATS), two runners
+  with criticality-aware scheduling, lifecycle hooks, a dynamic type
+  registry, three transports (`process` / `web` / `remote`), a
+  brain-agent daemon for cross-machine deployments, and a live
+  dashboard.
+- **A catalog of in-tree nodes** (`nodes/`): reasoning (LLM brain,
+  developer, attention), memory (KV, vector, intelligent proxy,
+  autonomous consolidator), and small tools (terminal, http-bridge,
+  cron, etc.).
+- **Sibling repos** for richer domains: perception
+  ([brAIn-perception](https://github.com/tibzejoker/brAIn-perception)
+  — voice / gaze / intent) and the curated public node
+  [registry](https://github.com/tibzejoker/brAIn-store). Sibling
+  checkouts are auto-detected; nothing else to configure.
+
 Each node is an independent package that exports nothing but a
 handler conforming to the SDK plus a `config.json`; the engine takes
 care of the rest.
@@ -35,7 +44,15 @@ care of the rest.
 
 ### Pub/sub bus
 
-`packages/core/src/bus` — in-memory bus with:
+`packages/core/src/bus` — same `IBusService` interface in two flavours:
+
+- **`BusService`** (in-process, default) — purely in-memory.
+- **`NatsBusService`** — same interface backed by a NATS broker.
+  Multiple brAIn processes (an API + N brain-agents on other hosts)
+  share topics over the broker. Anti-loop on a per-instance origin id
+  + native `request`/`reply` for synchronous read-back.
+
+Common features regardless of backend:
 
 - **Wildcard matching** on topics (`alerts.*` matches all depths,
   `voice.*` matches `voice.transcript`, `voice.speaker.detected`, etc.).
@@ -50,6 +67,8 @@ care of the rest.
   in-queue ordering. Mid-handler preemption based on criticality is
   scaffolded in the SDK (`PreemptionContext`) but **not yet
   implemented** in the runner — handlers run to completion for now.
+- **Causal tracing** — every message carries `trace_id` + `parent_id`.
+  Trace ids propagate through publishes and survive NATS encode/decode.
 - **History** queryable via `GET /network/messages?last=N&topic=X`.
 
 ### Runners
@@ -65,6 +84,41 @@ based on its tags:
   (5 iterations by default). New messages **reset the budget** (fresh
   attention). When exhausted → forced sleep with configurable duration.
   The handler can `ctx.sleep()` voluntarily at any point.
+
+### Transports
+
+A node's `transport` decides where its handler actually runs:
+
+- **`process`** — handler is a TS module loaded into the API process
+  (default). Cheapest, used by every in-tree node.
+- **`web`** — node is an external HTTP/WS service (any language). The
+  framework opens a persistent WebSocket to it (`WebRunner`,
+  reconnects + heartbeat) and bridges bus messages over the socket.
+  Python helper SDK at `packages/python-sdk` (`brain-web`). Demo:
+  `nodes/calc-py`.
+- **`remote`** — node lives on another host inside a brain-agent.
+  The API publishes a spawn-request on
+  `brain.agents.<target_agent_id>.spawn`; the agent owns the runner
+  locally; messages still flow on the shared NATS bus.
+
+### Distributed runtime — brain-agent
+
+`packages/agent` (`brain-agent` CLI binary) is a tiny daemon that
+hosts nodes on a remote machine. It:
+
+- Connects to the same NATS broker as the API (env: `BRAIN_NATS_URL`).
+- Scans its local `nodes/` directory and registers types.
+- Announces itself every 10 s on `brain.agents.discover`.
+- Subscribes to `brain.agents.<self>.{spawn,kill,stop,start,wake}`
+  and dispatches each request to its local `BrainService`. The API's
+  lifecycle methods auto-route over NATS when the node is remote.
+- Answers `brain.agents.<self>.read.{logs,mailboxes}` via NATS
+  request-reply, so the dashboard's NodePanel works for remote nodes
+  the same as local ones.
+
+The dashboard's **Agents tab** lists every agent currently announcing.
+The Node Creator's **Target** dropdown lets you pick "Local" or any
+live agent for new spawns.
 
 ### Node lifecycle
 
@@ -133,8 +187,21 @@ engine's events via Socket.IO:
 - `node:state_changed` — `{ nodeId, from, to }`
 - `message:published` — `Message`
 
-It draws the node graph, their subscriptions, the live message flow,
-and hosts the **per-node UI panels** (see below).
+Five tabs in the side menu:
+
+- **◉ Network** — live graph + selected-node panel (logs / mailbox /
+  state actions). Remote nodes carry a `⚯ remote` badge and route
+  control actions back through NATS.
+- **◷ History** — chronological feed of network actions.
+- **⚙ Seeds** — pre-baked YAML scenarios you can apply.
+- **⊞ Store** — public registry browser (install in one click) plus a
+  **Local candidates** section that surfaces dynamically-built node
+  types from the developer node, with a "Copy registry entry" button
+  to paste into a PR against `brAIn-store`.
+- **⚯ Agents** — every brain-agent currently announcing on the bus
+  (host, pid, uptime, registered types).
+
+It also hosts **per-node UI panels** (see below).
 
 ### Per-node UI panels
 
@@ -149,10 +216,15 @@ faces panel CRUD, timeline, tuning sliders, etc.
 
 ## Node catalog
 
-### Perception — `voice` · `gaze` · `intent`
+### Perception (sibling repo) — `voice` · `gaze` · `intent`
 
-The most fleshed-out stack today, built as **three independent brAIn
-nodes** on the bus:
+Lives in [brAIn-perception](https://github.com/tibzejoker/brAIn-perception),
+checked out next to `brAIn/` and auto-detected at boot — `pnpm-workspace.yaml`
+treats `../brAIn-perception/nodes/*` as workspace packages so the
+`@brain/sdk` and `@brain/core` deps resolve normally. The API also
+adds the path to its `bootstrap()` automatically.
+
+Three independent nodes on the bus:
 
 **`voice`** (`nodes/voice/`, ~180 lines TS + ~2200 Python)
 Server-side mic capture (sounddevice), Silero VAD + faster-whisper STT
@@ -290,6 +362,31 @@ pnpm setup:voice      # venv + STT models (~200 MB)
 pnpm setup:gaze       # venv + Gazelle + InsightFace + Moondream (~500 MB)
 ```
 
+### Distributed runtime (NATS + brain-agent)
+
+To run nodes on more than one machine:
+
+```bash
+# 1) On any machine — start a NATS broker
+brew install nats-server          # or: docker run -p 4222:4222 nats
+nats-server -p 4222
+
+# 2) On the API host
+BRAIN_NATS_URL=nats://<broker>:4222 pnpm start
+
+# 3) On every worker host (Raspberry Pi, GPU box, ...)
+BRAIN_NATS_URL=nats://<broker>:4222 \
+  BRAIN_AGENT_NODES_DIR=$(pwd)/nodes \
+  node packages/agent/dist/cli.js
+```
+
+The agent announces itself; the dashboard's **Agents** tab lists it.
+Open the Node Creator and pick the agent in the **Target** dropdown
+to spawn there — control + read-back all flow back through NATS.
+
+Optional env vars: `BRAIN_NATS_PREFIX` (default `brain` — must match
+on both sides), `BRAIN_NATS_TOKEN` (broker auth).
+
 ### Cleaning up orphans
 
 If the stack falls over and a port stays held:
@@ -308,14 +405,16 @@ pnpm kill-ports       # blunter — kills anything holding a known port
 ```
 GET    /nodes                  List instances
 GET    /nodes/:id              Detail
-POST   /nodes                  Spawn  { type, name, subscriptions?, ... }
-DELETE /nodes/:id              Kill
-POST   /nodes/:id/stop         Stop (subscriptions preserved)
-POST   /nodes/:id/start        Restart a stopped node
-POST   /nodes/:id/wake         Wake a sleeping node
+POST   /nodes                  Spawn  { type, name, subscriptions?,
+                                        transport?, target_agent_id? }
+DELETE /nodes/:id              Kill (routes to agent if remote)
+POST   /nodes/:id/stop         Stop (idem)
+POST   /nodes/:id/start        Restart (idem)
+POST   /nodes/:id/wake         Wake a sleeping node (idem)
 POST   /nodes/:id/tick         Force one iteration (manual mode)
 PATCH  /nodes/:id/config       Update config_overrides (null = delete a key)
-GET    /nodes/:id/logs         Per-node log buffer
+GET    /nodes/:id/logs         Per-node log buffer (proxied via NATS for remote)
+GET    /nodes/:id/mailboxes    Mailbox preview (idem)
 ```
 
 ### Types + dynamic
@@ -327,6 +426,16 @@ DELETE /types/:name                 Unregister
 GET    /network                     Full snapshot
 GET    /network/messages            History  ?last=N&topic=X&min_criticality=N
 POST   /network/seeds/:name/apply   Apply a YAML seed
+```
+
+### Store + agents (distributed runtime)
+
+```
+GET    /store/index             Raw registry from BRAIN_STORE_URL (cached 60s)
+GET    /store/nodes             Registry decorated with installed/install_path
+POST   /store/install            { package_name } — git-clone parent repo
+GET    /store/candidates        Dynamic types ready to publish (developer)
+GET    /agents                  Live brain-agents on the shared bus
 ```
 
 ### Node UI
@@ -362,6 +471,11 @@ Three minimum files under `nodes/<your-node>/`:
   "has_ui": false
 }
 ```
+
+`supports_transport` may include `"process"` (in-tree TS handler),
+`"web"` (external HTTP/WS service — also requires a `web: { url }`
+block), and/or `"remote"` (any node can be hosted on a brain-agent;
+the agent dispatches it as `process` locally).
 
 **`src/handler.ts`**
 ```typescript
@@ -429,14 +543,21 @@ local_capture, etc.); run them with `.venv/bin/python -m unittest`.
 ## Tech stack
 
 - `SDK` — TypeScript, types only.
-- `Core` — TypeScript, pino, eventemitter3, better-sqlite3, uuid, ws.
+- `Core` — TypeScript, pino, eventemitter3, better-sqlite3, uuid, ws,
+  nats.js (distributed bus).
 - `API` — NestJS 10, Socket.IO, express.
+- `Agent` — TypeScript daemon (`packages/agent`), depends on core +
+  sdk only. Ships a `brain-agent` CLI bin.
 - `Dashboard` — React 19, React Flow, d3-force, Tailwind v4, Vite.
-- `Bus` — in-memory (Redis pub/sub planned for the distributed setup).
+- `Bus` — in-memory by default; NATS when `BRAIN_NATS_URL` is set.
 - `Persistence` — SQLite via better-sqlite3.
-- `Monorepo` — pnpm workspaces.
-- `Python servers` — FastAPI + uvicorn (voice / gaze only).
-- `Tests` — vitest (TS), unittest (Python).
+- `Monorepo` — pnpm workspaces (cross-repo via sibling paths to
+  `../brAIn-perception/nodes/*`).
+- `Python helper SDK` — `packages/python-sdk` (`brain-web`) for
+  authoring `transport: "web"` nodes in Python.
+- `Python servers` — FastAPI + uvicorn (perception nodes, sibling repo).
+- `Tests` — vitest (TS), unittest (Python). NATS integration tests
+  skip gracefully when `nats-server` isn't on PATH.
 - `Lint` — ESLint strict (no `any`, no `console`, no `eslint-disable`, 300-line cap per file).
 
 ---
