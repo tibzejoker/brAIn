@@ -265,10 +265,27 @@ export class BrainService extends EventEmitter {
   /**
    * Dead-letter queue for a node: every message that was in flight when
    * its handler crashed or timed out. Bounded by the runner (50). For
-   * remote nodes this returns [] — see follow-up TODO 6.2b.
+   * local nodes this returns the runner's buffer synchronously.
+   * Use `getNodeDeadLettersAny` to also reach remote nodes via NATS.
    */
   getNodeDeadLetters(id: string): ReturnType<BaseRunner["getDeadLetters"]> {
     return this.runners.get(id)?.getDeadLetters() ?? [];
+  }
+
+  /**
+   * Dead-letter queue regardless of locality. Local nodes return the
+   * sync buffer; remote nodes are queried via NATS request-reply
+   * against the hosting agent. Same fallback semantics as
+   * `getNodeLogsAny`: empty array on failure rather than throwing.
+   */
+  async getNodeDeadLettersAny(id: string): Promise<ReturnType<BaseRunner["getDeadLetters"]>> {
+    const agentId = this.remoteNodes.get(id);
+    if (!agentId) return this.getNodeDeadLetters(id);
+    const bus = this.bus as { requestRemote?: typeof NatsBusService.prototype.requestRemote };
+    if (!bus.requestRemote) return [];
+    try {
+      return await bus.requestRemote(`brain.agents.${agentId}.read.dead_letters`, { node_id: id });
+    } catch { return []; }
   }
 
   /**

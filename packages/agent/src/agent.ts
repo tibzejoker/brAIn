@@ -198,6 +198,10 @@ export class Agent {
       const { node_id } = payload as { node_id: string };
       return brain.getNodeMailboxes(node_id);
     });
+    bus.respondToRequests(`brain.agents.${this.id}.read.dead_letters`, (payload) => {
+      const { node_id } = payload as { node_id: string };
+      return brain.getNodeDeadLetters(node_id);
+    });
   }
 
   private announce(): void {

@@ -268,9 +268,15 @@ Pour répondre à la critique "pub/sub = enfer à debugger en prod".
   quand l'utilisateur est sur Info / Logs / Mailbox. Test ajouté
   dans `runner-resilience.test.ts` qui vérifie qu'un crash handler
   pousse le message dans le DLQ avec l'erreur attendue.
-  **Note**: pour les nodes remote, le DLQ vit côté agent — la lecture
-  via API renverra `[]`. Read-back via NATS request-reply est un
-  follow-up direct (cf 4.5d / 6.2b).
+- [x] **6.2b DLQ remote read-back**: l'agent expose
+  `brain.agents.<id>.read.dead_letters` via `respondToRequests` ; côté
+  API, `getNodeDeadLettersAny()` route automatiquement vers NATS quand
+  le node est remote, sinon retourne le buffer local. Le controller
+  REST passe en async. Test dans `remote-spawn.test.ts` qui spawn un
+  echo distant et vérifie que la roundtrip request-reply renvoie un
+  array (vide quand pas de crash, structure correcte) — la capture
+  réelle de DLQ est déjà couverte côté local dans
+  `runner-resilience.test.ts`.
 - [x] **6.3 Backpressure metrics**: `Mailbox` expose `dropped`
   (compteur cumulatif d'évictions) + `capacity` (`max_size`).
   `BusMailboxView` (et donc `GET /nodes/:id/mailboxes`) renvoient ces

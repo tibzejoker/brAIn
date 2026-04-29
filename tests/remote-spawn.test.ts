@@ -270,4 +270,56 @@ describe.skipIf(!HAS_NATS)("Remote spawn (transport: remote)", () => {
     await apiBus.close();
     await agentBus.close();
   });
+
+  it("API reads remote node dead-letters via NATS request-reply", async () => {
+    const scratch = mkdtempSync(join(tmpdir(), "remote-dlq-"));
+    const nodesDir = resolve(__dirname, "..", "nodes");
+
+    const apiBus = new NatsBusService({ url: `nats://127.0.0.1:${PORT}`, prefix: "rdlq" });
+    const agentBus = new NatsBusService({ url: `nats://127.0.0.1:${PORT}`, prefix: "rdlq" });
+    await apiBus.connect();
+    await agentBus.connect();
+
+    const api = new BrainService(join(scratch, "api.db"), apiBus);
+    api.bootstrap(nodesDir);
+    const agent = new BrainService(join(scratch, "agent.db"), agentBus);
+    agent.bootstrap(nodesDir);
+
+    const ctlNode = "agent:agent-D:control";
+    agentBus.subscribe(ctlNode, "brain.agents.agent-D.spawn");
+    agentBus.on(`message:${ctlNode}`, (msg) => {
+      void (async (): Promise<void> => {
+        const data = JSON.parse((msg.payload as { content: string }).content);
+        const cfg = { ...data.config, id: data.id, transport: "process" as const };
+        await agent.spawnNode(cfg);
+      })();
+    });
+    agentBus.respondToRequests("brain.agents.agent-D.read.dead_letters", (p) => {
+      const { node_id } = p as { node_id: string };
+      return agent.getNodeDeadLetters(node_id);
+    });
+
+    // Spawn a normal echo on the agent — no crash, so DLQ stays empty.
+    // We're testing that the request-reply wire works and returns the
+    // shape the dashboard expects, not the runner's crash capture
+    // (already covered in runner-resilience.test.ts).
+    const stub = await api.spawnNode({
+      type: "echo",
+      name: "echo-rdlq",
+      transport: "remote",
+      target_agent_id: "agent-D",
+    });
+    const t0 = Date.now() + 2000;
+    while (Date.now() < t0 && !agent.instanceRegistry.get(stub.id)) await wait(50);
+
+    const dlq = await api.getNodeDeadLettersAny(stub.id);
+    expect(Array.isArray(dlq)).toBe(true);
+    expect(dlq.length).toBe(0);
+
+    api.killNode(stub.id);
+    api.killAll();
+    agent.killAll();
+    await apiBus.close();
+    await agentBus.close();
+  });
 });

@@ -166,10 +166,11 @@ export class NodesController {
 
   /**
    * Messages in flight when the handler crashed or timed out — the
-   * dead-letter queue. Bounded ring of 50 entries per node.
+   * dead-letter queue. Bounded ring of 50 entries per node. Routes
+   * via NATS request-reply when the node lives on a remote agent.
    */
   @Get(":id/dead-letters")
-  deadLetters(@Param("id") id: string): ReturnType<BrainService["getNodeDeadLetters"]> {
-    return this.brain.getNodeDeadLetters(id);
+  async deadLetters(@Param("id") id: string): Promise<ReturnType<BrainService["getNodeDeadLetters"]>> {
+    return this.brain.getNodeDeadLettersAny(id);
   }
 }

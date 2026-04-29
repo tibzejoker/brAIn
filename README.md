@@ -112,13 +112,38 @@ hosts nodes on a remote machine. It:
 - Subscribes to `brain.agents.<self>.{spawn,kill,stop,start,wake}`
   and dispatches each request to its local `BrainService`. The API's
   lifecycle methods auto-route over NATS when the node is remote.
-- Answers `brain.agents.<self>.read.{logs,mailboxes}` via NATS
-  request-reply, so the dashboard's NodePanel works for remote nodes
-  the same as local ones.
+- Answers `brain.agents.<self>.read.{logs,mailboxes,dead_letters}`
+  via NATS request-reply, so the dashboard's NodePanel works for
+  remote nodes the same as local ones.
 
 The dashboard's **Agents tab** lists every agent currently announcing.
 The Node Creator's **Target** dropdown lets you pick "Local" or any
 live agent for new spawns.
+
+When an agent stops announcing past `3×` the announce interval (~30 s
+default), `BrainService` automatically drops every remote-node stub
+that pointed at it — no zombies left in the network graph. TTL is
+tunable via the `BrainService` constructor's `agentDirectory` option.
+
+### Observability
+
+Three signals are wired end-to-end so a misbehaving graph is visible
+at a glance:
+
+- **Causal traces** — `trace_id` + `parent_id` on every message.
+  `GET /network/traces/:id` returns the chain; the dashboard's
+  MessageLog opens it as an indented tree.
+- **Backpressure metrics** — every `Mailbox` exposes `capacity` and a
+  cumulative `dropped` count. The NodePanel's Mailbox tab renders a
+  fill bar and flags overflows in red.
+- **Dead-letter queue** — when a handler throws or times out, every
+  message it was processing is captured into a per-runner ring (50
+  entries). Surfaced under a DLQ tab in the NodePanel; the tab badge
+  flips red the moment something lands.
+
+All three work for remote nodes too — the agent answers
+`brain.agents.<id>.read.{logs,mailboxes,dead_letters}` via NATS
+request-reply, the API forwards transparently.
 
 ### Node lifecycle
 
@@ -189,9 +214,26 @@ engine's events via Socket.IO:
 
 Five tabs in the side menu:
 
-- **◉ Network** — live graph + selected-node panel (logs / mailbox /
-  state actions). Remote nodes carry a `⚯ remote` badge and route
-  control actions back through NATS.
+- **◉ Network** — live graph + selected-node panel with four tabs:
+  - **Info** — id, type, state, transport (remote nodes show their
+    agent), authority, priority, tags, subscriptions.
+  - **Mailbox** — per-subscription view with a fill bar coloured by
+    load (`green < 70 %`, `orange ≥ 70 %`, `red ≥ 90 %`), `unread /
+    total of capacity` counters, and a red `· N dropped` badge when
+    the mailbox has overflowed (backpressure signal).
+  - **Logs** — per-node log buffer.
+  - **DLQ** — dead-letter queue. Captures every message in flight
+    when the handler throws or times out (50-entry ring). The tab
+    label flips red with a count whenever there is at least one
+    entry, even from another tab.
+  Remote nodes carry a `⚯ remote` badge in the header; control
+  actions and read-back (logs / mailbox / DLQ) all route through
+  NATS to the hosting agent transparently.
+
+  In the **MessageLog** at the bottom of the page, every message row
+  shows a ⛓ icon on hover that opens a **causal trace viewer** —
+  walks `parent_id` to render the full chain that started with the
+  initial event, indented by depth.
 - **◷ History** — chronological feed of network actions.
 - **⚙ Seeds** — pre-baked YAML scenarios you can apply.
 - **⊞ Store** — public registry browser (install in one click) plus a
@@ -414,7 +456,8 @@ POST   /nodes/:id/wake         Wake a sleeping node (idem)
 POST   /nodes/:id/tick         Force one iteration (manual mode)
 PATCH  /nodes/:id/config       Update config_overrides (null = delete a key)
 GET    /nodes/:id/logs         Per-node log buffer (proxied via NATS for remote)
-GET    /nodes/:id/mailboxes    Mailbox preview (idem)
+GET    /nodes/:id/mailboxes    Mailbox preview + capacity + dropped (idem)
+GET    /nodes/:id/dead-letters Handler crashes + timeouts (idem)
 ```
 
 ### Types + dynamic
@@ -425,6 +468,7 @@ POST   /types/register              Register a type    { path }
 DELETE /types/:name                 Unregister
 GET    /network                     Full snapshot
 GET    /network/messages            History  ?last=N&topic=X&min_criticality=N
+GET    /network/traces/:trace_id    Walk the causal chain for a trace
 POST   /network/seeds/:name/apply   Apply a YAML seed
 ```
 
