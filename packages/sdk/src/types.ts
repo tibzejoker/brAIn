@@ -13,7 +13,39 @@ export enum AuthorityLevel {
   ROOT = 2,
 }
 
-export type TransportMode = "process" | "container";
+/**
+ * Where the node's executable lives.
+ *
+ * - `process` (default) — JS module loaded into the framework's own
+ *   process via dynamic import. Lowest latency, no isolation.
+ * - `container` — node ships a Dockerfile, the runner launches a
+ *   container. Real isolation, language-agnostic. (Phase 5.)
+ * - `web` — node is a remote HTTP/WS service the framework talks to
+ *   over a long-lived WebSocket; any language with HTTP support can
+ *   implement a node. Bearer-token auth supported.
+ */
+export type TransportMode = "process" | "container" | "web";
+
+/**
+ * Web-transport configuration, only meaningful when `transport: "web"`.
+ * Lives on `NodeTypeConfig.web` and may be overridden per-instance via
+ * `config_overrides.web`.
+ */
+export interface WebTransportConfig {
+  /** Base URL of the node's HTTP server. The runner connects to `${url}/brain/ws`. */
+  url: string;
+  /** Optional auth. The runner sends `Authorization: Bearer <token>` on the WS upgrade. */
+  auth?: {
+    type: "bearer";
+    /** Env var name where the bearer token is read from. Avoids putting secrets in config files. */
+    token_env: string;
+  };
+  /** Reconnect backoff bounds (ms). Defaults: 500 → 15_000. */
+  reconnect_min_ms?: number;
+  reconnect_max_ms?: number;
+  /** Heartbeat ping interval. Default 20_000 ms. */
+  ping_interval_ms?: number;
+}
 export type RunMode = "auto" | "manual";
 
 // === Messages ===

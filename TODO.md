@@ -86,21 +86,36 @@ plugin. Pose les bases pour les nodes générés par `developer`.
 
 ---
 
-## Phase 3 — Transport `python`
+## Phase 3 — Transport `web` (any-language nodes via HTTP/WS)
 
-Permettre des nodes natifs Python sans bridge HTTP, sur le modèle
-JSON-stdio. Débloque le pattern "node ML pur Python".
+Plus général que stdio Python: un node = un service HTTP/WS qui parle
+le protocole brAIn. N'importe quelle stack (Python FastAPI, Go, Rust,
+JS) peut implémenter un node. Auth bearer token. Distribuable
+nativement (le node peut être sur une autre machine ou en container).
 
-- [ ] **3.1 Étendre `TransportMode`** dans le SDK:
-  `"process" | "container" | "remote" | "python"`.
-- [ ] **3.2 Créer `packages/python-sdk/`**: une mini-lib Python
-  (~200 lignes) qui parle au framework via stdio JSON.
-  Side: handler async, ctx.publish, ctx.subscribe, ctx.state.
-- [ ] **3.3 Créer un `PythonRunner`** dans `packages/core/src/runner/`
-  qui spawn `python -m brain_sdk.run <node-dir>` et bridge les
-  messages bus ↔ stdio.
-- [ ] **3.4 Exemple de node Python**: extraire l'embedder de
-  memory-vector en node Python pur.
+- [x] **3.1 SDK étendu**: `TransportMode = "process" | "container" | "web"`,
+  nouvelle interface `WebTransportConfig`, `NodeTypeConfig.web?: WebTransportConfig`.
+- [x] **3.2 Protocole WS** documenté dans `web-runner.ts` (frames
+  bidirectionnelles JSON: `messages` / `ping` côté framework, `publish` /
+  `subscribe` / `unsubscribe` / `sleep` / `log` / `pong` côté node).
+- [x] **3.3 `WebRunner`** créé dans `packages/core/src/runner/web-runner.ts`.
+  WS persistant avec reconnect backoff, ping/pong heartbeat, dispatch
+  via `runner-factory.ts` quand `transport === "web"` ou
+  `config_overrides.web` présent.
+- [x] **3.4 `loadHandler` + `spawnNode` + `restoreNodes`** sautent le
+  module JS quand le transport est web (handler stub `() => Promise.resolve()`).
+  Le bloc `web` du `config.json` est mergé dans `config_overrides.web`
+  au spawn.
+- [x] **3.5 SDK Python `brain-web`** (`packages/python-sdk/`):
+  `BrainNode` avec `@node.on(topic)`, `publish/subscribe/sleep/log`
+  asyncio. `attach(app)` enregistre la route `/brain/ws` sur n'importe
+  quel app FastAPI. **Bug FastAPI subtil rencontré**: le paramètre du
+  handler doit être typé `WebSocket` (pas `Any`) sinon FastAPI 403e
+  silencieusement — fix documenté dans le commentaire.
+- [x] **3.6 Demo `nodes/calc-py/`**: ~50 lignes Python, eval AST safe.
+  E2e validé: spawn via API → WS s'ouvre → publish `calc.request`
+  depuis un autre node → calc-py évalue → `calc.result` revient sur le
+  bus avec metadata `{expression, value}`.
 
 ---
 

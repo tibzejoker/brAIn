@@ -1,0 +1,8 @@
+pyproject.toml
+brain_web/__init__.py
+brain_web/node.py
+brain_web.egg-info/PKG-INFO
+brain_web.egg-info/SOURCES.txt
+brain_web.egg-info/dependency_links.txt
+brain_web.egg-info/requires.txt
+brain_web.egg-info/top_level.txt

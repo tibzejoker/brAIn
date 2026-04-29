@@ -1,6 +1,9 @@
 import {
   type NodeInfo,
+  type NodeHandler,
   type NodeModule,
+  type NodeOnSpawn,
+  type NodeTeardown,
   type NodeInstanceConfig,
   type RunMode,
   NodeState,
@@ -50,7 +53,27 @@ export async function spawnNode(
   const typePath = deps.typeRegistry.getPath(config.type);
   if (!typePath) throw new Error(`No path for type: ${config.type}`);
 
-  const { handler, teardown, onSpawn } = await deps.loadHandler(config.type, typePath);
+  // Web nodes have no local JS module — they live behind an HTTP/WS service.
+  // The runner factory dispatches to WebRunner when transport === "web", so
+  // we provide a no-op stub here. Resolve the web config from the type
+  // (default), letting per-instance config_overrides.web take precedence.
+  const transport = config.transport ?? (typeConfig.web ? "web" : "process");
+  const isWeb = transport === "web";
+  let handler: NodeHandler;
+  let teardown: NodeTeardown | undefined;
+  let onSpawn: NodeOnSpawn | undefined;
+  if (isWeb) {
+    handler = (): Promise<void> => Promise.resolve();
+  } else {
+    const mod = await deps.loadHandler(config.type, typePath);
+    handler = mod.handler;
+    teardown = mod.teardown;
+    onSpawn = mod.onSpawn;
+  }
+  const mergedOverrides: Record<string, unknown> = { ...(config.config_overrides ?? {}) };
+  if (isWeb && !mergedOverrides.web && typeConfig.web) {
+    mergedOverrides.web = typeConfig.web;
+  }
 
   const nodeInfo: NodeInfo = {
     id: uuid(),
@@ -62,9 +85,9 @@ export async function spawnNode(
     state: NodeState.ACTIVE,
     priority: config.priority ?? typeConfig.default_priority,
     subscriptions: config.subscriptions ?? typeConfig.default_subscriptions,
-    transport: config.transport ?? "process",
+    transport,
     position: config.position ?? { x: 0, y: 0 },
-    config_overrides: config.config_overrides,
+    config_overrides: mergedOverrides,
     default_publishes: typeConfig.default_publishes,
     spawned_by: callerNodeId,
     ttl: config.ttl ? deps.sleepService.parseInterval(config.ttl) : undefined,

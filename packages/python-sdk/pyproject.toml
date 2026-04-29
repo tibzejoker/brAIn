@@ -1,0 +1,17 @@
+[project]
+name = "brain-web"
+version = "0.1.0"
+description = "Python SDK for brAIn web-transport nodes — register a few handlers, connect any FastAPI app to the brAIn bus."
+requires-python = ">=3.11"
+license = { text = "MIT" }
+dependencies = [
+  "fastapi>=0.115",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM"]
+ignore = ["E501"]

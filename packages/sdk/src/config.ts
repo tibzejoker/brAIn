@@ -2,6 +2,7 @@ import {
   type AuthorityLevel,
   type MailboxConfig,
   type TransportMode,
+  type WebTransportConfig,
 } from "./types";
 
 export interface NodeTypeConfig {
@@ -18,6 +19,8 @@ export interface NodeTypeConfig {
   has_ui?: boolean;
   interval?: string;
   supports_transport: TransportMode[];
+  /** Required when the node ships with `transport: "web"` as its default. */
+  web?: WebTransportConfig;
   origin?: "static" | "dynamic";
   created_by?: string;
   created_at?: string;

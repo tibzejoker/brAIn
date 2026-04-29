@@ -34,12 +34,20 @@ export async function restoreNodes(opts: {
 
     const typeConfig = opts.typeRegistry.get(saved.type);
 
+    const isWeb = saved.transport === "web";
     let mod: NodeModule;
-    try {
-      mod = await opts.loadHandler(saved.type, typePath);
-    } catch {
-      logger.warn({ type: saved.type, name: saved.name }, "Skipping restore: handler load failed");
-      continue;
+    if (isWeb) {
+      // Web nodes have no JS module to load — the WebRunner is the
+      // sole executor. Provide a no-op handler that satisfies the
+      // runner factory's type contract.
+      mod = { handler: (): Promise<void> => Promise.resolve() };
+    } else {
+      try {
+        mod = await opts.loadHandler(saved.type, typePath);
+      } catch {
+        logger.warn({ type: saved.type, name: saved.name }, "Skipping restore: handler load failed");
+        continue;
+      }
     }
 
     const tags = JSON.parse(saved.tags) as string[];
@@ -62,7 +70,7 @@ export async function restoreNodes(opts: {
       state: NodeState.ACTIVE,
       priority: saved.priority,
       subscriptions,
-      transport: saved.transport as "process" | "container",
+      transport: saved.transport as "process" | "container" | "web",
       position: { x: saved.position_x, y: saved.position_y },
       config_overrides: JSON.parse(saved.config_overrides) as Record<string, unknown>,
       default_publishes: typeConfig?.default_publishes,

@@ -1,0 +1,7 @@
+Metadata-Version: 2.4
+Name: brain-web
+Version: 0.1.0
+Summary: Python SDK for brAIn web-transport nodes — register a few handlers, connect any FastAPI app to the brAIn bus.
+License: MIT
+Requires-Python: >=3.11
+Requires-Dist: fastapi>=0.115

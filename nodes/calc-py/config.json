@@ -1,0 +1,19 @@
+{
+  "name": "calc-py",
+  "description": "Python web-transport demo: evaluates a math expression on calc.request and publishes the result on calc.result. Proves the multi-language node pattern.",
+  "tags": ["service", "demo", "python", "web"],
+  "default_authority": 0,
+  "default_priority": 1,
+  "default_subscriptions": [
+    { "topic": "calc.request" }
+  ],
+  "default_publishes": ["calc.result"],
+  "supports_transport": ["web"],
+  "web": {
+    "url": "http://127.0.0.1:9001",
+    "auth": {
+      "type": "bearer",
+      "token_env": "CALC_PY_TOKEN"
+    }
+  }
+}

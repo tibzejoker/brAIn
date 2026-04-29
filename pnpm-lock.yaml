@@ -407,6 +407,9 @@ importers:
       uuid:
         specifier: ^9.0.0
         version: 9.0.1
+      ws:
+        specifier: ^8.18.0
+        version: 8.18.3
       yaml:
         specifier: ^2.8.3
         version: 2.8.3
@@ -417,6 +420,9 @@ importers:
       '@types/uuid':
         specifier: ^9.0.0
         version: 9.0.8
+      '@types/ws':
+        specifier: ^8.5.13
+        version: 8.18.1
       typescript:
         specifier: ^5.4.0
         version: 5.9.3
