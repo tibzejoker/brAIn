@@ -259,8 +259,15 @@ Pour répondre à la critique "pub/sub = enfer à debugger en prod".
   causé qui. Loading + 404 friendly handlés.
 - [ ] **6.2 Dead-letter queue**: messages qui causent un crash
   handler 3x sont déplacés dans un mailbox dédié pour inspection.
-- [ ] **6.3 Backpressure metrics**: par souscription, exposer
-  `mailbox_depth`, `drop_rate` au dashboard.
+- [x] **6.3 Backpressure metrics**: `Mailbox` expose `dropped`
+  (compteur cumulatif d'évictions) + `capacity` (`max_size`).
+  `BusMailboxView` (et donc `GET /nodes/:id/mailboxes`) renvoient ces
+  champs sur chaque souscription. Le tab Mailbox du `NodePanel`
+  affiche maintenant une barre de remplissage colorée (vert / orange
+  / rouge selon `total / capacity`), les compteurs `unread / total of
+  capacity`, et un badge rouge `· N dropped` quand des messages ont
+  été évincés. Test ajouté dans `bus.test.ts` qui pousse 5 messages
+  dans un mailbox capacity 2 et vérifie `dropped === 3`.
 - [ ] **6.4 Replay**: fonction "replay this trace" qui re-publie
   les messages d'un trace passé (pour debug).
 

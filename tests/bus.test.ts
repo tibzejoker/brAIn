@@ -55,6 +55,18 @@ describe("Mailbox", () => {
     expect(all.map((m) => m.id)).toEqual(["1", "3"]);
   });
 
+  it("tracks dropped count + capacity for backpressure metrics", () => {
+    const mb = new Mailbox({ max_size: 2, retention: "latest" });
+    expect(mb.capacity).toBe(2);
+    expect(mb.dropped).toBe(0);
+    for (let i = 1; i <= 5; i++) {
+      mb.push({ id: String(i), from: "a", topic: "t", type: "text", criticality: 0, payload: { content: String(i) }, timestamp: i });
+    }
+    // 5 pushed, capacity 2 → 3 evictions
+    expect(mb.size).toBe(2);
+    expect(mb.dropped).toBe(3);
+  });
+
   it("supports peek without marking as read", () => {
     const mb = new Mailbox({ max_size: 10, retention: "latest" });
     mb.push({ id: "1", from: "a", topic: "t", type: "text", criticality: 0, payload: { content: "x" }, timestamp: 1 });

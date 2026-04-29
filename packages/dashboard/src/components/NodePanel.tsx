@@ -172,11 +172,34 @@ export function NodePanel({
           {mailboxes.length === 0 && (
             <div className="text-text-muted text-xs py-8 text-center">No mailboxes</div>
           )}
-          {mailboxes.map((mb) => (
+          {mailboxes.map((mb) => {
+            const cap = mb.capacity || 1;
+            const fillPct = Math.min(100, Math.round((mb.total / cap) * 100));
+            const fillColor =
+              fillPct >= 90 ? "bg-node-stopped" :
+              fillPct >= 70 ? "bg-node-sleeping" :
+              "bg-node-active";
+            return (
             <div key={mb.pattern} className="mb-3">
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-xs font-mono text-accent">{mb.pattern}</span>
-                <span className="text-[10px] text-text-muted">{mb.unread} unread / {mb.total} total</span>
+                <span className="text-[10px] text-text-muted">
+                  {mb.unread} unread / {mb.total} of {mb.capacity}
+                </span>
+                {mb.dropped > 0 && (
+                  <span
+                    title={`${mb.dropped} message(s) evicted because the mailbox was full`}
+                    className="text-[10px] text-node-stopped font-semibold"
+                  >
+                    · {mb.dropped} dropped
+                  </span>
+                )}
+              </div>
+              <div className="h-1 rounded bg-surface-overlay overflow-hidden mb-1">
+                <div
+                  className={`h-full transition-all ${fillColor}`}
+                  style={{ width: `${fillPct}%` }}
+                />
               </div>
               {mb.messages.length === 0 && (
                 <div className="text-text-muted text-[10px] pl-2">Empty</div>
@@ -192,7 +215,8 @@ export function NodePanel({
                 </div>
               ))}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

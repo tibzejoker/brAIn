@@ -251,6 +251,8 @@ export class NatsBusService extends EventEmitter implements IBusService {
         pattern: sub.pattern,
         total: all.length,
         unread: unread.length,
+        capacity: sub.mailbox.capacity,
+        dropped: sub.mailbox.dropped,
         messages: all.slice(-20).map((m) => ({
           id: m.id, topic: m.topic, criticality: m.criticality, from: m.from,
           timestamp: m.timestamp,

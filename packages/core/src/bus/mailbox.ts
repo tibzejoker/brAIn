@@ -10,6 +10,8 @@ export class Mailbox {
   private readonly messages: Message[] = [];
   private readonly readIds = new Set<string>();
   private readonly config: MailboxConfig;
+  /** Cumulative count of messages evicted because the mailbox was full. */
+  private droppedCount = 0;
 
   constructor(config?: Partial<MailboxConfig>) {
     this.config = { ...DEFAULT_MAILBOX_CONFIG, ...config };
@@ -18,9 +20,15 @@ export class Mailbox {
   push(msg: Message): void {
     if (this.messages.length >= this.config.max_size) {
       this.evict();
+      this.droppedCount += 1;
     }
     this.messages.push(msg);
   }
+
+  /** How many messages have been evicted since this mailbox was created. */
+  get dropped(): number { return this.droppedCount; }
+  /** Configured max size — the cap at which `push` evicts before adding. */
+  get capacity(): number { return this.config.max_size; }
 
   readUnread(): Message[] {
     const unread = this.messages.filter((m) => !this.readIds.has(m.id));

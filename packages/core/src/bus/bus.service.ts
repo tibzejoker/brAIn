@@ -7,7 +7,7 @@ import EventEmitter from "eventemitter3";
 import { v4 as uuid } from "uuid";
 import { matchTopic } from "./bus.matcher";
 import { Mailbox } from "./mailbox";
-import type { IBusService, SubscribeOptions } from "./bus.interface";
+import type { IBusService, SubscribeOptions, BusMailboxView } from "./bus.interface";
 
 interface Subscription {
   id: string;
@@ -241,12 +241,7 @@ export class BusService extends EventEmitter implements IBusService {
     return false;
   }
 
-  getMailboxes(nodeId: string): Array<{
-    pattern: string;
-    total: number;
-    unread: number;
-    messages: Array<{ id: string; topic: string; criticality: number; from: string; timestamp: number; preview: string }>;
-  }> {
+  getMailboxes(nodeId: string): BusMailboxView[] {
     const nodeSubs = this.subscriptions.get(nodeId);
     if (!nodeSubs) return [];
     return Array.from(nodeSubs.values()).map((sub) => {
@@ -256,6 +251,8 @@ export class BusService extends EventEmitter implements IBusService {
         pattern: sub.pattern,
         total: all.length,
         unread: unread.length,
+        capacity: sub.mailbox.capacity,
+        dropped: sub.mailbox.dropped,
         messages: all.slice(-20).map((m) => ({
           id: m.id,
           topic: m.topic,

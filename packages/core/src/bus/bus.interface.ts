@@ -20,6 +20,10 @@ export interface BusMailboxView {
   pattern: string;
   total: number;
   unread: number;
+  /** Configured max_size — once `total` hits this, `push` evicts before adding. */
+  capacity: number;
+  /** Cumulative count of messages dropped via eviction since spawn. */
+  dropped: number;
   messages: Array<{
     id: string;
     topic: string;

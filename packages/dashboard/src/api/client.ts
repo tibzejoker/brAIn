@@ -245,6 +245,10 @@ export interface MailboxInfo {
   pattern: string;
   total: number;
   unread: number;
+  /** max_size — when total hits this, the next push evicts before adding. */
+  capacity: number;
+  /** Cumulative count of evictions since the node spawned. */
+  dropped: number;
   messages: Array<{
     id: string;
     topic: string;
