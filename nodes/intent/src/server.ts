@@ -26,16 +26,18 @@ const VOICE_URL = process.env.VOICE_SERVER_URL ?? "http://127.0.0.1:8765";
 const GAZE_URL = process.env.GAZE_SERVER_URL ?? "http://127.0.0.1:8766";
 
 export interface IntentServerHandle {
+  /** True when this process bound the port; false when we attached to an existing server (orphan from a prior run). */
+  readonly spawned: boolean;
   close(): Promise<void>;
   broadcastIntent(intent: IntentRecord): void;
 }
 
-export function startIntentServer(opts: {
+export async function startIntentServer(opts: {
   port: number;
   store: IntentStore;
   timeline: Timeline;
   onPersonChange: (kind: "create" | "update" | "delete", person: Person | { id: string }) => void;
-}): IntentServerHandle {
+}): Promise<IntentServerHandle> {
   const subscribers = new Set<WebSocket>();
 
   const httpServer: Server = createServer(async (req, res) => {
@@ -58,9 +60,47 @@ export function startIntentServer(opts: {
     ws.on("close", () => subscribers.delete(ws));
   });
 
-  httpServer.listen(opts.port);
+  // Bind with proper error handling. If another intent server is already
+  // listening (orphan from a prior run, or another `dev` shell), don't
+  // crash the API process — log and return a no-op handle that lets the
+  // correlator keep running. Attention will poll the existing server.
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const onError = (err: NodeJS.ErrnoException): void => {
+        httpServer.removeListener("listening", onListening);
+        reject(err);
+      };
+      const onListening = (): void => {
+        httpServer.removeListener("error", onError);
+        resolve();
+      };
+      httpServer.once("error", onError);
+      httpServer.once("listening", onListening);
+      httpServer.listen(opts.port);
+    });
+  } catch (err: unknown) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "EADDRINUSE") {
+      // Port already held — likely an intent server orphan from a prior
+      // pnpm dev run. We don't bind; the correlator still works, and
+      // attention's HTTP poll will hit whatever is on :8767 (which IS an
+      // intent server, so that's fine). The downside: writes via this
+      // node's API surface go to the orphan's store, not ours. Logged
+      // loudly so the dev notices and kills the orphan.
+      try { wss.close(); } catch { /* ignore */ }
+      try { httpServer.close(); } catch { /* ignore */ }
+      const noop: IntentServerHandle = {
+        spawned: false,
+        close: () => Promise.resolve(),
+        broadcastIntent: () => { /* orphan owns the WS clients */ },
+      };
+      return noop;
+    }
+    throw err;
+  }
 
   return {
+    spawned: true,
     close: () => new Promise((resolve) => {
       for (const ws of subscribers) { try { ws.close(); } catch { /* ignore */ } }
       subscribers.clear();
