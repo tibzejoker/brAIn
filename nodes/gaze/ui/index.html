@@ -1,0 +1,588 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>gaze — face + gaze tracking</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --panel-2: #1e293b;
+      --border: #334155;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #a855f7;
+      --listening: #22c55e;
+      --idle: #94a3b8;
+      --error: #ef4444;
+      --camera-look: #22d3ee;
+    }
+    html, body { height: 100%; background: var(--bg); color: var(--text); font: 13px/1.4 ui-sans-serif, system-ui, sans-serif; }
+    body { display: flex; flex-direction: column; }
+
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel);
+      flex-shrink: 0;
+    }
+    header h1 { font-size: 14px; color: var(--accent); letter-spacing: 0.02em; }
+    .hint { font-size: 11px; color: var(--muted); }
+
+    .controls {
+      display: flex; gap: 8px; align-items: center; padding: 10px 16px;
+      border-bottom: 1px solid var(--border); background: var(--panel); flex-wrap: wrap; flex-shrink: 0;
+    }
+    .controls label { font-size: 11px; color: var(--muted); margin-right: 4px; }
+    select, button, input[type=text], input[type=number] {
+      background: var(--bg); color: var(--text); border: 1px solid var(--border);
+      padding: 6px 10px; border-radius: 4px; font: inherit;
+    }
+    button { cursor: pointer; }
+    select:hover, button:hover:not(:disabled) { border-color: var(--accent); }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.primary { background: var(--accent); color: #0f172a; border-color: var(--accent); font-weight: 600; }
+    button.primary:hover:not(:disabled) { background: #9333ea; }
+    button.danger { background: var(--error); color: white; border-color: var(--error); font-weight: 600; }
+    button.ghost { background: transparent; color: var(--muted); }
+    button.ghost:hover { color: var(--text); border-color: var(--accent); }
+
+    .status {
+      display: inline-flex; align-items: center; gap: 6px;
+      margin-left: auto; padding: 4px 10px; border-radius: 12px;
+      background: var(--bg); border: 1px solid var(--border); font-size: 11px;
+    }
+    .status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--idle); }
+    .status.listening .dot { background: var(--listening); box-shadow: 0 0 8px var(--listening); }
+    .status.error .dot { background: var(--error); }
+
+    main {
+      flex: 1; display: grid; grid-template-columns: 320px 1fr;
+      gap: 1px; background: var(--border); min-height: 0; overflow: hidden;
+    }
+    .pane { background: var(--bg); display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+    .pane h2 {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+      color: var(--muted); padding: 10px 14px; background: var(--panel);
+      border-bottom: 1px solid var(--border); display: flex; align-items: center;
+      justify-content: space-between; flex-shrink: 0;
+    }
+    .pane h2 .actions { display: flex; gap: 4px; }
+    .pane h2 button { font-size: 10px; padding: 2px 6px; }
+    .pane-body { flex: 1; overflow: auto; min-height: 0; }
+    aside.pane .pane-body { padding: 10px 14px; display: flex; flex-direction: column; gap: 16px; }
+
+    /* ── Faces panel ───────────────────────────────────────────── */
+    .face {
+      display: flex; gap: 6px; align-items: center;
+      padding: 6px 0; border-bottom: 1px solid var(--border); list-style: none;
+    }
+    .face:last-child { border-bottom: 0; }
+    .face.merge-source { background: rgba(168,85,247,0.15); border-radius: 4px; padding: 6px; }
+    .face.merge-target { cursor: pointer; }
+    .face.merge-target:hover { background: rgba(34,197,94,0.10); border-radius: 4px; padding: 6px; }
+    .face input[type=color] { width: 22px; height: 22px; padding: 0; border: 1px solid var(--border); border-radius: 4px; background: transparent; cursor: pointer; }
+    .face input[type=text] { flex: 1; padding: 3px 6px; font-size: 12px; min-width: 0; }
+    .face .count { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 50px; text-align: right; }
+    .face button.icon { padding: 2px 6px; font-size: 12px; min-width: 24px; background: transparent; color: var(--muted); border: 1px solid var(--border); border-radius: 4px; }
+    .face button.icon:hover:not(:disabled) { color: var(--text); border-color: var(--accent); }
+    .merge-hint {
+      list-style: none; margin-top: 8px; padding: 6px 8px;
+      background: rgba(168,85,247,0.10); border: 1px dashed var(--accent);
+      border-radius: 4px; color: #c084fc; font-size: 11px; font-style: italic;
+    }
+
+    .panel {
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 6px; padding: 10px 12px;
+    }
+    .panel h3 {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+      color: var(--muted); margin-bottom: 8px;
+    }
+
+    /* ── Preview ───────────────────────────────────────────────── */
+    .preview-wrap {
+      flex: 1; display: flex; align-items: center; justify-content: center;
+      background: #000; padding: 16px; min-height: 0;
+    }
+    .preview-wrap img {
+      max-width: 100%; max-height: 100%; object-fit: contain;
+      border-radius: 4px; box-shadow: 0 0 30px rgba(0,0,0,0.6);
+    }
+    .preview-wrap.empty { color: var(--muted); font-style: italic; }
+
+    /* ── Live faces feed (under preview) ──────────────────────── */
+    .live-faces {
+      flex-shrink: 0; padding: 8px 16px; background: var(--panel);
+      border-top: 1px solid var(--border); max-height: 30%; overflow-y: auto;
+    }
+    .live-face {
+      display: inline-flex; gap: 4px; align-items: center;
+      padding: 4px 8px; border-radius: 12px; margin: 2px;
+      font-size: 11px; background: var(--panel-2); border: 1px solid var(--border);
+    }
+    .live-face.cam { border-color: var(--camera-look); color: var(--camera-look); }
+    .live-face .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+
+    .empty { color: var(--muted); font-style: italic; padding: 8px; text-align: center; font-size: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>gaze</h1>
+      <div class="hint">Server-side webcam → face detection (InsightFace) → gaze direction (Gazelle) → "looking at" resolution.</div>
+    </div>
+    <div class="status" id="status"><span class="dot"></span><span id="status-text">idle</span></div>
+  </header>
+
+  <div class="controls">
+    <label for="device">Cam</label>
+    <select id="device" disabled><option>loading…</option></select>
+    <label for="fps">FPS</label>
+    <input id="fps" type="number" min="1" max="30" step="1" value="6" style="width: 60px" />
+    <label style="display:inline-flex;align-items:center;gap:4px;cursor:pointer" title="Run Moondream on each frame to label each face's gaze target. Heavy: ~500-1500 ms/face.">
+      <input id="describe" type="checkbox" />
+      <span style="font-size:11px;color:var(--muted)">describe</span>
+    </label>
+    <button id="start" class="primary" disabled>Start capture</button>
+    <button id="stop" class="danger" disabled>Stop</button>
+    <span class="hint" id="meta"></span>
+    <button id="reset" class="ghost" style="margin-left:auto">Reset all profiles</button>
+  </div>
+
+  <main>
+    <aside class="pane">
+      <h2>Faces <div class="actions"><button id="faces-clear" class="ghost">clear all</button></div></h2>
+      <div class="pane-body">
+        <div class="panel">
+          <ul id="faces-list" style="list-style:none;padding:0;margin:0">
+            <li class="empty">No profiles yet — let a face appear in front of the camera</li>
+          </ul>
+        </div>
+
+        <div class="panel">
+          <h3>Tuning</h3>
+          <div id="tuning-rows"><div class="empty">loading…</div></div>
+        </div>
+      </div>
+    </aside>
+
+    <div class="pane">
+      <h2>Preview <div class="actions"><span class="hint" id="preview-meta"></span></div></h2>
+      <div class="preview-wrap empty" id="preview"><span>No frame yet — start capture</span></div>
+      <div class="live-faces" id="live-faces"></div>
+    </div>
+  </main>
+
+  <style>
+    .tuning-row {
+      display: grid; grid-template-columns: 110px 1fr 60px;
+      gap: 6px; align-items: center; margin-bottom: 6px;
+    }
+    .tuning-row label { font-size: 11px; color: var(--muted); }
+    .tuning-row input[type=range] { width: 100%; }
+    .tuning-row .val { font-size: 11px; color: var(--text); font-variant-numeric: tabular-nums; text-align: right; }
+  </style>
+
+  <script>
+    const SERVER_URL = "http://localhost:8766";
+    const FALLBACK_COLORS = ["#a855f7", "#06b6d4", "#22c55e", "#f59e0b", "#ec4899", "#3b82f6", "#ef4444", "#84cc16"];
+    function fallbackColor(id) {
+      let h = 0;
+      for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+      return FALLBACK_COLORS[h % FALLBACK_COLORS.length];
+    }
+
+    const els = {
+      device: document.getElementById("device"),
+      fps: document.getElementById("fps"),
+      describe: document.getElementById("describe"),
+      start: document.getElementById("start"),
+      stop: document.getElementById("stop"),
+      reset: document.getElementById("reset"),
+      status: document.getElementById("status"),
+      statusText: document.getElementById("status-text"),
+      meta: document.getElementById("meta"),
+      previewMeta: document.getElementById("preview-meta"),
+      preview: document.getElementById("preview"),
+      facesList: document.getElementById("faces-list"),
+      facesClear: document.getElementById("faces-clear"),
+      tuningRows: document.getElementById("tuning-rows"),
+      liveFaces: document.getElementById("live-faces"),
+    };
+
+    const profiles = new Map();
+    let mergeSource = null;
+    let previewTimer = null;
+    let latestTimer = null;
+
+    function escapeHtml(s) {
+      return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+      }[c]));
+    }
+    function colorFor(id) { return profiles.get(id)?.color || fallbackColor(id); }
+    function setStatus(state, text) {
+      els.status.className = `status ${state}`;
+      els.statusText.textContent = text;
+    }
+
+    // ── Devices + capture control ──────────────────────────────────────
+    async function loadDevices() {
+      try {
+        const res = await fetch(`${SERVER_URL}/api/capture/devices`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const devs = await res.json();
+        if (devs.length === 0) {
+          els.device.innerHTML = `<option value="">no cameras detected</option>`;
+          setStatus("error", "no cameras");
+          return;
+        }
+        els.device.innerHTML = devs.map((d) =>
+          `<option value="${d.id}">${escapeHtml(d.name)}${d.width ? ` (${d.width}×${d.height})` : ""}</option>`
+        ).join("");
+        els.device.disabled = false;
+        els.start.disabled = false;
+      } catch (e) {
+        els.device.innerHTML = `<option value="">server unreachable</option>`;
+        setStatus("error", `server unreachable (${e.message})`);
+      }
+    }
+
+    async function refreshStatus() {
+      try {
+        const res = await fetch(`${SERVER_URL}/api/capture/status`);
+        if (!res.ok) return;
+        const s = await res.json();
+        // Sync the describe checkbox from server truth (handles other
+        // clients toggling it). Don't override while the user is mid-click.
+        if (typeof s.describe === "boolean" && document.activeElement !== els.describe) {
+          els.describe.checked = s.describe;
+        }
+        if (s.running) {
+          setStatus("listening", `running — cam ${s.device}${s.describe ? " · describe ON" : ""}`);
+          els.start.disabled = true; els.stop.disabled = false;
+          els.meta.textContent = `${s.frames_processed} processed${s.frames_dropped ? ` · ${s.frames_dropped} dropped` : ""}`;
+          startPreviewPolling();
+        } else {
+          setStatus("idle", "idle");
+          els.start.disabled = false; els.stop.disabled = true;
+          els.meta.textContent = "";
+          stopPreviewPolling();
+        }
+      } catch {}
+    }
+
+    function startPreviewPolling() {
+      if (previewTimer) return;
+      const refresh = () => {
+        const url = `${SERVER_URL}/api/capture/preview.jpg?t=${Date.now()}`;
+        if (els.preview.classList.contains("empty")) {
+          els.preview.innerHTML = `<img id="preview-img" alt="preview" />`;
+          els.preview.classList.remove("empty");
+        }
+        const img = document.getElementById("preview-img");
+        if (img) img.src = url;
+      };
+      refresh();
+      previewTimer = setInterval(refresh, 200);
+
+      latestTimer = setInterval(loadLatest, 250);
+    }
+
+    function stopPreviewPolling() {
+      if (previewTimer) { clearInterval(previewTimer); previewTimer = null; }
+      if (latestTimer) { clearInterval(latestTimer); latestTimer = null; }
+      els.preview.innerHTML = `<span>No frame yet — start capture</span>`;
+      els.preview.classList.add("empty");
+      els.liveFaces.innerHTML = "";
+      els.previewMeta.textContent = "";
+    }
+
+    async function loadLatest() {
+      try {
+        const res = await fetch(`${SERVER_URL}/api/capture/latest`);
+        if (!res.ok) return;
+        const data = await res.json();
+        renderLiveFaces(data.faces || []);
+        if (data.elapsed_ms) {
+          const total = Object.values(data.elapsed_ms).reduce((s, v) => s + v, 0);
+          els.previewMeta.textContent = `${data.width}×${data.height} · ${total.toFixed(0)}ms`;
+        }
+      } catch {}
+    }
+
+    function renderLiveFaces(faces) {
+      els.liveFaces.innerHTML = "";
+      if (faces.length === 0) {
+        els.liveFaces.innerHTML = `<span class="empty">no faces</span>`;
+        return;
+      }
+      for (const f of faces) {
+        const id = f.profile_id;
+        const color = id ? colorFor(id) : "#94a3b8";
+        const name = f.name || `face ${f.face_index}`;
+        const span = document.createElement("span");
+        span.className = "live-face" + (f.looking_at_camera ? " cam" : "");
+
+        // Build the target hint. We layer the labels rather than picking
+        // one — when looking_at_camera is true, Moondream may still have
+        // a description (Gazelle pointed somewhere even if the head/iris
+        // says "addressing the camera"), so we keep both visible.
+        const parts = [];
+        if (f.looking_at_camera) parts.push("◉ camera");
+        if (f.looking_at) {
+          const targetName = profiles.get(f.looking_at)?.name ?? f.looking_at.slice(0, 6);
+          parts.push(`→ ${targetName}`);
+        }
+        if (f.looking_at_description) parts.push(`“${f.looking_at_description.slice(0, 40)}”`);
+
+        span.innerHTML = `
+          <span class="dot" style="background:${color}"></span>
+          <span>${escapeHtml(name)}</span>
+          <span style="color:var(--muted)">${escapeHtml(parts.join("  "))}</span>
+        `;
+        els.liveFaces.appendChild(span);
+      }
+    }
+
+    async function start() {
+      els.start.disabled = true;
+      try {
+        const device = Number(els.device.value);
+        const fps = Number(els.fps.value);
+        const describe = els.describe.checked;
+        const res = await fetch(`${SERVER_URL}/api/capture/start`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ device, fps, describe }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ detail: "unknown" }));
+          throw new Error(err.detail ?? `HTTP ${res.status}`);
+        }
+        await refreshStatus();
+      } catch (e) {
+        setStatus("error", e.message);
+        els.start.disabled = false;
+      }
+    }
+
+    async function stop() {
+      els.stop.disabled = true;
+      try { await fetch(`${SERVER_URL}/api/capture/stop`, { method: "POST" }); } catch {}
+      await refreshStatus();
+    }
+
+    // ── Faces panel ────────────────────────────────────────────────────
+    async function loadProfiles() {
+      try {
+        const res = await fetch(`${SERVER_URL}/api/profiles`);
+        if (!res.ok) return;
+        const list = await res.json();
+        profiles.clear();
+        for (const p of list.sort((a, b) => (a.created_at || "").localeCompare(b.created_at || ""))) {
+          profiles.set(p.id, p);
+        }
+        if (mergeSource && !profiles.has(mergeSource)) mergeSource = null;
+        renderFaces();
+      } catch {}
+    }
+
+    function renderFaces() {
+      const ul = els.facesList;
+      ul.innerHTML = "";
+      if (profiles.size === 0) {
+        ul.innerHTML = `<li class="empty">No profiles yet — let a face appear in front of the camera</li>`;
+        return;
+      }
+      const merging = mergeSource !== null;
+      for (const p of profiles.values()) {
+        const li = document.createElement("li");
+        li.className = "face";
+        if (merging && p.id === mergeSource) li.classList.add("merge-source");
+        else if (merging) li.classList.add("merge-target");
+
+        const swatch = document.createElement("input");
+        swatch.type = "color";
+        swatch.value = p.color || fallbackColor(p.id);
+        swatch.title = "Click to change color";
+        swatch.addEventListener("change", async () => {
+          if (swatch.value === p.color) return;
+          try {
+            const res = await fetch(`${SERVER_URL}/api/profiles/${encodeURIComponent(p.id)}`, {
+              method: "PATCH", headers: { "content-type": "application/json" },
+              body: JSON.stringify({ color: swatch.value }),
+            });
+            if (res.ok) profiles.set(p.id, await res.json());
+          } catch {}
+        });
+
+        const input = document.createElement("input");
+        input.type = "text";
+        input.value = p.name;
+        input.addEventListener("change", async () => {
+          const newName = input.value.trim();
+          if (!newName || newName === p.name) { input.value = p.name; return; }
+          try {
+            const res = await fetch(`${SERVER_URL}/api/profiles/${encodeURIComponent(p.id)}`, {
+              method: "PATCH", headers: { "content-type": "application/json" },
+              body: JSON.stringify({ name: newName }),
+            });
+            if (res.ok) profiles.set(p.id, await res.json());
+          } catch { input.value = p.name; }
+        });
+
+        const count = document.createElement("span");
+        count.className = "count";
+        const fpc = p.faceprint_count || 0;
+        count.textContent = fpc > 1 ? `${p.sample_count}·${fpc}fp` : `${p.sample_count}`;
+        count.title = fpc > 1 ? `${p.sample_count} samples across ${fpc} faceprints` : `${p.sample_count} samples`;
+
+        const mergeBtn = mkBtn(p.id === mergeSource ? "✕" : "⇢",
+          merging
+            ? p.id === mergeSource ? "Cancel merge" : `Merge "${profiles.get(mergeSource).name}" into "${p.name}"`
+            : "Start merge from this face");
+        mergeBtn.addEventListener("click", (e) => { e.stopPropagation(); void clickMerge(p.id); });
+
+        const delBtn = mkBtn("🗑", "Delete face");
+        delBtn.addEventListener("click", (e) => { e.stopPropagation(); void deleteFace(p.id); });
+
+        li.append(swatch, input, count, mergeBtn, delBtn);
+        if (merging && p.id !== mergeSource) {
+          li.addEventListener("click", (e) => {
+            if (e.target === input || e.target === swatch) return;
+            void clickMerge(p.id);
+          });
+        }
+        ul.appendChild(li);
+      }
+      if (merging) {
+        const hint = document.createElement("li");
+        hint.className = "merge-hint";
+        hint.textContent = `Click target to merge "${profiles.get(mergeSource).name}" into it (✕ to cancel)`;
+        ul.appendChild(hint);
+      }
+    }
+
+    function mkBtn(text, title) {
+      const b = document.createElement("button");
+      b.className = "icon"; b.type = "button";
+      b.textContent = text; b.title = title;
+      return b;
+    }
+
+    async function clickMerge(targetId) {
+      if (!mergeSource) { mergeSource = targetId; renderFaces(); return; }
+      if (mergeSource === targetId) { mergeSource = null; renderFaces(); return; }
+      const source = mergeSource; mergeSource = null;
+      try {
+        await fetch(`${SERVER_URL}/api/profiles/merge`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ source_id: source, target_id: targetId }),
+        });
+      } catch {}
+      await loadProfiles();
+    }
+
+    async function deleteFace(id) {
+      const p = profiles.get(id); if (!p) return;
+      if (!confirm(`Delete face "${p.name}"?`)) return;
+      await fetch(`${SERVER_URL}/api/profiles/${encodeURIComponent(id)}`, { method: "DELETE" });
+      if (mergeSource === id) mergeSource = null;
+      await loadProfiles();
+    }
+
+    els.facesClear.onclick = async () => {
+      if (!confirm("Delete ALL face profiles?")) return;
+      await fetch(`${SERVER_URL}/api/profiles`, { method: "DELETE" });
+      mergeSource = null;
+      await loadProfiles();
+    };
+
+    els.reset.onclick = els.facesClear.onclick;
+
+    // ── Tuning ─────────────────────────────────────────────────────────
+    const TUNING_DEFS = [
+      { key: "match_threshold",            label: "Match",            min: 0, max: 1, step: 0.01 },
+      { key: "uncertain_threshold",        label: "Uncertain",        min: 0, max: 1, step: 0.01 },
+      { key: "ema_decay",                  label: "EMA decay",        min: 0, max: 1, step: 0.01 },
+      { key: "looking_at_margin",          label: "Look-at margin",   min: 0, max: 0.5, step: 0.01 },
+      { key: "looking_at_camera_threshold",label: "Camera threshold", min: 0, max: 1, step: 0.01 },
+      { key: "inout_threshold",            label: "In/out threshold", min: 0, max: 1, step: 0.01 },
+      { key: "min_face_fraction",          label: "Min face fraction",min: 0, max: 1, step: 0.01 },
+    ];
+
+    async function loadTuning() {
+      try {
+        const res = await fetch(`${SERVER_URL}/api/tuning`);
+        if (!res.ok) return;
+        renderTuning(await res.json());
+      } catch {}
+    }
+
+    function renderTuning(cur) {
+      const c = document.createElement("div");
+      for (const def of TUNING_DEFS) {
+        if (cur[def.key] === undefined) continue;
+        const row = document.createElement("div");
+        row.className = "tuning-row";
+        row.innerHTML = `
+          <label>${escapeHtml(def.label)}</label>
+          <input type="range" min="${def.min}" max="${def.max}" step="${def.step}" value="${cur[def.key]}" data-key="${def.key}" />
+          <span class="val">${formatVal(cur[def.key], def.step)}</span>
+        `;
+        c.appendChild(row);
+      }
+      if (!c.children.length) c.innerHTML = `<div class="empty">No tuning available</div>`;
+      els.tuningRows.replaceChildren(c);
+    }
+
+    function formatVal(v, step) {
+      const n = Number(v);
+      if (step >= 1) return String(Math.round(n));
+      return n.toFixed(Math.max(0, -Math.floor(Math.log10(step))));
+    }
+
+    let tuningDebounce = null;
+    els.tuningRows.addEventListener("input", (ev) => {
+      const t = ev.target;
+      if (t.tagName !== "INPUT" || !t.dataset.key) return;
+      const valEl = t.parentElement.querySelector(".val");
+      valEl.textContent = formatVal(t.value, Number(t.step));
+      clearTimeout(tuningDebounce);
+      tuningDebounce = setTimeout(async () => {
+        try {
+          await fetch(`${SERVER_URL}/api/tuning`, {
+            method: "PATCH", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ [t.dataset.key]: Number(t.value) }),
+          });
+        } catch {}
+      }, 200);
+    });
+
+    els.describe.addEventListener("change", async () => {
+      // Live toggle while running. If we're not running yet, the value
+      // will be picked up at the next start().
+      try {
+        await fetch(`${SERVER_URL}/api/capture/describe`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: els.describe.checked }),
+        });
+      } catch {}
+    });
+
+    // ── Bootstrap ──────────────────────────────────────────────────────
+    els.start.onclick = start;
+    els.stop.onclick = stop;
+
+    loadDevices().then(refreshStatus);
+    loadProfiles();
+    loadTuning();
+    setInterval(refreshStatus, 2000);
+    setInterval(loadProfiles, 5000);
+  </script>
+</body>
+</html>

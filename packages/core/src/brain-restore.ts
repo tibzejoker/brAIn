@@ -1,4 +1,4 @@
-import { type NodeInfo, type NodeHandler, type RunMode, NodeState } from "@brain/sdk";
+import { type NodeInfo, type NodeModule, type RunMode, NodeState } from "@brain/sdk";
 import type Database from "better-sqlite3";
 import { loadAllNodes, loadSubscriptions } from "./db";
 import { logger } from "./logger";
@@ -6,7 +6,7 @@ import { createRunner, type BaseRunner, type SleepService } from "./runner";
 import type { BusService } from "./bus";
 import type { TypeRegistry, InstanceRegistry } from "./registry";
 
-type HandlerLoader = (typeName: string, typePath: string) => Promise<NodeHandler>;
+type HandlerLoader = (typeName: string, typePath: string) => Promise<NodeModule>;
 
 export async function restoreNodes(opts: {
   db: Database.Database;
@@ -34,9 +34,9 @@ export async function restoreNodes(opts: {
 
     const typeConfig = opts.typeRegistry.get(saved.type);
 
-    let handler: NodeHandler;
+    let mod: NodeModule;
     try {
-      handler = await opts.loadHandler(saved.type, typePath);
+      mod = await opts.loadHandler(saved.type, typePath);
     } catch {
       logger.warn({ type: saved.type, name: saved.name }, "Skipping restore: handler load failed");
       continue;
@@ -80,9 +80,11 @@ export async function restoreNodes(opts: {
 
     const runner = createRunner(
       nodeInfo,
-      handler,
+      mod.handler,
       { bus: opts.bus, registry: opts.instanceRegistry, sleepService: opts.sleepService },
       opts.globalRunMode,
+      mod.teardown,
+      mod.onSpawn,
     );
     opts.runners.set(nodeInfo.id, runner);
 

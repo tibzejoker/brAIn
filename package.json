@@ -6,21 +6,16 @@
     "start:attention": "concurrently -n api,dashboard,seed -c blue,magenta,green \"pnpm --filter @brain/api dev\" \"wait-on http-get://localhost:${API_PORT:-3000}/network -t 30000 && pnpm --filter @brain/dashboard dev\" \"wait-on http-get://localhost:${API_PORT:-3000}/network -t 30000 && node scripts/seed-attention.mjs\"",
     "dev:api": "pnpm --filter @brain/api dev",
     "dev:dashboard": "pnpm --filter @brain/dashboard dev",
-    "setup:all": "pnpm -w run setup:intent && pnpm -w run setup:voice && pnpm -w run setup:gaze",
-    "setup:gaze": "node scripts/pyenv.mjs setup nodes/gaze --with-models",
-    "dev:gaze": "concurrently -n gaze-api,gaze-web -c yellow,magenta \"pnpm run dev:gaze:server\" \"wait-on http-get://localhost:8766/api/health -t 60000 && pnpm run dev:gaze:web\"",
-    "dev:gaze:server": "node scripts/pyenv.mjs run nodes/gaze -- uvicorn app.main:app --host 127.0.0.1 --port 8766 --reload",
-    "dev:gaze:web": "cd nodes/gaze/web && npm run dev",
-    "setup:voice": "node scripts/pyenv.mjs setup nodes/voice --with-models",
-    "dev:voice": "concurrently -n voice-api,voice-web -c cyan,green \"pnpm run dev:voice:server\" \"wait-on http-get://localhost:8765/api/health -t 30000 && pnpm run dev:voice:web\"",
-    "dev:voice:server": "node scripts/pyenv.mjs run nodes/voice -- VOICE_ENGINE=real uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload",
-    "dev:voice:web": "cd nodes/voice/web && npm run dev",
-    "setup:intent": "node scripts/pyenv.mjs setup nodes/intent",
-    "dev:intent": "concurrently -n intent-api,intent-web -c magenta,cyan \"pnpm run dev:intent:server\" \"wait-on http-get://localhost:8767/api/health -t 30000 && pnpm run dev:intent:web\"",
-    "dev:intent:server": "node scripts/pyenv.mjs run nodes/intent -- uvicorn app.main:app --host 127.0.0.1 --port 8767 --reload",
-    "dev:intent:web": "cd nodes/intent/web && npm run dev",
+    "setup:gaze": "cd nodes/gaze/server && python3.11 -m venv .venv && .venv/bin/pip install -U pip && .venv/bin/pip install -r requirements.txt && .venv/bin/python -m app.setup_models",
+    "dev:gaze": "pnpm --filter @brain/sdk build && pnpm --filter @brain/core build && pnpm --filter @brain/node-gaze build && concurrently --kill-others --kill-signal SIGTERM -n api,dashboard,gaze-tsc,seed -c blue,magenta,yellow,green \"pnpm --filter @brain/api dev\" \"wait-on http-get://localhost:${API_PORT:-3000}/network -t 30000 && pnpm --filter @brain/dashboard dev\" \"pnpm --filter @brain/node-gaze dev\" \"wait-on http-get://localhost:${API_PORT:-3000}/network -t 30000 && node scripts/seed-gaze.mjs\"",
+    "dev:gaze:server": "cd nodes/gaze/server && .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8766 --reload",
+    "setup:voice": "cd nodes/voice/server && python3.11 -m venv .venv && .venv/bin/pip install -U pip && .venv/bin/pip install -r requirements.txt && .venv/bin/python -m app.setup_models",
+    "dev:voice": "pnpm --filter @brain/sdk build && pnpm --filter @brain/core build && pnpm --filter @brain/node-voice build && concurrently --kill-others --kill-signal SIGTERM -n api,dashboard,voice-tsc,seed -c blue,magenta,cyan,green \"pnpm --filter @brain/api dev\" \"wait-on http-get://localhost:${API_PORT:-3000}/network -t 30000 && pnpm --filter @brain/dashboard dev\" \"pnpm --filter @brain/node-voice dev\" \"wait-on http-get://localhost:${API_PORT:-3000}/network -t 30000 && node scripts/seed-voice.mjs\"",
+    "dev:voice:server": "cd nodes/voice/server && VOICE_ENGINE=real .venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8765 --reload",
+    "dev:intent": "pnpm --filter @brain/sdk build && pnpm --filter @brain/core build && pnpm --filter @brain/node-voice build && pnpm --filter @brain/node-gaze build && pnpm --filter @brain/node-intent build && concurrently --kill-others --kill-signal SIGTERM -n api,dashboard,voice-tsc,gaze-tsc,intent-tsc,seed -c blue,magenta,cyan,yellow,pink,green \"pnpm --filter @brain/api dev\" \"wait-on http-get://localhost:${API_PORT:-3000}/network -t 30000 && pnpm --filter @brain/dashboard dev\" \"pnpm --filter @brain/node-voice dev\" \"pnpm --filter @brain/node-gaze dev\" \"pnpm --filter @brain/node-intent dev\" \"wait-on http-get://localhost:${API_PORT:-3000}/network -t 30000 && node scripts/seed-intent.mjs\"",
     "build": "pnpm -r build",
-    "clean": "pnpm -r exec rm -rf dist",
+    "clean": "pnpm -r exec rm -rf di  st",
+    "kill-orphans": "node scripts/kill-orphans.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "vitest run",
@@ -40,12 +35,5 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "vitest": "^4.1.4",
     "wait-on": "^9.0.5"
-  },
-  "pnpm": {
-    "onlyBuiltDependencies": [
-      "better-sqlite3",
-      "esbuild",
-      "@lancedb/lancedb"
-    ]
   }
 }

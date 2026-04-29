@@ -1,4 +1,4 @@
-import type { NodeInfo, NodeHandler, RunMode } from "@brain/sdk";
+import type { NodeInfo, NodeHandler, NodeOnSpawn, NodeTeardown, RunMode } from "@brain/sdk";
 import type { BaseRunner, RunnerDeps } from "./base-runner";
 import { ServiceRunner } from "./service-runner";
 import { LLMRunner } from "./llm-runner";
@@ -19,6 +19,8 @@ const RUNNER_MAP: Record<RunnerType, new (
   handler: NodeHandler,
   deps: RunnerDeps,
   runMode?: RunMode,
+  teardown?: NodeTeardown,
+  onSpawn?: NodeOnSpawn,
 ) => BaseRunner> = {
   [RunnerType.SERVICE]: ServiceRunner,
   [RunnerType.LLM]: LLMRunner,
@@ -30,8 +32,10 @@ export function createRunner(
   handler: NodeHandler,
   deps: RunnerDeps,
   runMode?: RunMode,
+  teardown?: NodeTeardown,
+  onSpawn?: NodeOnSpawn,
 ): BaseRunner {
   const type = resolveRunnerType(nodeInfo.tags);
   const RunnerClass = RUNNER_MAP[type];
-  return new RunnerClass(nodeInfo, handler, deps, runMode);
+  return new RunnerClass(nodeInfo, handler, deps, runMode, teardown, onSpawn);
 }

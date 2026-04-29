@@ -1,0 +1,31 @@
+# Minimal seed to exercise voice node spawn → child uvicorn lifecycle.
+#
+# Usage:
+#   pnpm dev:api        # in terminal A — spawns the voice node, which spawns
+#                       # the Python server as its child (port 8765).
+#   pnpm dev:dashboard  # in terminal B — optional, to spawn/kill via UI.
+#
+# Trigger server-side mic capture (no web frontend needed):
+#   curl http://localhost:8765/api/capture/devices
+#   curl -X POST http://localhost:8765/api/capture/start \
+#     -H 'content-type: application/json' -d '{}'
+#   # … speak, watch logs for "VAD speech_start" / "STT done" / "MATCH → spX"
+#   curl -X POST http://localhost:8765/api/capture/stop
+#
+# Killing the voice node from the API teardowns the Python child cleanly.
+# SIGKILL'ing the API parent makes the Python child self-terminate within
+# ~2s via its parent-PID heartbeat — no orphan uvicorn left behind.
+nodes:
+  - type: voice
+    name: voice
+    description: "Local STT + diarization. Spawns its own Python server as a child process."
+    priority: 5
+    position:
+      x: 200
+      y: 300
+    subscriptions:
+      - topic: "voice.control"
+      - topic: "voice.speaker.rename"
+      - topic: "voice.speaker.merge"
+    config_overrides:
+      response_topic: "voice.status"

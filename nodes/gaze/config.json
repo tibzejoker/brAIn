@@ -1,0 +1,20 @@
+{
+  "name": "gaze",
+  "description": "Local face detection + recognition + gaze direction. Spawns a Python server (InsightFace + Gazelle + MediaPipe) as a child process.",
+  "tags": ["service", "gaze", "vision", "face"],
+  "default_authority": 1,
+  "default_priority": 5,
+  "default_subscriptions": [
+    { "topic": "gaze.control" },
+    { "topic": "gaze.face.rename" },
+    { "topic": "gaze.face.merge" }
+  ],
+  "default_publishes": [
+    "gaze.face.detected",
+    "gaze.face.identified",
+    "gaze.target.resolved",
+    "gaze.status"
+  ],
+  "has_ui": true,
+  "supports_transport": ["process"]
+}

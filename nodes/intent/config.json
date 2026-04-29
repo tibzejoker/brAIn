@@ -1,12 +1,20 @@
 {
   "name": "intent",
-  "description": "Proxy over the voice and gaze servers that correlates speech + gaze to emit 'who is talking to whom' intent records.",
-  "tags": ["service", "intent", "correlator", "proxy"],
+  "description": "Correlator: 'who is talking to whom?' Listens to voice.transcript + gaze.target.resolved on the bus, links speakers to gaze targets via a person store, emits intent.detected.",
+  "tags": ["service", "intent", "correlator", "perception"],
   "default_authority": 1,
   "default_priority": 5,
-  "default_subscriptions": [],
-  "default_publishes": [
-    "intent.detected"
+  "default_subscriptions": [
+    { "topic": "voice.transcript" },
+    { "topic": "gaze.target.resolved" },
+    { "topic": "intent.persons.create" },
+    { "topic": "intent.persons.update" },
+    { "topic": "intent.persons.delete" }
   ],
+  "default_publishes": [
+    "intent.detected",
+    "intent.persons.changed"
+  ],
+  "has_ui": true,
   "supports_transport": ["process"]
 }

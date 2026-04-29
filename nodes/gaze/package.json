@@ -1,5 +1,5 @@
 {
-  "name": "@brain/node-voice",
+  "name": "@brain/node-gaze",
   "version": "0.1.0",
   "private": true,
   "main": "dist/handler.js",
@@ -10,11 +10,9 @@
   },
   "dependencies": {
     "@brain/core": "workspace:*",
-    "@brain/sdk": "workspace:*",
-    "ws": "^8.18.0"
+    "@brain/sdk": "workspace:*"
   },
   "devDependencies": {
-    "@types/ws": "^8.5.13",
     "typescript": "^5.4.0"
   }
 }

@@ -1,85 +1,92 @@
 # intent
 
-**"Who is talking to whom?"** — standalone Python+Vite proxy that sits in front
-of the voice and gaze servers, correlates their events over a short sliding
-window, and emits structured intent records.
-
-Voice and gaze identities stay independent (each server owns its own profile
-DB); the intent node stores a small `persons` table that links a voice
-profile id to a gaze profile id under a single human name. Profile CRUD on
-both upstream servers is **proxied transparently** so the UI can rename /
-merge / delete voice and face profiles without leaving the intent tab.
-
-## Pipeline
+**"Who is talking to whom?"** — pure-TypeScript brAIn node that listens to
+the bus events emitted by the `voice` and `gaze` nodes, correlates speech
+segments with the speaker's gaze direction over a short sliding window,
+and publishes a structured `intent.detected` per finalized utterance.
 
 ```
-  voice:8765  ── ws://ws/events ──┐
-                                   ├──►  intent engine  ──►  /api/intents + /ws/intents
-  gaze:8766   ──  /api/events   ──┘                    ──►  /api/timeline
-                                                       ──►  SQLite (persisted intents)
+                    ┌──────────── brAIn bus ────────────┐
+voice node   ──────►│ voice.transcript                  │
+                    │ voice.speaker.detected            │
+gaze node    ──────►│ gaze.target.resolved              │──────►  intent node
+                    │                                   │            │
+                    │                                   │◄───────────┤
+                    │ intent.detected                   │   correlator
+                    └───────────────────────────────────┘
 ```
 
-- **VoiceClient** holds a persistent WS to `/ws/events` and ingests
-  finalized `SegmentEvent`s.
-- **GazeEventPoller** polls gaze `/api/events?since_id=N` every `gaze_poll_interval_s`.
-- **IntentCorrelator** — on each finalized voice segment, looks at gaze
-  events from the same *linked person* in the window
-  `[t_start − corr_pre_s, t_end + corr_post_s]`, picks the dominant gaze
-  target, and writes an intent row.
+## Why pure TS
 
-Target kinds: `person` (linked face), `camera` (speaker addresses the
-viewer directly), `scene` (gaze landed on the environment, Moondream
-description carried over when available), `unknown` (no confident gaze).
+The previous incarnation was a separate Python+Vite proxy that opened
+WebSockets / HTTP polling on the voice and gaze servers from outside the
+brAIn process. With voice and gaze now bridging their server events
+directly onto the brAIn bus, intent doesn't need to talk to those Python
+servers at all — it just subscribes to two topics. No Python runtime,
+no separate venv, no extra port, just a small TS node.
+
+## Layers
+
+```
+src/store.ts        — better-sqlite3 store (persons, intents) at data/intent.db
+src/timeline.ts     — in-memory ring buffer (5 min retention)
+src/correlator.ts   — port of the legacy correlator algorithm
+src/server.ts       — embedded HTTP + WS server on :8767 for the UI
+src/handler.ts      — bus subscriber + lifecycle (onSpawn / teardown)
+ui/index.html       — persons CRUD + live intents panel (vanilla HTML)
+```
+
+## Endpoints (HTTP server on :8767)
+
+| Method | Path                          | Description |
+|--------|-------------------------------|-------------|
+| GET    | `/api/health`                 | Status |
+| GET    | `/api/persons`                | List linked persons |
+| POST   | `/api/persons`                | Create (`{name, color?, voice_profile_id?, gaze_profile_id?}`) |
+| PATCH  | `/api/persons/:id`            | Update |
+| DELETE | `/api/persons/:id`            | Delete |
+| GET    | `/api/intents?limit=N`        | History (newest first) |
+| DELETE | `/api/intents`                | Wipe history |
+| GET    | `/api/timeline?since=epoch`   | In-memory voice + gaze events |
+| GET    | `/api/voice/profiles`         | Proxy to voice :8765 |
+| GET    | `/api/gaze/profiles`          | Proxy to gaze :8766 |
+| WS     | `/ws/intents`                 | Live intent push (one JSON per detection) |
+
+The same operations are also reachable from the bus via
+`intent.persons.{create,update,delete}` messages.
 
 ## Quick start
 
-Both voice and gaze servers must already be running for the timeline to
-have anything to correlate.
-
 ```bash
-pnpm setup:intent     # python venv + npm install
-pnpm dev:gaze &       # face tracking + iris
-pnpm dev:voice &      # STT + diarization
-pnpm dev:intent       # intent proxy + UI (port 5176)
+pnpm setup:voice          # one-time: voice server venv + STT models
+pnpm setup:gaze           # one-time: gaze server venv + ML models
+pnpm dev:intent           # API + dashboard + voice + gaze + intent
+                          # http://localhost:5173 → click intent node
 ```
 
-Open <http://localhost:5176>.
+`dev:intent` seeds three nodes (voice, gaze, intent), so each subsystem's
+backing Python server is spawned at node startup and torn down cleanly when
+the node is killed (heartbeat + onTeardown — same pattern as voice/gaze).
 
-1. **Persons panel** (left) — create a person, then link it to a voice
-   profile (from `voice`) and a face profile (from `gaze`) via the two
-   dropdowns. The name you set here is the canonical name used in intent
-   records; renaming it here does NOT rename the underlying voice/face
-   profiles (use the voice / gaze tabs for those — or use the proxy
-   endpoints described below).
-2. **Timeline** (center) — one row per person, colored speaking bars
-   (voice segments), gaze-target dots, and lines connecting a speaker to
-   whomever they looked at.
-3. **Live intents** (right) — newest intents stream in via
-   `/ws/intents`.
+## Workflow in the UI
 
-## Env knobs
+1. Start mic capture from the voice node UI, start cam capture from gaze.
+2. Once a few voice / face profiles exist (let people speak / appear),
+   open the intent UI.
+3. Create a person, then bind them to a voice profile (🎙) and a face
+   profile (👁) via the dropdowns. Both bindings are required for the
+   correlator to credit a segment to a person.
+4. When that person speaks, an intent appears in the live feed labeling
+   what they are looking at: another person, the camera, a scene
+   description (Moondream when describe=ON), or unknown.
 
-| Var | Default | Notes |
-|---|---|---|
-| `INTENT_PORT` | `8767` | HTTP + WS port |
-| `INTENT_DB_PATH` | `./data/intent.db` | SQLite persons + intents |
-| `INTENT_VOICE_URL` | `http://127.0.0.1:8765` | voice node root |
-| `INTENT_GAZE_URL` | `http://127.0.0.1:8766` | gaze node root |
-| `INTENT_VOICE_SESSION` | `default` | voice `/ws/events?session_id=` |
-| `INTENT_CORR_PRE_S` | `0.5` | gaze window before segment start |
-| `INTENT_CORR_POST_S` | `0.3` | gaze window after segment end |
-| `INTENT_GAZE_POLL_INTERVAL_S` | `0.5` | gaze events polling cadence |
-| `INTENT_TIMELINE_RETENTION_S` | `300.0` | rolling buffer for timeline view |
+## Bus topics
 
-## Endpoints
+**Subscribes:**
+- `voice.transcript` — finalized SegmentEvent metadata
+- `gaze.target.resolved` — gaze /api/events row
+- `intent.persons.{create,update,delete}` — CRUD via bus
 
-- `GET /api/health` — status + upstream reachability
-- `GET|POST|PATCH|DELETE /api/persons[...]` — link CRUD
-- `GET /api/intents?since_id=N&limit=200` — recent intents
-- `GET /api/timeline?window_s=60` — raw voice + gaze events for the viz
-- `WS /ws/intents` — live stream of newly-computed intents
-- `* /api/voice/*` → transparent proxy to `voice:8765/api/*`
-- `* /api/gaze/*` → transparent proxy to `gaze:8766/api/*`
-
-Later, a brAIn thin handler will wrap this whole thing onto the pub/sub
-bus (same pattern as voice / gaze plan to).
+**Publishes:**
+- `intent.detected` — one per correlated voice segment
+- `intent.persons.changed` — `{kind, person}` after CRUD changes

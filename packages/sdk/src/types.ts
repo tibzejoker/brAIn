@@ -217,3 +217,40 @@ export interface NodeContext {
 // === Handler ===
 
 export type NodeHandler = (ctx: NodeContext) => Promise<void>;
+
+/**
+ * Optional spawn hook called once when the node is started by the runner —
+ * either at spawn time or when restored from the database. Mirror of
+ * `NodeTeardown`. Use it to acquire process-level resources (e.g. boot a
+ * child server) eagerly, before any message reaches the handler.
+ *
+ * Receives the spawned `NodeInfo` so the implementation can stash the
+ * node id (needed to publish on the bus from background tasks like a
+ * long-lived WebSocket bridge).
+ *
+ * Fire-and-forget from the runner's perspective. Failures are logged but
+ * don't block the start flow; the handler can recover lazily on its first
+ * invocation.
+ */
+export type NodeOnSpawn = (info: NodeInfo) => Promise<void> | void;
+
+/**
+ * Optional teardown hook called once when the node is killed or stopped.
+ * Use it to release process-level resources the handler module owns
+ * (child processes, open sockets, file watchers, etc.).
+ *
+ * Fire-and-forget from the runner's perspective — failures are logged
+ * but don't block the kill flow.
+ */
+export type NodeTeardown = () => Promise<void> | void;
+
+/**
+ * Shape a node module is allowed to export. The dynamic loader accepts
+ * either a bare `NodeHandler` (legacy single-export style) or this object
+ * form when lifecycle hooks are needed.
+ */
+export interface NodeModule {
+  handler: NodeHandler;
+  onSpawn?: NodeOnSpawn;
+  teardown?: NodeTeardown;
+}

@@ -13,7 +13,9 @@ from .config import settings
 from .engine import GazeEngine
 from .gaze import GazeModel
 from .gazelle import GazelleModel
+from .heartbeat import maybe_start_from_env
 from .iris import IrisTracker
+from .local_capture import LocalCapture
 from .profiles import ProfileStore
 from .recognizer import Recognizer
 
@@ -33,6 +35,7 @@ async def lifespan(app: FastAPI):
         "off" if disable_describe else f"{settings.moondream_repo}@{settings.moondream_revision}",
         settings.db_path,
     )
+    heartbeat = maybe_start_from_env()
 
     store = ProfileStore(settings.db_path)
     recognizer = Recognizer(
@@ -71,15 +74,20 @@ async def lifespan(app: FastAPI):
             log.exception("failed to load iris tracker (%s) — iris signal disabled", e)
 
     engine = GazeEngine(store, recognizer, gazelle_model, moondream_model, iris_tracker)
+    capture = LocalCapture(engine)
 
     app.state.store = store
     app.state.engine = engine
-    app.include_router(build_router(store, engine))
+    app.state.capture = capture
+    app.include_router(build_router(store, engine, capture))
 
     try:
         yield
     finally:
+        capture.stop()
         store.close()
+        if heartbeat is not None:
+            heartbeat.stop()
         log.info("gaze-server stopped")
 
 

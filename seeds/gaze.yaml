@@ -1,0 +1,17 @@
+# Minimal seed for `pnpm dev:gaze` — single gaze node, no other clutter.
+# The handler's onSpawn hook boots the Python server (uvicorn :8766) as
+# a child. Killing the node cleanly tears down the child via SIGTERM.
+nodes:
+  - type: gaze
+    name: gaze
+    description: "Local face detection + gaze direction. Spawns its own Python server as a child process."
+    priority: 5
+    position:
+      x: 200
+      y: 300
+    subscriptions:
+      - topic: "gaze.control"
+      - topic: "gaze.face.rename"
+      - topic: "gaze.face.merge"
+    config_overrides:
+      response_topic: "gaze.status"

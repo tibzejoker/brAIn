@@ -1,0 +1,330 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>intent — who is talking to whom</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --panel-2: #1e293b;
+      --border: #334155;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #ec4899;
+      --camera: #22d3ee;
+      --error: #ef4444;
+    }
+    html, body { height: 100%; background: var(--bg); color: var(--text); font: 13px/1.4 ui-sans-serif, system-ui, sans-serif; }
+    body { display: flex; flex-direction: column; }
+
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel);
+      flex-shrink: 0;
+    }
+    header h1 { font-size: 14px; color: var(--accent); letter-spacing: 0.02em; }
+    .hint { font-size: 11px; color: var(--muted); }
+
+    main {
+      flex: 1; display: grid; grid-template-columns: 360px 1fr; gap: 1px;
+      background: var(--border); min-height: 0; overflow: hidden;
+    }
+    .pane { background: var(--bg); display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+    .pane h2 {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+      color: var(--muted); padding: 10px 14px; background: var(--panel);
+      border-bottom: 1px solid var(--border); display: flex; align-items: center;
+      justify-content: space-between; flex-shrink: 0;
+    }
+    .pane h2 button { font-size: 10px; padding: 2px 6px; }
+    .pane-body { flex: 1; overflow: auto; padding: 10px 14px; min-height: 0; }
+
+    select, button, input[type=text] {
+      background: var(--bg); color: var(--text); border: 1px solid var(--border);
+      padding: 5px 8px; border-radius: 4px; font: inherit; font-size: 12px;
+    }
+    button { cursor: pointer; }
+    button:hover:not(:disabled) { border-color: var(--accent); }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.primary { background: var(--accent); color: #0f172a; border-color: var(--accent); font-weight: 600; }
+    button.primary:hover:not(:disabled) { background: #db2777; }
+    button.ghost { background: transparent; color: var(--muted); }
+    button.ghost:hover { color: var(--text); border-color: var(--accent); }
+
+    .person {
+      display: grid; grid-template-columns: 22px 1fr auto;
+      gap: 6px; align-items: center; padding: 8px;
+      background: var(--panel); border: 1px solid var(--border);
+      border-radius: 4px; margin-bottom: 6px;
+    }
+    .person input[type=color] { width: 22px; height: 22px; padding: 0; border: 1px solid var(--border); border-radius: 4px; background: transparent; cursor: pointer; }
+    .person .name-input { padding: 3px 6px; font-size: 13px; font-weight: 500; }
+    .person .links { grid-column: 1 / -1; display: grid; grid-template-columns: 1fr 1fr; gap: 4px; margin-top: 4px; }
+    .person .links select { font-size: 11px; padding: 3px 6px; }
+    .person .del { padding: 2px 6px; font-size: 11px; }
+
+    .new-person {
+      padding: 10px; margin-bottom: 12px;
+      background: var(--panel-2); border: 1px dashed var(--border); border-radius: 4px;
+      display: grid; grid-template-columns: 1fr auto; gap: 6px;
+    }
+
+    .empty { color: var(--muted); font-style: italic; padding: 16px; text-align: center; font-size: 12px; }
+
+    .intent {
+      padding: 8px 12px; border-left: 3px solid var(--border);
+      margin-bottom: 6px; background: var(--panel);
+    }
+    .intent.cam { border-left-color: var(--camera); }
+    .intent.person { border-left-color: var(--accent); }
+    .intent .head {
+      display: flex; gap: 8px; align-items: baseline; font-size: 11px;
+      color: var(--muted); margin-bottom: 4px; flex-wrap: wrap;
+    }
+    .intent .source { color: var(--text); font-weight: 600; }
+    .intent .target { color: var(--accent); }
+    .intent.cam .target { color: var(--camera); }
+    .intent .conf { font-variant-numeric: tabular-nums; }
+    .intent .text { color: var(--text); font-size: 14px; }
+
+    .arrow { color: var(--muted); }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>intent</h1>
+      <div class="hint">Correlator over <code>voice.transcript</code> + <code>gaze.target.resolved</code>. Link voice and gaze profiles to a person to see who addresses whom.</div>
+    </div>
+    <div class="hint" id="status">connecting…</div>
+  </header>
+
+  <main>
+    <aside class="pane">
+      <h2>Persons <button id="refresh-profiles" class="ghost" title="Refresh voice/gaze profile lists">⟳</button></h2>
+      <div class="pane-body">
+        <div class="new-person">
+          <input id="new-name" type="text" placeholder="New person name…" />
+          <button id="new-create" class="primary">+ Create</button>
+        </div>
+        <div id="persons-list">
+          <div class="empty">No persons yet — create one and link a voice + gaze profile</div>
+        </div>
+      </div>
+    </aside>
+
+    <div class="pane">
+      <h2>Live intents <button id="clear-intents" class="ghost">clear history</button></h2>
+      <div class="pane-body" id="intents">
+        <div class="empty">No intents yet. Make sure voice + gaze nodes are running, link voice / gaze profiles to a person, then speak.</div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const SERVER_URL = "http://localhost:8767";
+    const WS_URL = "ws://localhost:8767/ws/intents";
+
+    const els = {
+      status: document.getElementById("status"),
+      personsList: document.getElementById("persons-list"),
+      newName: document.getElementById("new-name"),
+      newCreate: document.getElementById("new-create"),
+      refresh: document.getElementById("refresh-profiles"),
+      intents: document.getElementById("intents"),
+      clearIntents: document.getElementById("clear-intents"),
+    };
+
+    let persons = [];
+    let voiceProfiles = [];
+    let gazeProfiles = [];
+    let liveWs = null;
+    /** Intents already rendered, keyed by id. Prevents the loadAll poll
+     *  and the live WS from racing and duplicating rows. */
+    const renderedIntents = new Set();
+
+    function escapeHtml(s) {
+      return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+      }[c]));
+    }
+
+    /** Polled every few seconds: refresh persons + upstream voice/gaze profiles
+     *  for the dropdowns. Does NOT touch the intent list — that's append-only
+     *  via initial fetch + live WS, otherwise we'd duplicate every row each
+     *  poll cycle. */
+    async function loadProfiles() {
+      try {
+        const [pRes, vRes, gRes] = await Promise.all([
+          fetch(`${SERVER_URL}/api/persons`),
+          fetch(`${SERVER_URL}/api/voice/profiles`).catch(() => null),
+          fetch(`${SERVER_URL}/api/gaze/profiles`).catch(() => null),
+        ]);
+        if (pRes?.ok) persons = await pRes.json();
+        voiceProfiles = vRes?.ok ? await vRes.json() : [];
+        gazeProfiles = gRes?.ok ? await gRes.json() : [];
+        els.status.textContent = `${persons.length} person(s) · ${voiceProfiles.length} voice · ${gazeProfiles.length} face`;
+        renderPersons();
+      } catch (e) {
+        els.status.textContent = `server unreachable (${e.message})`;
+      }
+    }
+
+    /** One-shot at boot: backfill recent intents into the panel. */
+    async function loadInitialIntents() {
+      try {
+        const res = await fetch(`${SERVER_URL}/api/intents?limit=50`);
+        if (!res?.ok) return;
+        const recent = await res.json();
+        // The API returns newest-first; reverse so the oldest renders first
+        // and the newest ends up at the top after all the prepends.
+        renderIntents(recent.reverse());
+      } catch {}
+    }
+
+    function renderPersons() {
+      if (persons.length === 0) {
+        els.personsList.innerHTML = `<div class="empty">No persons yet — create one and link a voice + gaze profile</div>`;
+        return;
+      }
+      const c = document.createElement("div");
+      for (const p of persons) {
+        const row = document.createElement("div");
+        row.className = "person";
+        row.innerHTML = `
+          <input type="color" data-id="${p.id}" data-field="color" value="${p.color}" title="Color" />
+          <input type="text" class="name-input" data-id="${p.id}" data-field="name" value="${escapeHtml(p.name)}" />
+          <button class="ghost del" data-id="${p.id}" title="Delete">🗑</button>
+          <div class="links">
+            <select data-id="${p.id}" data-field="voice_profile_id">
+              <option value="">— no voice —</option>
+              ${voiceProfiles.map((vp) =>
+                `<option value="${vp.id}"${p.voice_profile_id === vp.id ? " selected" : ""}>🎙 ${escapeHtml(vp.name)}</option>`
+              ).join("")}
+            </select>
+            <select data-id="${p.id}" data-field="gaze_profile_id">
+              <option value="">— no face —</option>
+              ${gazeProfiles.map((gp) =>
+                `<option value="${gp.id}"${p.gaze_profile_id === gp.id ? " selected" : ""}>👁 ${escapeHtml(gp.name)}</option>`
+              ).join("")}
+            </select>
+          </div>
+        `;
+        c.appendChild(row);
+      }
+      els.personsList.replaceChildren(c);
+    }
+
+    els.personsList.addEventListener("change", async (ev) => {
+      const t = ev.target;
+      const id = t.dataset.id; const field = t.dataset.field;
+      if (!id || !field) return;
+      const value = t.tagName === "SELECT" && t.value === "" ? null : t.value;
+      try {
+        const res = await fetch(`${SERVER_URL}/api/persons/${encodeURIComponent(id)}`, {
+          method: "PATCH", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ [field]: value }),
+        });
+        if (res.ok) {
+          const updated = await res.json();
+          const idx = persons.findIndex((p) => p.id === id);
+          if (idx >= 0) persons[idx] = updated;
+        }
+      } catch {}
+    });
+
+    els.personsList.addEventListener("click", async (ev) => {
+      const btn = ev.target.closest(".del");
+      if (!btn) return;
+      const id = btn.dataset.id;
+      const p = persons.find((x) => x.id === id);
+      if (!p || !confirm(`Delete person "${p.name}"?`)) return;
+      await fetch(`${SERVER_URL}/api/persons/${encodeURIComponent(id)}`, { method: "DELETE" });
+      persons = persons.filter((x) => x.id !== id);
+      renderPersons();
+    });
+
+    els.newCreate.onclick = async () => {
+      const name = els.newName.value.trim();
+      if (!name) return;
+      const res = await fetch(`${SERVER_URL}/api/persons`, {
+        method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name }),
+      });
+      if (res.ok) {
+        persons.push(await res.json());
+        els.newName.value = "";
+        renderPersons();
+      }
+    };
+
+    els.newName.addEventListener("keydown", (e) => { if (e.key === "Enter") els.newCreate.click(); });
+
+    els.refresh.onclick = loadProfiles;
+
+    els.clearIntents.onclick = async () => {
+      if (!confirm("Clear intent history?")) return;
+      await fetch(`${SERVER_URL}/api/intents`, { method: "DELETE" });
+      renderedIntents.clear();
+      els.intents.innerHTML = `<div class="empty">No intents yet.</div>`;
+    };
+
+    function renderIntents(list) {
+      if (list.length === 0) return;
+      els.intents.querySelector(".empty")?.remove();
+      for (const intent of list) appendIntent(intent);
+    }
+
+    function appendIntent(intent) {
+      // Dedup by id — both the initial fetch and the live WS may surface
+      // the same record. Without this, each poll cycle would re-prepend
+      // every visible intent forever.
+      if (intent && intent.id !== undefined) {
+        if (renderedIntents.has(intent.id)) return;
+        renderedIntents.add(intent.id);
+      }
+      els.intents.querySelector(".empty")?.remove();
+      const div = document.createElement("div");
+      const cls = intent.target_kind === "camera" ? "cam"
+        : intent.target_kind === "person" ? "person" : "";
+      div.className = `intent ${cls}`;
+      const targetLabel = intent.target_kind === "camera" ? "◉ camera"
+        : intent.target_name ? intent.target_name
+        : intent.target_kind;
+      div.innerHTML = `
+        <div class="head">
+          <span class="source">${escapeHtml(intent.source_name ?? "?")}</span>
+          <span class="arrow">→</span>
+          <span class="target">${escapeHtml(targetLabel)}</span>
+          <span class="conf">conf ${(intent.confidence ?? 0).toFixed(2)}</span>
+          <span>${escapeHtml(intent.ts ?? "")}</span>
+        </div>
+        <div class="text">${escapeHtml(intent.text ?? "")}</div>
+      `;
+      els.intents.insertBefore(div, els.intents.firstChild);
+      while (els.intents.children.length > 100) els.intents.lastChild.remove();
+    }
+
+    function ensureWs() {
+      if (liveWs && liveWs.readyState <= WebSocket.OPEN) return;
+      try { liveWs = new WebSocket(WS_URL); } catch { return; }
+      liveWs.onmessage = (ev) => {
+        try { appendIntent(JSON.parse(ev.data)); } catch {}
+      };
+      liveWs.onclose = () => {
+        liveWs = null;
+        setTimeout(ensureWs, 1500);
+      };
+    }
+
+    loadProfiles();
+    loadInitialIntents();
+    ensureWs();
+    // Poll only the profile dropdowns, not the intent list.
+    setInterval(loadProfiles, 5000);
+  </script>
+</body>
+</html>

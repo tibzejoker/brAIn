@@ -10,7 +10,9 @@ from fastapi.middleware.cors import CORSMiddleware
 from .api import build_router
 from .config import settings
 from .engine import build_engine
+from .heartbeat import maybe_start_from_env
 from .identity import IdentityResolver
+from .local_capture import LocalCapture
 from .profiles import ProfileStore
 from .ws import SessionHub, audio_endpoint, events_endpoint
 
@@ -36,22 +38,28 @@ async def lifespan(app: FastAPI):
     engine_choice = os.environ.get("VOICE_ENGINE", "stub").lower()
     log.info("starting voice-server (engine=%s stt=%s lang=%s)",
              engine_choice, settings.stt_model, settings.language)
+    heartbeat = maybe_start_from_env()
     if engine_choice == "real":
         _ensure_models()
     store = ProfileStore(settings.db_path)
     identity = IdentityResolver(store)
     engine = build_engine(identity)
     hub = SessionHub(engine, identity)
+    capture = LocalCapture(hub)
 
     app.state.store = store
     app.state.hub = hub
-    app.include_router(build_router(store, hub))
+    app.state.capture = capture
+    app.include_router(build_router(store, hub, capture))
 
     try:
         yield
     finally:
+        await capture.stop()
         await hub.stop_session()
         store.close()
+        if heartbeat is not None:
+            heartbeat.stop()
         log.info("voice-server stopped")
 
 

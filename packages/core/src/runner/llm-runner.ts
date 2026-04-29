@@ -1,4 +1,4 @@
-import type { NodeInfo, NodeHandler, RunMode } from "@brain/sdk";
+import type { NodeInfo, NodeHandler, NodeOnSpawn, NodeTeardown, RunMode } from "@brain/sdk";
 import { BaseRunner, type RunnerDeps } from "./base-runner";
 
 const DEFAULT_MAX_ITERATIONS = 5;
@@ -22,8 +22,10 @@ export class LLMRunner extends BaseRunner {
     handler: NodeHandler,
     deps: RunnerDeps,
     runMode?: RunMode,
+    teardown?: NodeTeardown,
+    onSpawn?: NodeOnSpawn,
   ) {
-    super(nodeInfo, handler, deps, runMode);
+    super(nodeInfo, handler, deps, runMode, teardown, onSpawn);
     this.maxIterations = typeof nodeInfo.config_overrides?.max_iterations === "number"
       ? nodeInfo.config_overrides.max_iterations
       : DEFAULT_MAX_ITERATIONS;

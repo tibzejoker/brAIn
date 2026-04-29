@@ -1,0 +1,870 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>voice — local STT + diarization</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    :root {
+      --bg: #0f172a;
+      --panel: #111827;
+      --panel-2: #1e293b;
+      --border: #334155;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --accent: #06b6d4;
+      --listening: #22c55e;
+      --idle: #94a3b8;
+      --error: #ef4444;
+      --warn: #f59e0b;
+    }
+    html, body { height: 100%; background: var(--bg); color: var(--text); font: 13px/1.4 ui-sans-serif, system-ui, sans-serif; }
+    body { display: flex; flex-direction: column; }
+
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--panel);
+      flex-shrink: 0;
+    }
+    header h1 { font-size: 14px; color: var(--accent); letter-spacing: 0.02em; }
+    .hint { font-size: 11px; color: var(--muted); }
+
+    .controls {
+      display: flex; gap: 8px; align-items: center; padding: 10px 16px;
+      border-bottom: 1px solid var(--border); background: var(--panel); flex-wrap: wrap; flex-shrink: 0;
+    }
+    .controls label { font-size: 11px; color: var(--muted); margin-right: 4px; }
+    select, button, input[type=text], input[type=number] {
+      background: var(--bg); color: var(--text); border: 1px solid var(--border);
+      padding: 6px 10px; border-radius: 4px; font: inherit;
+    }
+    button { cursor: pointer; }
+    select:hover, button:hover:not(:disabled) { border-color: var(--accent); }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+    button.primary { background: var(--accent); color: #0f172a; border-color: var(--accent); font-weight: 600; }
+    button.primary:hover:not(:disabled) { background: #0891b2; }
+    button.danger { background: var(--error); color: white; border-color: var(--error); font-weight: 600; }
+    button.ghost { background: transparent; color: var(--muted); }
+    button.ghost:hover { color: var(--text); border-color: var(--accent); }
+
+    .status {
+      display: inline-flex; align-items: center; gap: 6px;
+      margin-left: auto; padding: 4px 10px; border-radius: 12px;
+      background: var(--bg); border: 1px solid var(--border); font-size: 11px;
+    }
+    .status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--idle); }
+    .status.listening .dot { background: var(--listening); box-shadow: 0 0 8px var(--listening); }
+    .status.error .dot { background: var(--error); }
+
+    main {
+      flex: 1; display: grid;
+      grid-template-columns: 320px 1fr;
+      grid-template-rows: 220px 1fr;
+      grid-template-areas:
+        "speakers timeline"
+        "tuning   transcript";
+      gap: 1px; background: var(--border); min-height: 0; overflow: hidden;
+    }
+    .area-speakers { grid-area: speakers; }
+    .area-tuning { grid-area: tuning; }
+    .area-timeline { grid-area: timeline; }
+    .area-transcript { grid-area: transcript; }
+
+    .pane { background: var(--bg); display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+    .pane h2 {
+      font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em;
+      color: var(--muted); padding: 10px 14px; background: var(--panel);
+      border-bottom: 1px solid var(--border); display: flex; align-items: center;
+      justify-content: space-between; flex-shrink: 0;
+    }
+    .pane h2 .actions { display: flex; gap: 4px; }
+    .pane h2 button { font-size: 10px; padding: 2px 6px; }
+    .pane-body { flex: 1; overflow-y: auto; padding: 10px 14px; min-height: 0; }
+
+    /* ── Speakers ───────────────────────────────────────────────── */
+    .speaker {
+      display: flex; gap: 6px; align-items: center;
+      padding: 6px 0; border-bottom: 1px solid var(--border); list-style: none;
+    }
+    .speaker:last-child { border-bottom: 0; }
+    .speaker.merge-source { background: rgba(168,85,247,0.15); border-radius: 4px; padding: 6px; }
+    .speaker.merge-target { cursor: pointer; }
+    .speaker.merge-target:hover { background: rgba(34,197,94,0.10); border-radius: 4px; padding: 6px; }
+    .speaker input[type=color] { width: 22px; height: 22px; padding: 0; border: 1px solid var(--border); border-radius: 4px; background: transparent; cursor: pointer; }
+    .speaker input[type=text] { flex: 1; padding: 3px 6px; font-size: 12px; min-width: 0; }
+    .speaker .count { font-size: 10px; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 50px; text-align: right; }
+    .speaker button.icon { padding: 2px 6px; font-size: 12px; min-width: 24px; }
+    .vp-list { padding: 4px 0 4px 28px; list-style: none; }
+    .vp-row {
+      display: flex; gap: 6px; align-items: center; padding: 4px 6px;
+      background: var(--panel-2); border-radius: 4px; margin-bottom: 4px;
+    }
+    .vp-meta { flex: 1; font-size: 11px; color: var(--muted); font-family: ui-monospace, monospace; }
+    .vp-row button.icon { padding: 1px 5px; font-size: 11px; }
+    .merge-hint {
+      list-style: none; margin-top: 8px; padding: 6px 8px;
+      background: rgba(168,85,247,0.10); border: 1px dashed #a855f7;
+      border-radius: 4px; color: #c084fc; font-size: 11px; font-style: italic;
+    }
+
+    /* ── Tuning ─────────────────────────────────────────────────── */
+    .tuning-row {
+      display: grid; grid-template-columns: 110px 1fr 60px;
+      gap: 6px; align-items: center; margin-bottom: 6px;
+    }
+    .tuning-row label { font-size: 11px; color: var(--muted); }
+    .tuning-row input[type=range] { width: 100%; }
+    .tuning-row .val { font-size: 11px; color: var(--text); font-variant-numeric: tabular-nums; text-align: right; }
+
+    /* ── Timeline ───────────────────────────────────────────────── */
+    .timeline-wrap { flex: 1; position: relative; min-height: 0; }
+    canvas { display: block; width: 100%; height: 100%; }
+
+    /* ── Transcript ─────────────────────────────────────────────── */
+    .seg {
+      display: grid; grid-template-columns: 60px auto 1fr;
+      gap: 8px; align-items: baseline; padding: 4px 8px;
+      border-radius: 4px; margin-bottom: 2px;
+    }
+    .seg:hover { background: var(--panel); }
+    .seg.provisional { opacity: 0.7; }
+    .seg .ts { font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+    .seg .who { font-weight: 600; font-size: 12px; }
+    .seg .text { color: var(--text); }
+
+    .empty { color: var(--muted); font-style: italic; padding: 16px; text-align: center; }
+    .new-speaker {
+      padding: 6px 10px; margin: 4px 0;
+      background: rgba(6, 182, 212, 0.1); border-left: 3px solid var(--accent);
+      border-radius: 4px; color: var(--accent); font-size: 11px;
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>voice</h1>
+      <div class="hint">Server-side mic capture → faster-whisper STT → speaker diarization. No browser audio path.</div>
+    </div>
+    <div class="status" id="status"><span class="dot"></span><span id="status-text">idle</span></div>
+  </header>
+
+  <div class="controls">
+    <label for="device">Mic</label>
+    <select id="device" disabled><option>loading…</option></select>
+    <button id="start" class="primary" disabled>Start capture</button>
+    <button id="stop" class="danger" disabled>Stop</button>
+    <span class="hint" id="meta"></span>
+    <button id="reset" class="ghost" style="margin-left:auto">Reset all profiles</button>
+  </div>
+
+  <main>
+    <div class="pane area-speakers">
+      <h2>Speakers <div class="actions"><button id="speakers-clear" class="ghost">clear all</button></div></h2>
+      <div class="pane-body">
+        <ul id="speakers-list" style="list-style:none;padding:0;margin:0">
+          <li class="empty">No profiles yet — speak to enroll</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="pane area-timeline">
+      <h2>Timeline <div class="actions">
+        <button id="tl-fit" class="ghost">fit</button>
+        <button id="tl-clear" class="ghost">clear</button>
+      </div></h2>
+      <div class="timeline-wrap">
+        <canvas id="timeline"></canvas>
+      </div>
+    </div>
+
+    <div class="pane area-tuning">
+      <h2>Tuning</h2>
+      <div class="pane-body">
+        <div id="tuning-rows"><div class="empty">loading…</div></div>
+      </div>
+    </div>
+
+    <div class="pane area-transcript">
+      <h2>Transcript</h2>
+      <div class="pane-body" id="transcript">
+        <div class="empty">No segments yet. Pick a mic and hit "Start capture".</div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const SERVER_URL = "http://localhost:8765";
+    const WS_URL = "ws://localhost:8765/ws/events?session_id=default";
+
+    const FALLBACK_COLORS = ["#06b6d4", "#a855f7", "#22c55e", "#f59e0b", "#ec4899", "#3b82f6", "#ef4444", "#84cc16"];
+    function fallbackColor(id) {
+      let h = 0;
+      for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+      return FALLBACK_COLORS[h % FALLBACK_COLORS.length];
+    }
+
+    const els = {
+      device: document.getElementById("device"),
+      start: document.getElementById("start"),
+      stop: document.getElementById("stop"),
+      reset: document.getElementById("reset"),
+      status: document.getElementById("status"),
+      statusText: document.getElementById("status-text"),
+      meta: document.getElementById("meta"),
+      speakersList: document.getElementById("speakers-list"),
+      speakersClear: document.getElementById("speakers-clear"),
+      tuningRows: document.getElementById("tuning-rows"),
+      transcript: document.getElementById("transcript"),
+      tlCanvas: document.getElementById("timeline"),
+      tlFit: document.getElementById("tl-fit"),
+      tlClear: document.getElementById("tl-clear"),
+    };
+
+    // ── State ──────────────────────────────────────────────────────────
+    let ws = null;
+    const speakers = new Map();           // id → profile
+    const expanded = new Set();           // speaker ids whose voiceprints are open
+    const vpCache = new Map();            // speaker id → voiceprint[]
+    let mergeSource = null;               // speaker id starting a merge, or null
+    const sessionSegments = [];           // segments seen this session (for timeline)
+    const sessionStart = Date.now();      // wall clock at UI bootstrap
+
+    function colorFor(id) {
+      return speakers.get(id)?.color || fallbackColor(id);
+    }
+
+    function escapeHtml(s) {
+      return String(s ?? "").replace(/[&<>"']/g, (c) => ({
+        "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;",
+      }[c]));
+    }
+
+    function setStatus(state, text) {
+      els.status.className = `status ${state}`;
+      els.statusText.textContent = text;
+    }
+
+    // ── Devices + capture control ──────────────────────────────────────
+    async function loadDevices() {
+      try {
+        const res = await fetch(`${SERVER_URL}/api/capture/devices`);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const devs = await res.json();
+        if (devs.length === 0) {
+          els.device.innerHTML = `<option value="">no input devices</option>`;
+          setStatus("error", "no devices");
+          return;
+        }
+        els.device.innerHTML = devs.map((d) =>
+          `<option value="${d.id}">${escapeHtml(d.name)} (id=${d.id}, ${d.max_input_channels}ch)</option>`
+        ).join("");
+        els.device.disabled = false;
+        els.start.disabled = false;
+      } catch (e) {
+        els.device.innerHTML = `<option value="">server unreachable</option>`;
+        setStatus("error", `server unreachable (${e.message})`);
+      }
+    }
+
+    async function refreshStatus() {
+      try {
+        const res = await fetch(`${SERVER_URL}/api/capture/status`);
+        if (!res.ok) return;
+        const s = await res.json();
+        if (s.running) {
+          setStatus("listening", `listening — device ${s.device}`);
+          els.start.disabled = true; els.stop.disabled = false;
+          els.meta.textContent = s.dropped_frames > 0 ? `dropped ${s.dropped_frames}` : "";
+        } else {
+          setStatus("idle", "idle");
+          els.start.disabled = false; els.stop.disabled = true;
+          els.meta.textContent = "";
+        }
+      } catch { /* ignore */ }
+    }
+
+    async function start() {
+      els.start.disabled = true;
+      try {
+        const v = els.device.value;
+        const device = v === "" ? null : Number(v);
+        const res = await fetch(`${SERVER_URL}/api/capture/start`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ device, session_id: "default" }),
+        });
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ detail: "unknown" }));
+          throw new Error(err.detail ?? `HTTP ${res.status}`);
+        }
+        ensureWs();
+        await refreshStatus();
+      } catch (e) {
+        setStatus("error", e.message);
+        els.start.disabled = false;
+      }
+    }
+
+    async function stop() {
+      els.stop.disabled = true;
+      try { await fetch(`${SERVER_URL}/api/capture/stop`, { method: "POST" }); } catch {}
+      await refreshStatus();
+    }
+
+    function ensureWs() {
+      if (ws && ws.readyState <= WebSocket.OPEN) return;
+      ws = new WebSocket(WS_URL);
+      ws.onmessage = (ev) => {
+        try {
+          const event = JSON.parse(ev.data);
+          if (event.type === "segment") onSegment(event);
+          else if (event.type === "speaker_new") onSpeakerNew(event);
+          else if (event.type === "speaker_renamed") onSpeakerRenamed(event);
+        } catch {}
+      };
+      ws.onclose = () => { ws = null; };
+    }
+
+    // ── Segment / speaker events ───────────────────────────────────────
+    function onSegment(e) {
+      sessionSegments.push(e);
+      while (sessionSegments.length > 1000) sessionSegments.shift();
+      // Upsert basic speaker so the timeline / transcript can color before /api/profiles refresh.
+      if (!speakers.has(e.speaker_id)) {
+        speakers.set(e.speaker_id, { id: e.speaker_id, name: e.name, color: fallbackColor(e.speaker_id), sample_count: 1, voiceprint_count: 1 });
+      } else {
+        const p = speakers.get(e.speaker_id);
+        p.sample_count += 1;
+        p.name = e.name;
+      }
+      renderTranscriptLine(e);
+      drawTimeline();
+      void loadSpeakers();
+    }
+
+    function onSpeakerNew(e) {
+      const banner = document.createElement("div");
+      banner.className = "new-speaker";
+      banner.textContent = `↪ new speaker: ${e.name} (${e.speaker_id.slice(0, 12)}…)`;
+      const empty = els.transcript.querySelector(".empty");
+      empty?.remove();
+      els.transcript.appendChild(banner);
+      els.transcript.scrollTop = els.transcript.scrollHeight;
+      void loadSpeakers();
+    }
+
+    function onSpeakerRenamed(_e) { void loadSpeakers(); drawTimeline(); }
+
+    function renderTranscriptLine(e) {
+      els.transcript.querySelector(".empty")?.remove();
+      const div = document.createElement("div");
+      div.className = "seg" + (e.provisional ? " provisional" : "");
+      div.innerHTML = `
+        <span class="ts">${formatTs(e.t_start)}</span>
+        <span class="who" style="color:${colorFor(e.speaker_id)}">${escapeHtml(e.name)}</span>
+        <span class="text">${escapeHtml(e.text)}</span>
+      `;
+      els.transcript.appendChild(div);
+      while (els.transcript.children.length > 200) els.transcript.firstChild.remove();
+      els.transcript.scrollTop = els.transcript.scrollHeight;
+    }
+
+    function formatTs(seconds) {
+      const m = Math.floor(seconds / 60);
+      const s = Math.floor(seconds % 60);
+      return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
+    }
+
+    // ── Speakers panel ─────────────────────────────────────────────────
+    async function loadSpeakers() {
+      try {
+        const res = await fetch(`${SERVER_URL}/api/profiles`);
+        if (!res.ok) return;
+        const list = await res.json();
+        // Replace map but preserve insertion order via creation timestamp.
+        const sorted = list.slice().sort((a, b) =>
+          (a.created_at || "").localeCompare(b.created_at || ""));
+        speakers.clear();
+        for (const p of sorted) speakers.set(p.id, p);
+        if (mergeSource && !speakers.has(mergeSource)) mergeSource = null;
+        renderSpeakers();
+      } catch {}
+    }
+
+    function renderSpeakers() {
+      const ul = els.speakersList;
+      ul.innerHTML = "";
+      if (speakers.size === 0) {
+        const li = document.createElement("li");
+        li.className = "empty";
+        li.textContent = "No profiles yet — speak to enroll";
+        ul.appendChild(li);
+        return;
+      }
+      const merging = mergeSource !== null;
+      for (const p of speakers.values()) {
+        const li = document.createElement("li");
+        li.className = "speaker";
+        if (merging && p.id === mergeSource) li.classList.add("merge-source");
+        else if (merging) li.classList.add("merge-target");
+
+        const swatch = document.createElement("input");
+        swatch.type = "color";
+        swatch.value = p.color || fallbackColor(p.id);
+        swatch.title = "Click to change color";
+        swatch.addEventListener("change", async () => {
+          if (swatch.value === p.color) return;
+          try {
+            const res = await fetch(`${SERVER_URL}/api/profiles/${encodeURIComponent(p.id)}`, {
+              method: "PATCH", headers: { "content-type": "application/json" },
+              body: JSON.stringify({ color: swatch.value }),
+            });
+            if (res.ok) { speakers.set(p.id, await res.json()); drawTimeline(); }
+          } catch {}
+        });
+
+        const input = document.createElement("input");
+        input.type = "text";
+        input.value = p.name;
+        input.addEventListener("change", async () => {
+          const newName = input.value.trim();
+          if (!newName || newName === p.name) { input.value = p.name; return; }
+          try {
+            const res = await fetch(`${SERVER_URL}/api/profiles/${encodeURIComponent(p.id)}`, {
+              method: "PATCH", headers: { "content-type": "application/json" },
+              body: JSON.stringify({ name: newName }),
+            });
+            if (res.ok) { speakers.set(p.id, await res.json()); drawTimeline(); }
+          } catch { input.value = p.name; }
+        });
+
+        const count = document.createElement("span");
+        count.className = "count";
+        const vpc = p.voiceprint_count || 0;
+        count.textContent = vpc > 1 ? `${p.sample_count}·${vpc}vp` : `${p.sample_count}`;
+        count.title = vpc > 1
+          ? `${p.sample_count} samples across ${vpc} voiceprints`
+          : `${p.sample_count} samples`;
+
+        const expandBtn = mkIconBtn(expanded.has(p.id) ? "▴" : "▾", "Manage voiceprints");
+        expandBtn.disabled = vpc < 1;
+        expandBtn.addEventListener("click", (e) => { e.stopPropagation(); void toggleExpand(p.id); });
+
+        const mergeBtn = mkIconBtn(p.id === mergeSource ? "✕" : "⇢",
+          merging
+            ? p.id === mergeSource ? "Cancel merge" : `Merge "${speakers.get(mergeSource).name}" into "${p.name}"`
+            : "Start merge from this speaker");
+        mergeBtn.addEventListener("click", (e) => { e.stopPropagation(); void clickMerge(p.id); });
+
+        const delBtn = mkIconBtn("🗑", "Delete speaker");
+        delBtn.addEventListener("click", (e) => { e.stopPropagation(); void deleteSpeaker(p.id); });
+
+        li.append(swatch, input, count, expandBtn, mergeBtn, delBtn);
+
+        if (merging && p.id !== mergeSource) {
+          li.addEventListener("click", (e) => {
+            if (e.target === input || e.target === swatch) return;
+            void clickMerge(p.id);
+          });
+        }
+
+        ul.appendChild(li);
+
+        if (expanded.has(p.id)) {
+          const vps = vpCache.get(p.id) ?? [];
+          const subLi = document.createElement("li");
+          subLi.className = "vp-list";
+          if (vps.length === 0) {
+            subLi.innerHTML = `<span class="empty" style="padding:4px">no voiceprints</span>`;
+          } else {
+            for (const vp of vps) {
+              const row = document.createElement("div");
+              row.className = "vp-row";
+              const created = new Date(vp.created_at);
+              const ts = `${created.getHours().toString().padStart(2,"0")}:${created.getMinutes().toString().padStart(2,"0")}`;
+              row.innerHTML = `<span class="vp-meta">vp ${vp.id.slice(3, 9)} · ${vp.sample_count} samples · ${ts}</span>`;
+              const extractBtn = mkIconBtn("↗", "Extract this voiceprint into a new profile");
+              extractBtn.addEventListener("click", () => void extractVp(p.id, vp.id));
+              const vpDelBtn = mkIconBtn("🗑", "Delete this voiceprint");
+              vpDelBtn.addEventListener("click", () => void deleteVp(p.id, vp.id, p.voiceprint_count || 0));
+              row.append(extractBtn, vpDelBtn);
+              subLi.appendChild(row);
+            }
+          }
+          ul.appendChild(subLi);
+        }
+      }
+      if (merging) {
+        const hint = document.createElement("li");
+        hint.className = "merge-hint";
+        hint.textContent = `Click target to merge "${speakers.get(mergeSource).name}" into it (✕ to cancel)`;
+        ul.appendChild(hint);
+      }
+    }
+
+    function mkIconBtn(text, title) {
+      const b = document.createElement("button");
+      b.className = "icon ghost";
+      b.type = "button";
+      b.textContent = text;
+      b.title = title;
+      return b;
+    }
+
+    async function toggleExpand(id) {
+      if (expanded.has(id)) { expanded.delete(id); }
+      else {
+        expanded.add(id);
+        if (!vpCache.has(id)) {
+          try {
+            const res = await fetch(`${SERVER_URL}/api/profiles/${encodeURIComponent(id)}/voiceprints`);
+            vpCache.set(id, res.ok ? await res.json() : []);
+          } catch { vpCache.set(id, []); }
+        }
+      }
+      renderSpeakers();
+    }
+
+    async function clickMerge(targetId) {
+      if (!mergeSource) { mergeSource = targetId; renderSpeakers(); return; }
+      if (mergeSource === targetId) { mergeSource = null; renderSpeakers(); return; }
+      const source = mergeSource;
+      mergeSource = null;
+      try {
+        await fetch(`${SERVER_URL}/api/profiles/merge`, {
+          method: "POST", headers: { "content-type": "application/json" },
+          body: JSON.stringify({ source_id: source, target_id: targetId }),
+        });
+      } catch {}
+      // Re-attribute timeline segments to the merge target so the row collapses live.
+      for (const seg of sessionSegments) {
+        if (seg.speaker_id === source) {
+          seg.speaker_id = targetId;
+          const target = speakers.get(targetId);
+          if (target) seg.name = target.name;
+        }
+      }
+      vpCache.delete(source); vpCache.delete(targetId);
+      await loadSpeakers();
+      drawTimeline();
+    }
+
+    async function deleteSpeaker(id) {
+      const p = speakers.get(id);
+      if (!p) return;
+      if (!confirm(`Delete speaker "${p.name}"?`)) return;
+      await fetch(`${SERVER_URL}/api/profiles/${encodeURIComponent(id)}`, { method: "DELETE" });
+      if (mergeSource === id) mergeSource = null;
+      expanded.delete(id);
+      vpCache.delete(id);
+      await loadSpeakers();
+    }
+
+    async function extractVp(profileId, vpId) {
+      if (!confirm("Extract this voiceprint into a new speaker profile?")) return;
+      await fetch(`${SERVER_URL}/api/voiceprints/${encodeURIComponent(vpId)}/extract`, { method: "POST" });
+      expanded.delete(profileId);
+      vpCache.delete(profileId);
+      await loadSpeakers();
+    }
+
+    async function deleteVp(profileId, vpId, vpCount) {
+      if (vpCount <= 1) {
+        alert("Can't delete the only voiceprint of a profile. Delete the profile instead.");
+        return;
+      }
+      if (!confirm("Delete this voiceprint? Future audio in this vocal mode will create a new profile.")) return;
+      await fetch(`${SERVER_URL}/api/voiceprints/${encodeURIComponent(vpId)}`, { method: "DELETE" });
+      vpCache.delete(profileId);
+      await loadSpeakers();
+    }
+
+    els.speakersClear.onclick = async () => {
+      if (!confirm("Delete ALL speaker profiles?")) return;
+      await fetch(`${SERVER_URL}/api/profiles`, { method: "DELETE" });
+      mergeSource = null; expanded.clear(); vpCache.clear();
+      await loadSpeakers();
+    };
+
+    els.reset.onclick = async () => {
+      if (!confirm("Delete ALL speaker profiles AND clear timeline + transcript?")) return;
+      await fetch(`${SERVER_URL}/api/profiles`, { method: "DELETE" });
+      mergeSource = null; expanded.clear(); vpCache.clear();
+      sessionSegments.length = 0;
+      els.transcript.innerHTML = `<div class="empty">No segments yet. Pick a mic and hit "Start capture".</div>`;
+      drawTimeline();
+      await loadSpeakers();
+    };
+
+    // ── Tuning ─────────────────────────────────────────────────────────
+    const TUNING_DEFS = [
+      { key: "vad_speech_threshold", label: "VAD threshold", min: 0, max: 1, step: 0.01 },
+      { key: "match_threshold",      label: "Match",         min: 0, max: 1, step: 0.01 },
+      { key: "uncertain_threshold",  label: "Uncertain",     min: 0, max: 1, step: 0.01 },
+      { key: "ema_decay",            label: "EMA decay",     min: 0, max: 1, step: 0.01 },
+      { key: "min_segment_ms",       label: "Min segment ms", min: 0, max: 2000, step: 50 },
+    ];
+
+    async function loadTuning() {
+      try {
+        const res = await fetch(`${SERVER_URL}/api/tuning`);
+        if (!res.ok) return;
+        renderTuning(await res.json());
+      } catch {}
+    }
+
+    function renderTuning(cur) {
+      const container = document.createElement("div");
+      for (const def of TUNING_DEFS) {
+        if (cur[def.key] === undefined) continue;
+        const row = document.createElement("div");
+        row.className = "tuning-row";
+        row.innerHTML = `
+          <label>${escapeHtml(def.label)}</label>
+          <input type="range" min="${def.min}" max="${def.max}" step="${def.step}"
+                 value="${cur[def.key]}" data-key="${def.key}" />
+          <span class="val">${formatVal(cur[def.key], def.step)}</span>
+        `;
+        container.appendChild(row);
+      }
+      if (!container.children.length) {
+        container.innerHTML = `<div class="empty">No tuning available (stub engine)</div>`;
+      }
+      els.tuningRows.replaceChildren(container);
+    }
+
+    function formatVal(v, step) {
+      const n = Number(v);
+      if (step >= 1) return String(Math.round(n));
+      return n.toFixed(Math.max(0, -Math.floor(Math.log10(step))));
+    }
+
+    let tuningDebounce = null;
+    els.tuningRows.addEventListener("input", (ev) => {
+      const t = ev.target;
+      if (t.tagName !== "INPUT" || !t.dataset.key) return;
+      const valEl = t.parentElement.querySelector(".val");
+      const step = Number(t.step);
+      valEl.textContent = formatVal(t.value, step);
+      clearTimeout(tuningDebounce);
+      tuningDebounce = setTimeout(async () => {
+        try {
+          await fetch(`${SERVER_URL}/api/tuning`, {
+            method: "PATCH", headers: { "content-type": "application/json" },
+            body: JSON.stringify({ [t.dataset.key]: Number(t.value) }),
+          });
+        } catch {}
+      }, 200);
+    });
+
+    // ── Timeline (canvas) ──────────────────────────────────────────────
+    const ROW_HEIGHT = 28;
+    const ROW_PAD = 4;
+    const AXIS_HEIGHT = 24;
+    const LABEL_WIDTH = 90;
+    const tlState = {
+      windowStart: 0,    // session-relative seconds
+      windowSpan: 60,    // seconds visible
+      autoScroll: true,
+    };
+
+    function activeSpeakers() {
+      const ids = new Set();
+      for (const seg of sessionSegments) ids.add(seg.speaker_id);
+      // Sort by first appearance (stable layout).
+      const firstSeen = new Map();
+      sessionSegments.forEach((s, i) => {
+        if (!firstSeen.has(s.speaker_id)) firstSeen.set(s.speaker_id, i);
+      });
+      return Array.from(ids).sort((a, b) => firstSeen.get(a) - firstSeen.get(b));
+    }
+
+    function drawTimeline() {
+      const canvas = els.tlCanvas;
+      const dpr = window.devicePixelRatio || 1;
+      const cssW = canvas.parentElement.clientWidth;
+      const cssH = canvas.parentElement.clientHeight;
+      canvas.width = cssW * dpr;
+      canvas.height = cssH * dpr;
+      canvas.style.width = `${cssW}px`;
+      canvas.style.height = `${cssH}px`;
+      const ctx = canvas.getContext("2d");
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, cssW, cssH);
+
+      const ids = activeSpeakers();
+      if (ids.length === 0) {
+        ctx.fillStyle = "#94a3b8";
+        ctx.font = "italic 12px ui-sans-serif, system-ui";
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        ctx.fillText("No segments yet — speak after starting the capture", cssW / 2, cssH / 2);
+        return;
+      }
+
+      // Auto-scroll: track latest t_end if enabled.
+      const latest = sessionSegments[sessionSegments.length - 1];
+      if (latest && tlState.autoScroll) {
+        const latestEnd = latest.t_end;
+        if (latestEnd > tlState.windowStart + tlState.windowSpan - 2) {
+          tlState.windowStart = Math.max(0, latestEnd - tlState.windowSpan + 5);
+        }
+      }
+      const winS = tlState.windowStart;
+      const winE = winS + tlState.windowSpan;
+
+      const plotX = LABEL_WIDTH;
+      const plotW = cssW - plotX - 8;
+
+      // Background grid + time axis at the top.
+      ctx.fillStyle = "#111827";
+      ctx.fillRect(plotX, 0, plotW, AXIS_HEIGHT);
+      ctx.strokeStyle = "#334155";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(plotX, AXIS_HEIGHT + 0.5);
+      ctx.lineTo(cssW, AXIS_HEIGHT + 0.5);
+      ctx.stroke();
+
+      // Time labels every 5s.
+      ctx.fillStyle = "#94a3b8";
+      ctx.font = "11px ui-monospace, monospace";
+      ctx.textAlign = "center"; ctx.textBaseline = "middle";
+      const step = pickStep(tlState.windowSpan);
+      for (let t = Math.ceil(winS / step) * step; t <= winE; t += step) {
+        const x = plotX + ((t - winS) / tlState.windowSpan) * plotW;
+        ctx.beginPath();
+        ctx.moveTo(x, AXIS_HEIGHT - 4);
+        ctx.lineTo(x, AXIS_HEIGHT);
+        ctx.strokeStyle = "#334155";
+        ctx.stroke();
+        ctx.fillText(formatTs(t), x, AXIS_HEIGHT / 2);
+        // Vertical guide on plot.
+        ctx.beginPath();
+        ctx.strokeStyle = "rgba(51,65,85,0.4)";
+        ctx.moveTo(x, AXIS_HEIGHT);
+        ctx.lineTo(x, cssH);
+        ctx.stroke();
+      }
+
+      // Per-speaker rows.
+      ctx.textAlign = "left"; ctx.textBaseline = "middle";
+      ids.forEach((id, i) => {
+        const y = AXIS_HEIGHT + i * ROW_HEIGHT;
+        const color = colorFor(id);
+        const sp = speakers.get(id);
+        const name = sp?.name ?? id.slice(0, 8);
+
+        // Label with color dot
+        ctx.fillStyle = color;
+        ctx.beginPath();
+        ctx.arc(8, y + ROW_HEIGHT / 2, 5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "#e2e8f0";
+        ctx.font = "12px ui-sans-serif, system-ui";
+        const label = name.length > 11 ? name.slice(0, 10) + "…" : name;
+        ctx.fillText(label, 18, y + ROW_HEIGHT / 2);
+
+        // Row separator
+        ctx.strokeStyle = "rgba(51,65,85,0.3)";
+        ctx.beginPath();
+        ctx.moveTo(plotX, y + ROW_HEIGHT - 0.5);
+        ctx.lineTo(cssW, y + ROW_HEIGHT - 0.5);
+        ctx.stroke();
+      });
+
+      // Segment bars.
+      for (const seg of sessionSegments) {
+        const rowIdx = ids.indexOf(seg.speaker_id);
+        if (rowIdx < 0) continue;
+        if (seg.t_end < winS || seg.t_start > winE) continue;
+        const x0 = plotX + ((Math.max(seg.t_start, winS) - winS) / tlState.windowSpan) * plotW;
+        const x1 = plotX + ((Math.min(seg.t_end, winE)   - winS) / tlState.windowSpan) * plotW;
+        const w = Math.max(2, x1 - x0);
+        const y = AXIS_HEIGHT + rowIdx * ROW_HEIGHT + ROW_PAD;
+        const h = ROW_HEIGHT - ROW_PAD * 2;
+        const color = colorFor(seg.speaker_id);
+        ctx.fillStyle = color + (seg.provisional ? "55" : "AA");
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 1;
+        ctx.fillRect(x0, y, w, h);
+        ctx.strokeRect(x0 + 0.5, y + 0.5, w - 1, h - 1);
+        // Show text if wide enough.
+        if (w > 50) {
+          ctx.save();
+          ctx.beginPath();
+          ctx.rect(x0 + 4, y, w - 8, h);
+          ctx.clip();
+          ctx.fillStyle = "#e2e8f0";
+          ctx.font = "11px ui-sans-serif, system-ui";
+          ctx.textAlign = "left"; ctx.textBaseline = "middle";
+          ctx.fillText(seg.text, x0 + 6, y + h / 2);
+          ctx.restore();
+        }
+      }
+    }
+
+    function pickStep(span) {
+      if (span <= 10) return 1;
+      if (span <= 30) return 5;
+      if (span <= 120) return 10;
+      if (span <= 600) return 60;
+      return 300;
+    }
+
+    els.tlFit.onclick = () => {
+      if (sessionSegments.length === 0) return;
+      const last = sessionSegments[sessionSegments.length - 1];
+      const first = sessionSegments[0];
+      tlState.windowStart = Math.max(0, first.t_start - 1);
+      tlState.windowSpan = Math.max(10, last.t_end - first.t_start + 5);
+      tlState.autoScroll = true;
+      drawTimeline();
+    };
+
+    els.tlClear.onclick = () => {
+      if (!confirm("Clear timeline + transcript? Speaker profiles stay.")) return;
+      sessionSegments.length = 0;
+      els.transcript.innerHTML = `<div class="empty">No segments yet. Pick a mic and hit "Start capture".</div>`;
+      tlState.windowStart = 0;
+      drawTimeline();
+    };
+
+    // Wheel zoom / drag pan on timeline.
+    els.tlCanvas.addEventListener("wheel", (e) => {
+      e.preventDefault();
+      const factor = Math.exp(e.deltaY * 0.001);
+      tlState.windowSpan = Math.max(2, Math.min(3600, tlState.windowSpan * factor));
+      tlState.autoScroll = false;
+      drawTimeline();
+    }, { passive: false });
+
+    let dragStart = null;
+    els.tlCanvas.addEventListener("mousedown", (e) => {
+      dragStart = { x: e.clientX, winStart: tlState.windowStart };
+      tlState.autoScroll = false;
+    });
+    window.addEventListener("mousemove", (e) => {
+      if (!dragStart) return;
+      const w = els.tlCanvas.parentElement.clientWidth - LABEL_WIDTH - 8;
+      const dx = e.clientX - dragStart.x;
+      tlState.windowStart = Math.max(0, dragStart.winStart - (dx / w) * tlState.windowSpan);
+      drawTimeline();
+    });
+    window.addEventListener("mouseup", () => { dragStart = null; });
+    window.addEventListener("resize", drawTimeline);
+
+    // ── Bootstrap ──────────────────────────────────────────────────────
+    els.start.onclick = start;
+    els.stop.onclick = stop;
+
+    loadDevices().then(refreshStatus);
+    loadSpeakers();
+    loadTuning();
+    drawTimeline();
+    setInterval(refreshStatus, 2000);
+    setInterval(loadSpeakers, 5000);
+    setInterval(drawTimeline, 1000);  // Redraw to keep auto-scroll smooth even between segments.
+  </script>
+</body>
+</html>

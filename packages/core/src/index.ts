@@ -19,3 +19,5 @@ export { loadSeedFile, scanSeedsDirectory } from "./seed";
 export type { SeedInfo, ValidationError } from "./seed";
 export { LLMRegistry, CLIRegistry, generateText } from "./llm";
 export type { ProviderStatus, CLIStatus } from "./llm";
+export { startChildServer } from "./child-server";
+export type { ChildServerOptions, ChildServerHandle } from "./child-server";

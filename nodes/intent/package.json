@@ -1,5 +1,5 @@
 {
-  "name": "@brain/node-voice",
+  "name": "@brain/node-intent",
   "version": "0.1.0",
   "private": true,
   "main": "dist/handler.js",
@@ -11,9 +11,12 @@
   "dependencies": {
     "@brain/core": "workspace:*",
     "@brain/sdk": "workspace:*",
+    "better-sqlite3": "^12.8.0",
     "ws": "^8.18.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^20.11.0",
     "@types/ws": "^8.5.13",
     "typescript": "^5.4.0"
   }

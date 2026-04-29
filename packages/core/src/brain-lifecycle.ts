@@ -1,6 +1,6 @@
 import {
   type NodeInfo,
-  type NodeHandler,
+  type NodeModule,
   type NodeInstanceConfig,
   type RunMode,
   NodeState,
@@ -13,7 +13,7 @@ import type { BusService } from "./bus";
 import type { TypeRegistry, InstanceRegistry } from "./registry";
 import type { AuthorityService } from "./authority";
 
-type HandlerLoader = (typeName: string, typePath: string) => Promise<NodeHandler>;
+type HandlerLoader = (typeName: string, typePath: string) => Promise<NodeModule>;
 
 export interface LifecycleDeps {
   db: Database.Database;
@@ -50,7 +50,7 @@ export async function spawnNode(
   const typePath = deps.typeRegistry.getPath(config.type);
   if (!typePath) throw new Error(`No path for type: ${config.type}`);
 
-  const handler = await deps.loadHandler(config.type, typePath);
+  const { handler, teardown, onSpawn } = await deps.loadHandler(config.type, typePath);
 
   const nodeInfo: NodeInfo = {
     id: uuid(),
@@ -107,6 +107,8 @@ export async function spawnNode(
     handler,
     { bus: deps.bus, registry: deps.instanceRegistry, sleepService: deps.sleepService },
     deps.globalRunMode,
+    teardown,
+    onSpawn,
   );
   deps.runners.set(nodeInfo.id, runner);
 
@@ -207,12 +209,14 @@ export async function startNode(
   const typePath = deps.typeRegistry.getPath(node.type);
   if (!typePath) return false;
 
-  const handler = await deps.loadHandler(node.type, typePath);
+  const { handler, teardown, onSpawn } = await deps.loadHandler(node.type, typePath);
 
   const runner = createRunner(
     node, handler,
     { bus: deps.bus, registry: deps.instanceRegistry, sleepService: deps.sleepService },
     deps.globalRunMode,
+    teardown,
+    onSpawn,
   );
   deps.runners.set(nodeId, runner);
 
