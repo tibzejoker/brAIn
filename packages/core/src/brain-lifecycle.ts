@@ -15,6 +15,7 @@ import { createRunner, type BaseRunner, type SleepService } from "./runner";
 import type { IBusService } from "./bus";
 import type { TypeRegistry, InstanceRegistry } from "./registry";
 import type { AuthorityService } from "./authority";
+import { dispatchRemoteSpawn } from "./brain-remote";
 
 type HandlerLoader = (typeName: string, typePath: string) => Promise<NodeModule>;
 
@@ -28,6 +29,12 @@ export interface LifecycleDeps {
   runners: Map<string, BaseRunner>;
   globalRunMode: RunMode;
   loadHandler: HandlerLoader;
+  /**
+   * Maps remote-spawned node ids to the agent currently hosting them.
+   * Populated when a remote spawn dispatches; consulted by killNode to
+   * route the kill request to the right agent.
+   */
+  remoteNodes: Map<string, string>;
 }
 
 export async function spawnNode(
@@ -45,6 +52,15 @@ export async function spawnNode(
     if (config.authority_level !== undefined && config.authority_level > maxAuth) {
       throw new Error(`Cannot spawn with authority ${config.authority_level}, max: ${maxAuth}`);
     }
+  }
+
+  // Remote dispatch: when the caller asks for `transport: "remote"`,
+  // we don't load handler / create runner / save in DB locally. We
+  // publish a spawn-request on `brain.agents.<target_agent_id>.spawn`
+  // and let the agent host the actual instance. The API tracks the
+  // mapping so a later DELETE can route to the right agent.
+  if (config.transport === "remote") {
+    return dispatchRemoteSpawn(deps, config, callerNodeId);
   }
 
   const typeConfig = deps.typeRegistry.get(config.type);
@@ -76,7 +92,7 @@ export async function spawnNode(
   }
 
   const nodeInfo: NodeInfo = {
-    id: uuid(),
+    id: config.id ?? uuid(),
     type: config.type,
     name: config.name,
     description: config.description ?? typeConfig.description,
@@ -160,8 +176,24 @@ export function killNode(
   deps: LifecycleDeps,
   nodeId: string,
   callerNodeId?: string,
-  _reason?: string,
+  reason?: string,
 ): boolean {
+  // Route remote nodes through NATS — the API never owned a runner
+  // for them, so there's nothing local to stop.
+  const remoteAgent = deps.remoteNodes.get(nodeId);
+  if (remoteAgent) {
+    deps.bus.publish({
+      from: callerNodeId ?? "system.api",
+      topic: `brain.agents.${remoteAgent}.kill`,
+      type: "text",
+      criticality: 5,
+      payload: { content: JSON.stringify({ node_id: nodeId, reason }) },
+      metadata: { node_id: nodeId, agent_id: remoteAgent, reason },
+    });
+    deps.remoteNodes.delete(nodeId);
+    return true;
+  }
+
   const node = deps.instanceRegistry.get(nodeId);
   if (!node) return false;
 
@@ -286,3 +318,4 @@ export function wakeNode(
   deps.sleepService.wake(nodeId);
   return true;
 }
+

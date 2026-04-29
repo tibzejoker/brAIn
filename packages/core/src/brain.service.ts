@@ -43,6 +43,8 @@ export class BrainService extends EventEmitter {
   readonly sleepService: SleepService;
   private dynamicScanner: DynamicTypeScanner | null = null;
   private readonly runners = new Map<string, BaseRunner>();
+  /** Nodes this instance dispatched to a remote agent (id → agent_id). */
+  private readonly remoteNodes = new Map<string, string>();
   private readonly db: Database.Database;
   private seedsDir?: string;
   private globalRunMode: "auto" | "manual" = "auto";
@@ -78,6 +80,7 @@ export class BrainService extends EventEmitter {
       instanceRegistry: this.instanceRegistry, authority: this.authority,
       sleepService: this.sleepService, runners: this.runners,
       globalRunMode: this.globalRunMode, loadHandler: this.loadHandler.bind(this),
+      remoteNodes: this.remoteNodes,
     };
   }
 

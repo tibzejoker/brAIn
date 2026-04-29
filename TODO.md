@@ -144,9 +144,18 @@ Le pari le plus ambitieux. Justifie le "N" du sigle.
   surfacer une liste live des agents. `BrainService` accepte maintenant
   un bus injectable au constructeur. 2 tests d'intégration verts
   (annonce reçue + bus cross-process).
-- [ ] **4.4 Étendre le `transport` à `"remote"`**: le runner remote
-  spawn un node sur un agent distant via un message NATS au lieu
-  d'un child_process local.
+- [x] **4.4 `transport: "remote"`**: nouvelle valeur dans le SDK +
+  `target_agent_id` dans `NodeInstanceConfig` + champ optionnel `id?`
+  pour qu'API et agent référencent le même instance id. La lifecycle
+  intercepte les spawns remote: `dispatchRemoteSpawn` (`brain-remote.ts`)
+  publie une spawn-request sur `brain.agents.<id>.spawn`, retourne un
+  stub `NodeInfo`, et mémoïse `node_id → agent_id` dans
+  `BrainService.remoteNodes`. `killNode` route via NATS sur
+  `brain.agents.<id>.kill` quand l'id est dans cette map. L'`Agent`
+  s'abonne aux deux topics et appelle ses `spawnNode`/`killNode` locaux.
+  **E2e validé**: 1 test full-cycle (API spawn remote → agent héberge
+  le runner → message bus voyage cross-process → kill via API →
+  l'agent supprime son instance).
 - [ ] **4.5 Dashboard**: vue "agents connectés" + ability à choisir
   où spawner un node (local / agent X).
 - [ ] **4.6 Doc**: setup NATS + déploiement agent sur Raspberry Pi.

@@ -27,6 +27,13 @@ export interface NodeTypeConfig {
 }
 
 export interface NodeInstanceConfig {
+  /**
+   * Optional pre-allocated id. When the API dispatches a remote spawn
+   * to an agent, both sides need the same id to track the same
+   * instance — the API generates it and the agent honours it.
+   * Undefined for normal local spawns; the lifecycle then generates one.
+   */
+  id?: string;
   type: string;
   name: string;
   description?: string;
@@ -39,6 +46,13 @@ export interface NodeInstanceConfig {
   ttl?: string;
   authority_level?: AuthorityLevel;
   transport?: TransportMode;
+  /**
+   * Required when `transport === "remote"`: the id of the brain-agent
+   * that should host this node. The API publishes the spawn request
+   * onto `brain.agents.<target_agent_id>.spawn`; the agent receives
+   * it and runs the node locally.
+   */
+  target_agent_id?: string;
   position?: { x: number; y: number };
   config_overrides?: Record<string, unknown>;
   initial_message?: string;

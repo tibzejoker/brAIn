@@ -23,8 +23,13 @@ export enum AuthorityLevel {
  * - `web` — node is a remote HTTP/WS service the framework talks to
  *   over a long-lived WebSocket; any language with HTTP support can
  *   implement a node. Bearer-token auth supported.
+ * - `remote` — node lives on a brain-agent instance reachable via the
+ *   shared NATS bus. The API doesn't host a runner; instead it
+ *   dispatches a spawn-request to the target agent, which creates the
+ *   actual runner locally. The node's bus traffic transits NATS so
+ *   every other instance still sees it. Requires `target_agent_id`.
  */
-export type TransportMode = "process" | "container" | "web";
+export type TransportMode = "process" | "container" | "web" | "remote";
 
 /**
  * Web-transport configuration, only meaningful when `transport: "web"`.

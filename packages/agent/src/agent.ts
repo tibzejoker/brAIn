@@ -16,6 +16,7 @@ import { hostname } from "node:os";
 import { existsSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { BrainService, NatsBusService, logger } from "@brain/core";
+import type { NodeInstanceConfig } from "@brain/sdk";
 
 export interface AgentOptions {
   /** Stable id for this agent. Defaults to `<host>-<8 random>`. */
@@ -93,6 +94,9 @@ export class Agent {
       this.opts.announceIntervalMs ?? DEFAULT_ANNOUNCE_MS,
     );
 
+    // Listen for remote spawn/kill requests addressed to this agent.
+    this.attachControlChannel();
+
     // Graceful shutdown so child runners' teardowns fire.
     const onSignal = (sig: NodeJS.Signals): void => {
       log.info({ sig }, "agent: shutting down");
@@ -111,6 +115,52 @@ export class Agent {
     try { this.brain?.killAll(); } catch { /* ignore */ }
     try { await this.natsBus?.close(); } catch { /* ignore */ }
     process.exit(0);
+  }
+
+  /**
+   * Subscribe (via the bus, just like any other node) to the two
+   * agent control topics: `brain.agents.<self>.spawn` and `.kill`.
+   * Each incoming request is decoded and dispatched to the local
+   * BrainService — the actual runner ends up living here.
+   */
+  private attachControlChannel(): void {
+    const brain = this.brain;
+    const bus = this.natsBus;
+    if (!brain || !bus) return;
+    const controlNodeId = `agent:${this.id}:control`;
+    bus.subscribe(controlNodeId, `brain.agents.${this.id}.spawn`);
+    bus.subscribe(controlNodeId, `brain.agents.${this.id}.kill`);
+    bus.on(`message:${controlNodeId}`, (msg) => {
+      void this.handleControl(msg.topic, (msg.payload as { content: string }).content);
+    });
+  }
+
+  private async handleControl(topic: string, content: string): Promise<void> {
+    const brain = this.brain;
+    if (!brain) return;
+    try {
+      const data = JSON.parse(content) as Record<string, unknown>;
+      if (topic.endsWith(".spawn")) {
+        const cfg = data.config as NodeInstanceConfig | undefined;
+        if (!cfg) {
+          logger.warn({ topic }, "agent: spawn request missing config");
+          return;
+        }
+        // Honour the API-allocated id so both sides reference the same
+        // instance.
+        const id = (data.id as string | undefined) ?? cfg.id;
+        const merged: NodeInstanceConfig = { ...cfg, id, transport: "process" };
+        const info = await brain.spawnNode(merged);
+        logger.info({ id: info.id, type: info.type, name: info.name }, "agent: spawned remote node locally");
+      } else if (topic.endsWith(".kill")) {
+        const nodeId = data.node_id as string | undefined;
+        if (!nodeId) return;
+        const ok = brain.killNode(nodeId, undefined, (data.reason as string | undefined) ?? undefined);
+        logger.info({ id: nodeId, ok }, "agent: killed remote node locally");
+      }
+    } catch (err) {
+      logger.warn({ err, topic }, "agent: control handler failed");
+    }
   }
 
   private announce(): void {
