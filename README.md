@@ -11,54 +11,63 @@
   ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝
 ```
 
-A runtime for autonomous agents in a **many-to-many event world**.
+A runtime for autonomous agents that live in a **many-to-many event
+world**.
 
-Today's agentic frameworks are wired for chat (`request → response`)
-or cron (timed prompts). brAIn flips it: nodes are long-lived daemons
-that subscribe to multiple input streams and react when **relevance**
-— not a chat message, not a clock — says they should. They can fan
-out to many outputs in parallel, get **preempted** by higher-criticality
-events mid-flight, and live across machines on a shared bus.
+Nodes are long-lived daemons. Each one subscribes to several input
+streams (chat messages, sensor events, webhooks, internal bus
+traffic, anything you can publish), reacts when something relevant
+shows up, and can publish to as many outputs in parallel. There's no
+single triggering channel: the agent watches and decides when to
+act.
+
+A node may also be preempted mid-flight: when a higher-criticality
+message lands during a slow operation (an LLM call, a tool
+invocation, a CLI agent), the runner aborts what's in progress and
+re-runs the handler with the new context surfaced in
+`ctx.preemptionContext`. Same node config can run in-process, behind
+a WebSocket, or on a remote `brain-agent` joined to a shared NATS
+bus.
 
 > [ARCHITECTURE.md](./ARCHITECTURE.md) for the long-form design. This
 > README is the operational tour.
 
 ---
 
-## Why this exists
+## Concretely
 
-| Existing pattern | What's wrong for ambient agents |
-|---|---|
-| **Chat-driven** (LangGraph, AutoGen) — one input, one response, request/response | Nothing happens until a human types. The agent can't notice. |
-| **Cron-driven** (Claude Cowork scheduled, OpenAI scheduled tasks) — timed prompts | Reacts to the clock, not to the world. Wakes whether or not anything's worth saying. |
-| **Tool-calling agents** — single conversation, tools fan out from there | Still one input channel, still synchronous, still no preemption. |
+A few shapes you can build with this:
 
-brAIn's primitives go the other way:
+- An **ambient room agent** that watches camera + mic and only
+  speaks when someone is looking at it while talking — the flagship
+  demo (voice + gaze + intent + brain).
+- A **Slack-channel listener** that lives in a thread, picks up
+  context across messages, and summarises or replies when the
+  conversation pauses.
+- A **monitoring agent** subscribed to Grafana alerts +
+  oncall-rotation events + recent deploys, that surfaces a
+  hypothesis when a correlation crosses a threshold.
+- An **IoT controller** that fuses temperature, motion, calendar,
+  and time-of-day to decide when to change the environment.
 
-- **Daemon model**: nodes live across iterations, sleep when idle,
-  wake on events. State persists, no re-bootstrap each call.
-- **Many-to-many I/O**: every node subscribes to N topic patterns
-  (with wildcards) and publishes to as many. Voice, gaze, Slack,
-  Prometheus, GitHub webhooks, internal events — all merge on one
-  bus that the LLM nodes read from.
-- **Criticality + preemption** ([§ Preemption](#preemption-rtos-style)):
-  every message carries a criticality. A higher-criticality message
-  arriving mid-handler **aborts** the running iteration — including
-  the in-flight LLM call — and triggers a re-iteration with the
-  interrupting message in `ctx.preemptionContext`.
-- **Distributed by default**: same node config runs in-process or on
-  a remote `brain-agent` over NATS. Stop / start / wake / log /
-  mailbox / DLQ all roundtrip transparently.
-- **MCP-native**: an `mcp-host` node bridges any MCP server's tools
-  onto the bus, so the agent calls `filesystem`, `git`, `slack`,
-  `sentry`, … like any other node.
+The framework's primitives:
 
-What you build with this: ambient agents that watch the world and
-act when it's relevant. Voice + gaze + intent (the flagship demo) is
-one example; a Slack-channel listener that summarises during quiet
-hours, an IoT controller, a monitoring agent that notices
-correlations across Grafana + on-call + recent deploys, are all the
-same shape.
+- **Daemon model** — nodes live across iterations, sleep when idle,
+  wake on events. State persists across runs.
+- **Many-to-many I/O** — each node subscribes to N topic patterns
+  (with wildcards) and publishes to as many.
+- **Criticality with preemption** — every message carries a
+  criticality. A higher-criticality message arriving mid-handler
+  aborts the running iteration and triggers a re-run with
+  `ctx.preemptionContext.{interrupting_message, previous_messages}`
+  available.
+- **Distributed runtime** — same node config runs in-process or on
+  a remote `brain-agent`. Lifecycle (stop / start / wake) and
+  read-back (logs / mailbox / DLQ) work transparently across
+  machines over NATS.
+- **MCP-native** — an `mcp-host` node bridges any MCP server's
+  tools onto the bus, so the agent reaches into filesystem, git,
+  Slack, Linear, Notion, Sentry … as it would call any other node.
 
 ---
 
@@ -100,26 +109,23 @@ Common features regardless of backend:
   iterations). New messages **reset the budget** (fresh attention).
   When exhausted → forced sleep.
 
-### Preemption (RTOS-style)
+### Preemption
 
 When a higher-criticality message lands while a handler is running,
-the runner **aborts** it instead of waiting:
+the runner aborts the iteration instead of waiting it out.
 
-- `ctx.signal: AbortSignal` is exposed to every handler. LLM nodes
-  pass it to `generateText({ abortSignal: ctx.signal })`, CLI nodes
-  pass it to `spawn(..., { signal })`, MCP nodes pass it to
-  `client.callTool(..., { signal })`. The Vercel AI SDK propagates
-  it through to the underlying fetch on every provider (Anthropic,
-  OpenAI, Google, Ollama).
-- The threshold is configurable (default: incoming must exceed
-  active-iteration criticality by > 3).
-- The next handler invocation sees `ctx.wasPreempted = true` and
-  `ctx.preemptionContext.{interrupting_message, previous_messages}`
-  so it can decide what to do with the new context.
+`ctx.signal` is an `AbortSignal` exposed to every handler. LLM
+handlers pass it to `generateText({ abortSignal: ctx.signal })`, CLI
+nodes to `spawn(..., { signal })`, MCP nodes to
+`client.callTool(..., { signal })`. The abort propagates through to
+the underlying HTTP request, so a long inference at the LLM provider
+or a long subprocess invocation gets cut at the source — not just
+queue-reordered between iterations.
 
-Verified end-to-end: a 65-second Ollama call gets cut to 809 ms when
-preempted (Ollama responds with HTTP 500 to the cancelled request,
-visible in `~/.ollama/logs/server.log`).
+The threshold (how much higher the incoming criticality must be) is
+configurable; default is 3. The next handler invocation runs with
+`ctx.wasPreempted = true` and the preemption details in
+`ctx.preemptionContext`.
 
 ### Distributed runtime — `brain-agent`
 
@@ -235,29 +241,29 @@ many-to-many model concretely:
 - **`gaze`** — server-side webcam + InsightFace recognition + Gazelle
   (DINOv2) gaze direction + MediaPipe iris + Moondream labelling
   what the gaze lands on. Publishes `gaze.target.resolved`.
-- **`intent`** — pure-TS correlator (zero Python). Subscribes to
-  `voice.transcript` + `gaze.target.resolved`, runs a sliding-window
-  correlation by timecode, publishes `intent.detected`.
+- **`intent`** — correlator that subscribes to `voice.transcript` +
+  `gaze.target.resolved`, matches them on a sliding time window, and
+  publishes `intent.detected` when the same person is seen looking
+  at the camera while talking.
 
-Combined with `brain` and `chat`, this gives an agent that watches a
-room and only responds when **someone is looking at it while
-talking** — no wake word, no chat input. The same primitives would
-host a Slack-channel listener, a Prometheus-correlated incident
-agent, an IoT controller, etc.
+Combined with `brain` and `chat`, the room agent responds when
+someone looks at the camera while talking — no wake word, no
+chat-box input.
 
-The Python-backed `voice` and `gaze` nodes auto-install their venv
-+ ML models on first spawn (faster-whisper, Gazelle, Moondream, …)
-so a fresh `pnpm start` plus a manual node spawn from the dashboard
-boots end-to-end.
+The `voice` and `gaze` servers auto-install their virtualenv and
+download the ML weights (faster-whisper, Gazelle, Moondream, …) on
+first spawn, so the first run boots end-to-end from a fresh
+`pnpm start` and a node spawn from the dashboard.
 
 ---
 
 ## In-tree nodes
 
-- **Reasoning**: `brain` (central LLM consciousness with tool-call
-  parsing hardened for small models), `developer` (creates new node
-  types at runtime via Claude / Codex / Gemini CLI agents),
-  `attention` (bridges intents to brain topics).
+- **Reasoning**: `brain` (central LLM agent with a tolerant
+  tool-call parser that handles the loose JSON small models often
+  produce), `developer` (writes new node types at runtime via the
+  Claude / Codex / Gemini CLIs and registers them live),
+  `attention` (bridges intents to the topics the brain listens to).
 - **Memory**: `memory` (KV + tags), `memory-vector` (LanceDB +
   Ollama embeddings), `memory-proxy` (LLM-mediated gateway —
   brain talks here, never to the underlying stores),
@@ -266,8 +272,9 @@ boots end-to-end.
   `echo`, `chat`, `mcp-host`.
 - **LLM**: `llm-basic` (Vercel AI SDK wrapper), `llm-cli` (Claude
   Code / Codex / Gemini wrapper).
-- **Web demo**: `calc-py` — minimal Python `transport: "web"` node
-  that answers expressions over WebSocket.
+- **Web demo**: `calc-py` — Python node behind a WebSocket
+  (`transport: "web"`), answers arithmetic expressions. Exists to
+  show the cross-language transport in action.
 
 ---
 
@@ -371,47 +378,79 @@ WebSocket events on `/socket.io`: `node:spawned`, `node:killed`,
 
 ---
 
-## What this is not
+## How brAIn relates to other tools
 
-- **Not a chat framework.** If you want "user types → LLM responds",
-  use LangGraph or the Vercel AI SDK directly.
-- **Not a workflow engine.** Workflows have a finite shape and
-  request-driven execution; brAIn's nodes are open-ended daemons.
-- **Not ROS.** ROS is C++/Python, not LLM-native, not distributed
-  over NATS, not preemption-aware in the criticality sense.
-- **Not a low-code tool.** The dashboard observes; node code is
-  TypeScript (or any HTTP/WS-speaking language via `transport: "web"`).
+brAIn isn't a competitor to most of the agentic tools you may know;
+they solve adjacent problems and the right one depends on the shape
+of the agent you want.
 
-| | brAIn | LangGraph | AutoGen | ROS2 |
+**LangGraph / Vercel AI SDK / Mastra** — for chat-shaped agents
+(user types → LLM thinks → tools → LLM responds), these are
+excellent and deeper than brAIn's chat support. Reach for them when
+the agent is fundamentally a conversational interface.
+
+**AutoGen / CrewAI** — multi-agent conversations with roles. Use
+these when you want several LLM personas debating or collaborating
+within a single dialogue.
+
+**ROS 2** — the closest architectural cousin. Pub/sub bus, daemon
+nodes, multi-language, cross-machine over DDS. brAIn shares a lot
+of its mental model with ROS. The differences are domain-specific:
+brAIn is built around LLM constraints (token budgets, abortable
+inference, tool-call loops, MCP), runs over NATS rather than DDS
+(easier to deploy when you don't need real-time guarantees), and
+preempts at the work-in-progress level rather than between
+callbacks.
+
+**Inngest / Trigger.dev / Temporal** — durable workflows. If your
+agent is a finite-shape DAG with retries and backoff, those are
+production-grade options. brAIn's nodes are open-ended daemons;
+the two run on different mental models.
+
+**n8n / Flowise / Langflow / Dify / Node-RED** — visual
+node-based authoring. brAIn nodes are written in code (a
+TypeScript handler plus a `config.json`, or any HTTP/WS service
+via `transport: "web"`). The dashboard is observation-first.
+
+**Claude Cowork / OpenAI scheduled tasks / cron-driven agents** —
+time-triggered prompts. brAIn is event-triggered; if your agent's
+cadence is "every Monday morning summarise X", a scheduler is the
+right primitive.
+
+A condensed comparison of the architectural traits brAIn happens to
+have, for context:
+
+| | brAIn | LangGraph | AutoGen | ROS 2 |
 |---|---|---|---|---|
-| Daemon nodes | ✅ | ❌ (graph runs on demand) | ❌ (conversation) | ✅ |
-| Many-to-many bus | ✅ | ❌ | ❌ | ✅ |
-| Criticality preemption | ✅ | ❌ | ❌ | ⚠ (priorities, no LLM-aware abort) |
-| LLM-native | ✅ | ✅ | ✅ | ❌ |
-| Distributed cross-machine | ✅ (NATS) | ❌ | ⚠ | ✅ (DDS) |
-| MCP host | ✅ | ⚠ (per-tool wrap) | ⚠ | ❌ |
-| Causal trace + replay | ✅ | ⚠ (LangSmith trace, no replay) | ❌ | ❌ |
+| Long-lived daemon nodes | yes | graph runs per call | per conversation | yes |
+| Many-to-many bus | yes | inputs flow through the graph | conversation channel | yes |
+| Mid-handler abort on priority | yes (LLM/CLI/MCP signal-aware) | — | — | priorities at the queue level |
+| LLM-native primitives | yes | yes | yes | — |
+| Cross-machine | NATS | — | — | DDS |
+| MCP client | yes (4 transports) | per-tool wrappers | per-tool wrappers | — |
+| Causal trace + replay | yes (`/network/traces/:id/replay`) | LangSmith captures traces | — | — |
 
 ---
 
 ## Tech stack
 
-- **SDK**: TypeScript types only.
-- **Core**: TypeScript, pino, eventemitter3, better-sqlite3, uuid,
+- **SDK** — TypeScript, types-only package consumed by every node.
+- **Core** — TypeScript engine: pino, eventemitter3, better-sqlite3,
   ws, nats.js, ai (Vercel SDK), `@modelcontextprotocol/sdk`.
-- **API**: NestJS 10, Socket.IO, express.
-- **Agent**: tiny TypeScript daemon (`packages/agent`) — `brain-agent`
-  CLI bin.
-- **Dashboard**: React 19, React Flow, d3-force, Tailwind v4, Vite.
-- **Bus**: in-memory by default; NATS when `BRAIN_NATS_URL` is set.
-- **Persistence**: SQLite via better-sqlite3.
-- **Monorepo**: pnpm workspaces (cross-repo via sibling paths to
-  `../brAIn-perception/nodes/*`).
-- **Python helper**: `packages/python-sdk` (`brain-web`) for
-  `transport: "web"` nodes.
-- **Tests**: vitest (TS), unittest (Python). NATS / LLM / MCP
-  integration tests skip gracefully when the dependency isn't on
-  PATH.
+- **API** — NestJS 10 + Socket.IO + express.
+- **Agent** — `brain-agent` CLI binary (`packages/agent`) for
+  remote-host node execution over the shared bus.
+- **Dashboard** — React 19, React Flow, d3-force, Tailwind v4, Vite.
+- **Bus** — in-memory by default; NATS when `BRAIN_NATS_URL` is set.
+- **Persistence** — SQLite via better-sqlite3.
+- **Monorepo** — pnpm workspaces, with cross-repo sibling
+  resolution to `../brAIn-perception/nodes/*` when that companion
+  repo is checked out.
+- **Cross-language nodes** — `packages/python-sdk` (`brain-web`)
+  helper for nodes that speak the bus from Python over WebSocket
+  (`transport: "web"`).
+- **Tests** — vitest, with optional integration suites that gate on
+  the relevant dependency being available (NATS, Ollama, MCP servers).
 
 ---
 
@@ -423,33 +462,33 @@ RUN_LLM_E2E=1 npx vitest run tests/preemption-llm-e2e.test.ts
 RUN_MCP_E2E=1 npx vitest run tests/mcp-host-public-server-e2e.test.ts
 ```
 
-~30 vitest files. Coverage by area:
+Around 30 vitest files. Areas covered:
 
-- **Engine core**: bus topic matching, mailbox + backpressure,
-  registries, dynamic-scanner hash dance, type-validator,
-  tool-parser, message-formatter aliases.
-- **Runners**: lifecycle, idempotent teardown + onSpawn, handler
-  crash recovery, dead-letter capture, handler timeout, **preemption**
-  unit + LLM E2E.
-- **Distributed**: NatsBusService routing + anti-loop, real
-  `nats-server` integration, agent announcements + zombie cleanup,
+- **Engine** — bus routing and topic matching, mailbox + backpressure,
+  registries, dynamic-scanner, type validation, tool-call parsing,
+  message formatter.
+- **Runners** — lifecycle, idempotent teardown + onSpawn, handler
+  crash recovery, dead-letter capture, timeouts, preemption (unit +
+  E2E with a real Ollama call).
+- **Distributed** — NATS bus routing and anti-loop, real
+  `nats-server` integration, agent announcements + cleanup,
   remote-spawn full cycle.
-- **MCP**: in-process echo server fixture + real
-  `@modelcontextprotocol/server-filesystem` E2E.
-- **Memory + brain end-to-end**: secret retrieval, multi-service
-  workflows, consolidator, LLM budget exhaustion.
-- **Misc**: child-server SIGTERM → SIGKILL escalation, HTTP bridge.
+- **MCP** — in-process fixture plus an E2E against the published
+  `@modelcontextprotocol/server-filesystem`.
+- **Memory + brain** — secret retrieval, multi-service workflows,
+  consolidator, LLM budget exhaustion.
+- **Subprocess hygiene** — child-server SIGTERM → SIGKILL
+  escalation; HTTP bridge.
 
 ---
 
 ## Lint
 
-ESLint strict. `pnpm lint` must pass with **0 errors and 0
-warnings**. Notable rules: no `any`, no `console`, no inline
-`eslint-disable`, `consistent-type-imports`, `prefer-readonly`,
-`no-non-null-assertion`, `react-hooks/exhaustive-deps`,
-`no-floating-promises`, `require-await`, `max-lines: 300` per
-source file.
+`pnpm lint` runs ESLint over the whole monorepo. The configuration
+is on the strict end of TypeScript style: no `any`, no `console`,
+mandatory `import type`, explicit return types, no inline
+`eslint-disable`, and a 300-line cap per source file. Contributions
+need to land at zero errors and zero warnings.
 
 ---
 
