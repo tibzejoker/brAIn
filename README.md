@@ -135,9 +135,17 @@ any agent for a new spawn. When an agent stops announcing past
 
 ### MCP — `mcp-host` node
 
-`nodes/mcp-host` connects to N MCP servers over stdio (using the
-official `@modelcontextprotocol/sdk`), discovers their tools, and
-exposes them on the bus:
+`nodes/mcp-host` connects to N MCP servers (official
+`@modelcontextprotocol/sdk`), discovers their tools, and exposes
+them on the bus. Four transports supported per server:
+
+- `transport: "stdio"` — local subprocess (filesystem, git, …)
+- `transport: "http"` — modern Streamable HTTP, current standard
+  for cloud-hosted MCP (Linear, Notion, Exa, …)
+- `transport: "sse"` — legacy HTTP/SSE servers
+- `transport: "ws"` — WebSocket
+
+Bus topics:
 
 - `mcp.call` → payload `{server?, tool, arguments?}` → answers on
   `mcp.result`. `ctx.signal` propagates → preemption kills MCP

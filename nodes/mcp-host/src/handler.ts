@@ -1,41 +1,72 @@
 /**
  * mcp-host — bridges external MCP servers onto the brAIn bus.
  *
- * Configure via `config_overrides.servers`:
+ * Each server is configured by **transport**:
  *
- *     {
- *       "servers": [
- *         { "name": "fs",
- *           "command": "npx",
- *           "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"] },
- *         { "name": "git",
- *           "command": "npx",
- *           "args": ["-y", "@modelcontextprotocol/server-git", "--repo", "/tmp"] }
- *       ]
- *     }
+ *   stdio  — for local subprocess servers (filesystem, git, …)
+ *     { name: "fs", transport: "stdio",
+ *       command: "npx", args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"] }
  *
- * On spawn, the node connects to every server, discovers its tools,
- * and starts listening on:
+ *   http   — modern Streamable HTTP, current standard for remote MCP
+ *     { name: "linear", transport: "http",
+ *       url: "https://mcp.linear.app/mcp",
+ *       headers: { authorization: "Bearer <token>" } }
  *
- *   - `mcp.call`  → payload { server, tool, arguments? } → responds
- *     with the tool's structured content on `mcp.result`.
- *   - `mcp.tools.list` → republishes the discovered toolset on
- *     `mcp.tools.available` so any node can introspect.
+ *   sse    — legacy HTTP/SSE servers (still common as of 2026)
+ *     { name: "exa", transport: "sse", url: "https://mcp.exa.ai/sse" }
  *
- * Aborts mid-call when the runner preempts the iteration (signal is
- * threaded into the SDK's request).
+ *   ws     — WebSocket servers
+ *     { name: "ws-srv", transport: "ws", url: "wss://example.com/mcp" }
+ *
+ * On spawn the node connects to every server, discovers its tools,
+ * and listens on:
+ *   - `mcp.call`  → { server?, tool, arguments? } → `mcp.result`
+ *   - `mcp.tools.list` → `mcp.tools.available`
+ * Aborts in flight when the runner preempts the iteration.
  */
 import type { NodeHandler, NodeOnSpawn, NodeTeardown, TextPayload } from "@brain/sdk";
 import { logger } from "@brain/core";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
+import { WebSocketClientTransport } from "@modelcontextprotocol/sdk/client/websocket.js";
 
-interface ServerSpec {
+interface StdioSpec {
   name: string;
+  transport?: "stdio";
   command: string;
   args?: string[];
   env?: Record<string, string>;
 }
+
+interface HttpSpec {
+  name: string;
+  transport: "http";
+  url: string;
+  headers?: Record<string, string>;
+}
+
+interface SseSpec {
+  name: string;
+  transport: "sse";
+  url: string;
+  headers?: Record<string, string>;
+}
+
+interface WsSpec {
+  name: string;
+  transport: "ws";
+  url: string;
+}
+
+type ServerSpec = StdioSpec | HttpSpec | SseSpec | WsSpec;
+
+type AnyTransport =
+  | StdioClientTransport
+  | StreamableHTTPClientTransport
+  | SSEClientTransport
+  | WebSocketClientTransport;
 
 interface ToolDescriptor {
   server: string;
@@ -47,7 +78,7 @@ interface ToolDescriptor {
 interface ConnectedServer {
   spec: ServerSpec;
   client: Client;
-  transport: StdioClientTransport;
+  transport: AnyTransport;
   tools: ToolDescriptor[];
 }
 
@@ -59,22 +90,51 @@ interface MCPCallRequest {
 
 const servers = new Map<string, ConnectedServer>();
 
+function isValidSpec(s: unknown): s is ServerSpec {
+  if (typeof s !== "object" || s === null) return false;
+  const r = s as Record<string, unknown>;
+  if (typeof r.name !== "string") return false;
+  const t = r.transport;
+  // stdio (default) needs `command`; http/sse/ws need `url`.
+  if (t === undefined || t === "stdio") return typeof r.command === "string";
+  if (t === "http" || t === "sse" || t === "ws") return typeof r.url === "string";
+  return false;
+}
+
 function getServers(overrides: Record<string, unknown>): ServerSpec[] {
   const raw = overrides.servers;
   if (!Array.isArray(raw)) return [];
-  return raw.filter((s): s is ServerSpec => {
-    if (typeof s !== "object" || s === null) return false;
-    const r = s as Record<string, unknown>;
-    return typeof r.name === "string" && typeof r.command === "string";
-  });
+  return raw.filter(isValidSpec);
+}
+
+function buildTransport(spec: ServerSpec): AnyTransport {
+  const t = spec.transport ?? "stdio";
+  switch (t) {
+    case "stdio":
+      return new StdioClientTransport({
+        command: (spec as StdioSpec).command,
+        args: (spec as StdioSpec).args ?? [],
+        env: (spec as StdioSpec).env,
+      });
+    case "http": {
+      const s = spec as HttpSpec;
+      return new StreamableHTTPClientTransport(new URL(s.url), {
+        requestInit: s.headers ? { headers: s.headers } : undefined,
+      });
+    }
+    case "sse": {
+      const s = spec as SseSpec;
+      return new SSEClientTransport(new URL(s.url), {
+        requestInit: s.headers ? { headers: s.headers } : undefined,
+      });
+    }
+    case "ws":
+      return new WebSocketClientTransport(new URL((spec as WsSpec).url));
+  }
 }
 
 async function connectServer(spec: ServerSpec): Promise<ConnectedServer> {
-  const transport = new StdioClientTransport({
-    command: spec.command,
-    args: spec.args ?? [],
-    env: spec.env,
-  });
+  const transport = buildTransport(spec);
   const client = new Client(
     { name: `brAIn-mcp-host:${spec.name}`, version: "0.1.0" },
     { capabilities: {} },
