@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { BusService, matchTopic, Mailbox } from "@brain/core";
+import { replayTrace } from "../packages/core/src/brain-replay";
 
 describe("matchTopic", () => {
   it("matches exact topics", () => {
@@ -122,6 +123,42 @@ describe("BusService", () => {
 
     const history = bus.getMessageHistory({ last: 10 });
     expect(history).toHaveLength(2);
+  });
+
+  it("replays a trace under a fresh trace_id with rewritten parent_ids", async () => {
+    const bus = new BusService();
+    const root = bus.publish({
+      from: "a", topic: "x", type: "text", criticality: 0, payload: { content: "1" },
+    });
+    const child = bus.publish({
+      from: "b", topic: "y", type: "text", criticality: 0,
+      payload: { content: "2" }, parent_id: root.id,
+    });
+    expect(child.trace_id).toBe(root.trace_id);
+
+    const result = await replayTrace(bus, root.trace_id ?? "");
+    expect(result.replayed).toBe(2);
+    expect(result.new_trace_id).toBeDefined();
+    expect(result.new_trace_id).not.toBe(root.trace_id);
+
+    // Find the replayed pair in history
+    const replayed = bus.getTrace(result.new_trace_id ?? "");
+    expect(replayed).toHaveLength(2);
+    // First replayed message has no parent (root)
+    expect(replayed[0].parent_id).toBeUndefined();
+    // Second references the new id of the first, not the original
+    expect(replayed[1].parent_id).toBe(replayed[0].id);
+    expect(replayed[1].parent_id).not.toBe(root.id);
+    // Metadata carries replay provenance
+    expect(replayed[0].metadata?.replayed_from).toBe(root.id);
+    expect(replayed[0].metadata?.replayed_trace).toBe(root.trace_id);
+  });
+
+  it("returns 0 when replaying a trace that fell out of the bus history", async () => {
+    const bus = new BusService();
+    const result = await replayTrace(bus, "nonexistent-trace-id");
+    expect(result.replayed).toBe(0);
+    expect(result.new_trace_id).toBeNull();
   });
 
   it("unsubscribes by topic", () => {

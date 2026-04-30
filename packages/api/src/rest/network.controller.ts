@@ -68,6 +68,27 @@ export class NetworkController {
     return chain;
   }
 
+  /**
+   * Re-publish every message of a past trace as fresh emissions —
+   * "replay this scenario". Each new message gets a new id and the
+   * causal `parent_id` chain is rewritten under a new `trace_id`,
+   * with `metadata.replayed_from` pointing back at the original.
+   * 404 if the trace fell out of the bus history (sliding window).
+   * `interval_ms` query param spaces emissions out for visualisation.
+   */
+  @Post("traces/:trace_id/replay")
+  async replay(
+    @Param("trace_id") traceId: string,
+    @Query("interval_ms") intervalMs?: string,
+  ): Promise<{ replayed: number; new_trace_id: string }> {
+    const interval = intervalMs ? Math.max(0, parseInt(intervalMs, 10)) : undefined;
+    const result = await this.brain.replayTrace(traceId, { intervalMs: interval });
+    if (result.replayed === 0 || !result.new_trace_id) {
+      throw new HttpException(`trace not found or empty: ${traceId}`, HttpStatus.NOT_FOUND);
+    }
+    return { replayed: result.replayed, new_trace_id: result.new_trace_id };
+  }
+
   @Get("history")
   history(
     @Query("last") last?: string,

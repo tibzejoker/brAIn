@@ -132,7 +132,12 @@ at a glance:
 
 - **Causal traces** — `trace_id` + `parent_id` on every message.
   `GET /network/traces/:id` returns the chain; the dashboard's
-  MessageLog opens it as an indented tree.
+  MessageLog opens it as an indented tree, with a one-click
+  **Replay** button (`POST /network/traces/:id/replay`) that
+  re-publishes the whole scenario under a fresh trace, with the
+  `parent_id` chain rewritten to preserve causal shape.
+  The bus history is a 10k-message sliding window — older traces
+  are gone and replay 404s.
 - **Backpressure metrics** — every `Mailbox` exposes `capacity` and a
   cumulative `dropped` count. The NodePanel's Mailbox tab renders a
   fill bar and flags overflows in red.
@@ -479,6 +484,7 @@ DELETE /types/:name                 Unregister
 GET    /network                     Full snapshot
 GET    /network/messages            History  ?last=N&topic=X&min_criticality=N
 GET    /network/traces/:trace_id    Walk the causal chain for a trace
+POST   /network/traces/:trace_id/replay  Re-publish the trace as fresh emissions
 POST   /network/seeds/:name/apply   Apply a YAML seed
 ```
 

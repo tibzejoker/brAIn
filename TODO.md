@@ -286,8 +286,17 @@ Pour répondre à la critique "pub/sub = enfer à debugger en prod".
   capacity`, et un badge rouge `· N dropped` quand des messages ont
   été évincés. Test ajouté dans `bus.test.ts` qui pousse 5 messages
   dans un mailbox capacity 2 et vérifie `dropped === 3`.
-- [ ] **6.4 Replay**: fonction "replay this trace" qui re-publie
-  les messages d'un trace passé (pour debug).
+- [x] **6.4 Replay**: `replayTrace(bus, traceId, { intervalMs })`
+  dans `packages/core/src/brain-replay.ts`. Récupère la chaîne via
+  `bus.getTrace`, regénère un id-map old→new et republie chaque
+  message avec `parent_id` réécrit, sous un nouveau `trace_id`.
+  `metadata.replayed_from` / `metadata.replayed_trace` pointent
+  vers l'origine pour la traçabilité. Endpoint REST
+  `POST /network/traces/:trace_id/replay?interval_ms=N`. Bouton
+  "Replay" dans la `TraceModal` du dashboard. Caveat fenêtre
+  glissante (10k par défaut) → 404 si le trace est hors fenêtre.
+  Tests dans `bus.test.ts` qui couvrent le rewriting du chain et
+  le retour vide pour un trace inconnu.
 
 ---
 

@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { getTrace } from "../api/client";
+import { getTrace, replayTrace } from "../api/client";
 import type { Message } from "../api/types";
 
 interface TraceModalProps {
@@ -55,6 +55,8 @@ function depthOf(msgs: Message[]): Map<string, number> {
 export function TraceModal({ traceId, nodeNames, onClose }: TraceModalProps): React.ReactElement {
   const [chain, setChain] = useState<Message[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [replaying, setReplaying] = useState(false);
+  const [replayMsg, setReplayMsg] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -66,6 +68,20 @@ export function TraceModal({ traceId, nodeNames, onClose }: TraceModalProps): Re
       });
     return (): void => { cancelled = true; };
   }, [traceId]);
+
+  const handleReplay = (): void => {
+    setReplaying(true);
+    setReplayMsg(null);
+    replayTrace(traceId, 100)
+      .then((r) => {
+        setReplayMsg(`Replayed ${r.replayed} message(s) under new trace ${r.new_trace_id.slice(0, 8)}…`);
+      })
+      .catch((err: unknown) => {
+        const m = err instanceof Error ? err.message : String(err);
+        setReplayMsg(`Replay failed: ${m}`);
+      })
+      .finally(() => setReplaying(false));
+  };
 
   const depths = chain ? depthOf(chain) : new Map<string, number>();
 
@@ -80,10 +96,25 @@ export function TraceModal({ traceId, nodeNames, onClose }: TraceModalProps): Re
               <span className="text-xs text-text-muted">· {chain.length} message{chain.length > 1 ? "s" : ""}</span>
             )}
           </div>
-          <button onClick={onClose} className="text-text-muted hover:text-text text-lg leading-none">
-            &times;
-          </button>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleReplay}
+              disabled={replaying || !chain || chain.length === 0}
+              title="Re-publish every message of this trace as fresh emissions"
+              className="px-2 py-1 text-[11px] rounded bg-accent/20 text-accent hover:bg-accent/30 disabled:opacity-40"
+            >
+              {replaying ? "Replaying…" : "Replay"}
+            </button>
+            <button onClick={onClose} className="text-text-muted hover:text-text text-lg leading-none">
+              &times;
+            </button>
+          </div>
         </div>
+        {replayMsg && (
+          <div className="px-5 py-1 text-[11px] text-text-muted bg-surface-overlay/50 border-b border-border">
+            {replayMsg}
+          </div>
+        )}
 
         <div className="flex-1 overflow-y-auto px-3 py-2">
           {!chain && !error && (

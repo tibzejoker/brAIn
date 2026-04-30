@@ -13,6 +13,7 @@ import EventEmitter from "eventemitter3";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { BusService, type IBusService, type NatsBusService } from "./bus";
+import { replayTrace } from "./brain-replay";
 import { TypeRegistry, InstanceRegistry, DynamicTypeScanner, type DynamicScannerOptions } from "./registry";
 import { AuthorityService } from "./authority";
 import { type BaseRunner, SleepService } from "./runner";
@@ -278,6 +279,13 @@ export class BrainService extends EventEmitter {
    * against the hosting agent. Same fallback semantics as
    * `getNodeLogsAny`: empty array on failure rather than throwing.
    */
+  async replayTrace(
+    traceId: string,
+    opts: { intervalMs?: number } = {},
+  ): Promise<ReturnType<typeof replayTrace>> {
+    return replayTrace(this.bus, traceId, opts);
+  }
+
   async getNodeDeadLettersAny(id: string): Promise<ReturnType<BaseRunner["getDeadLetters"]>> {
     const agentId = this.remoteNodes.get(id);
     if (!agentId) return this.getNodeDeadLetters(id);

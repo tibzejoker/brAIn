@@ -50,6 +50,16 @@ export function getTrace(traceId: string): Promise<Message[]> {
   return request(`/network/traces/${encodeURIComponent(traceId)}`);
 }
 
+export function replayTrace(
+  traceId: string,
+  intervalMs?: number,
+): Promise<{ replayed: number; new_trace_id: string }> {
+  const qs = intervalMs !== undefined ? `?interval_ms=${intervalMs}` : "";
+  return request(`/network/traces/${encodeURIComponent(traceId)}/replay${qs}`, {
+    method: "POST",
+  });
+}
+
 export function spawnNode(config: NodeInstanceConfig): Promise<NodeSnapshot> {
   return request("/nodes", {
     method: "POST",
