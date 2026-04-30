@@ -43,12 +43,20 @@ via npm.
   { static: 19, dirs: [brAIn/nodes, brAIn-perception/nodes], types:
   [..., gaze, intent, voice] }`. Spawn d'un node intent → mini-server
   HTTP sur :8767 répond (`status: ok`). DELETE → cleanup propre.
-- [ ] **1.8 Extraire les autres domaines** (différé — les 3 domaines
-  restants sont fortement intriqués: brain dépend de memory-proxy via
-  topic aliases, etc. À faire après que le store de phase 2 soit
-  validé sur perception).
-- [ ] **1.9 Mise à jour README** du repo `brAIn` post-extraction
-  (différé jusqu'à 1.8 complète).
+- [~] **1.8 Extraire les autres domaines** — **abandonné**
+  consciemment. Décision actée le 2026-04-30 : le shape "core engine
+  + nodes curated par défaut" est un produit valide (cf Express qui
+  ship des middlewares). Les 3 domaines restants (memory, reasoning,
+  tools) sont pure TS, légers, sans deps externes lourdes, et
+  intriqués (brain → memory-proxy via aliases dans
+  `message-formatter.ts`). Bénéfice cosmétique pour beaucoup de
+  travail structurel — pas le bon ratio. Sortie de perception
+  (Phase 1.4-1.7) reste justifiée parce que ça portait ~200 MB de
+  modèles ML + venvs Python.
+- [x] **1.9 Mise à jour README** post-extraction perception:
+  perception correctement marquée sibling repo, paths corrigés,
+  prerequisites Python conditionnel — fait dans `d6273af` /
+  `4d1e317`.
 
 ---
 
@@ -79,17 +87,19 @@ plugin. Pose les bases pour les nodes générés par `developer`.
   du registry avec dot status (installed / not), badges (`py`, `ollama`,
   `ui`), bouton "Install" qui appelle l'endpoint, banner de feedback,
   refresh manuel. Ajout d'un item "⊞ Store" dans le menu nav.
-- [~] **2.5 Store-candidates** (partial — pragmatic v1):
-  `StoreService.listCandidates()` scanne le `TypeRegistry` pour les
-  types `origin: "dynamic"` (créés par le node `developer`) avec un
-  `dist/handler.js` build, et synthétise un manifest `StoreNode`
-  prêt à coller dans `brAIn-store/registry.json`. Endpoint REST
-  `GET /store/candidates` + section "Local candidates" dans le
-  StorePanel avec un bouton "Copy registry entry" qui copie le JSON
-  dans le presse-papier. **Reste à faire** (différé): auto-PR contre
-  `tibzejoker/brAIn-store` via `gh` — demande une auth GitHub côté
-  serveur dont la conception n'est pas figée. Le bouton "Copy" suffit
-  pour boucler la chaine création → partage manuellement.
+- [~] **2.5 Store-candidates** (pragmatic v1, **suite réservée aux
+  devs**): `StoreService.listCandidates()` scanne le `TypeRegistry`
+  pour les types `origin: "dynamic"` (créés par le node `developer`)
+  avec un `dist/handler.js` build, et synthétise un manifest
+  `StoreNode` prêt à coller dans `brAIn-store/registry.json`.
+  Endpoint REST `GET /store/candidates` + section "Local candidates"
+  dans le StorePanel avec un bouton "Copy registry entry" qui copie
+  le JSON dans le presse-papier.
+
+  **Reste explicitement non-prioritaire** (décision 2026-04-30):
+  l'auto-PR contre `tibzejoker/brAIn-store` via `gh` reste une
+  feature dev/contribution — pas dans le chemin critique du produit.
+  Le copy-paste manifest suffit largement pour le besoin actuel.
 
 ---
 
@@ -224,10 +234,14 @@ Le pari le plus ambitieux. Justifie le "N" du sigle.
 
 ---
 
-## Phase 5 — Transport `container`
+## Phase 5 — Transport `container` — **différée**
 
-Ségrégation propre pour la prod. Optionnel, peut être fait en
-parallèle de la phase 4.
+Décision 2026-04-30: pas utile à ce stade. La phase 4 (NATS + agents)
+couvre déjà la distribution cross-machine; les containers n'apportent
+que de l'isolation reproductible, utile en multi-tenant ou pour des
+nodes ML douloureux à installer — pas le contexte actuel. À reprendre
+si on a besoin de sandbox un node `developer` non-fiable, ou de
+publier des nodes ML packagés avec Dockerfile.
 
 - [ ] **5.1 Créer un `ContainerRunner`** qui build l'image au spawn
   (`docker build` depuis le repo du node si pas déjà construit) et
