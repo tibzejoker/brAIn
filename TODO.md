@@ -75,32 +75,33 @@ roadmap fleuve. Quand un point passe à `[x]`, il sort d'ici.
 
 ---
 
-## 3. README — repositionner
+## 3. README — repositionner — done
 
-**Critique honnête à acter** : le README actuel pitche un
-"orchestration framework générique brain-inspired", catégorie morte
-en 2026 face à LangGraph / AutoGen / Mastra. Mais le code a un vrai
-angle libre : **agent ambient embodied** (voice + gaze + intent
-correlator + brain réactif sur bus). Pivot le pitch dessus, le reste
-devient le substrat (NATS, agents, mailboxes), pas le titre.
-
-- [ ] **Tuer "Bridged Reactive Artificial Intelligence Network"**
-  comme baseline. Remplacer par un sous-titre direct du genre
-  "Ambient agent runtime — your LLM lives among your sensors".
-- [ ] **Sortir le marketing "loosely modeled after the brain"**.
-  Remplacer par une généalogie technique honnête : actor model
-  (OTP), event-driven daemons, NATS bus, ROS-style topics. Le
-  lecteur ingénieur prend ça plus au sérieux qu'une métaphore.
-- [ ] **Lead avec le stack perception**: voice + gaze + intent en
-  premier dans la doc, parce que c'est l'angle défendable. Le bus,
-  les runners, la persistance, le distributed runtime → en *Engine*
-  plus bas.
-- [ ] **Réduire les sections sur-détaillées** (lifecycle, persistence,
-  authority): chacune en 3-4 lignes max, lien vers ARCHITECTURE.md
-  pour le détail. Aujourd'hui le README fait 650 lignes — viser
-  300-400.
-- [ ] **Tableau "ce que c'est / ce que ce n'est pas"**: vs LangGraph,
-  vs ROS, vs AutoGen. Définir le scope par les frontières.
+- [x] **Nouvelle baseline acronyme**: brAIn = **Bus-Reactive Ambient
+  Intelligent Nodes**. Chaque mot porte du sens technique
+  (Bus = primitive, Reactive = exec model, Ambient = many-to-many
+  context, Intelligent = LLM-aware, Nodes = unité). L'ancien
+  "Bridged Reactive Artificial Intelligence Network" était plein de
+  filler.
+- [x] **Hero pitch sur la différence many-to-many vs chat / cron**:
+  tableau "Existing pattern" qui contraste chat-driven (LangGraph,
+  AutoGen) + cron-driven (Cowork, OpenAI scheduled) vs daemon
+  ambient brAIn. Le différenciant n'est plus "perception" mais le
+  set de primitives qui rend les agents ambient possibles.
+- [x] **Engine condensé**: bus + runners + préemption RTOS + agent
+  distribué + MCP + observability, chacun ≤ 15 lignes avec un focus
+  sur ce que le primitive permet (preemption RTSP-style verifié end
+  -to-end Ollama 65s → 809ms).
+- [x] **Perception ramenée en showcase** plutôt qu'en hero:
+  section "Showcase: ambient perception" après le moteur, avec le
+  rappel "same primitives would host Slack-listener, IoT, monitoring
+  …" pour ouvrir l'imagination.
+- [x] **Tableau "What this is not"**: vs LangGraph, AutoGen, ROS2 —
+  daemon, many-to-many bus, criticality preemption, LLM-native,
+  distribution cross-machine, MCP host, causal trace + replay.
+  Définit le scope par les frontières.
+- [x] **Sections sur-détaillées coupées**: lifecycle, persistence,
+  authority en 3-4 lignes max. README final 450 lignes (depuis 650).
 
 ---
 
