@@ -38,10 +38,6 @@ roadmap fleuve. Quand un point passe à `[x]`, il sort d'ici.
   l'AbortError dans leur try/catch et retournent clean. Le runner
   ne voyait pas la préemption. Fix: détecter via `signal.aborted`
   après le handler, indépendamment de si l'abort a été propagé.
-- [ ] *Suite*: capture `partial_response` LLM via `streamText` (
-  réceptionner les chunks et les exposer dans le PreemptionContext).
-  Pas implémenté: `generateText` n'est pas streaming, donc à l'abort
-  on n'a rien à donner. Travail séparé si on en a un jour besoin.
 
 ---
 
