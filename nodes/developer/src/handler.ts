@@ -69,6 +69,7 @@ function runCli(
   cwd: string,
   timeoutMs: number,
   onLine: (line: string) => void,
+  signal: AbortSignal,
 ): Promise<{ stdout: string; exitCode: number }> {
   return new Promise((resolve) => {
     const tmpFile = path.join(cwd, ".prompt.tmp");
@@ -77,7 +78,9 @@ function runCli(
     const proc = spawn(
       "sh",
       ["-c", `cat "${tmpFile}" | ${cli} -p - --max-turns 40 --dangerously-skip-permissions`],
-      { cwd, timeout: timeoutMs },
+      // signal: SIGTERM to the shell + the CLI agent on preemption,
+      // matching the runner's per-iteration AbortController.
+      { cwd, timeout: timeoutMs, signal },
     );
 
     let stdout = "";
@@ -150,7 +153,7 @@ async function runWorkspaceJob(
   ctx.log("info", `[${ws.slug}] attempt ${ws.attempts}/${config.max_attempts}`);
   const result = await runCli(config.cli, prompt, path.dirname(ws.path), config.timeout_ms, (line) => {
     ctx.log("debug", `[${ws.slug}] ${line.slice(0, 200)}`);
-  });
+  }, ctx.signal);
   ctx.log("info", `[${ws.slug}] CLI exit ${result.exitCode}`);
 }
 

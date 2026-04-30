@@ -6,9 +6,13 @@ function execCommand(
   command: string,
   cwd: string,
   timeoutMs: number,
+  signal: AbortSignal,
 ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
   return new Promise((resolve) => {
-    exec(command, { cwd, timeout: timeoutMs, maxBuffer: 5 * 1024 * 1024 }, (err, stdout, stderr) => {
+    // Passing `signal` to exec wires SIGTERM-on-abort: the runner can
+    // kill a long-running CLI agent (claude / codex / gemini) the
+    // moment a higher-criticality message preempts the iteration.
+    exec(command, { cwd, timeout: timeoutMs, maxBuffer: 5 * 1024 * 1024, signal }, (err, stdout, stderr) => {
       resolve({ stdout, stderr, exitCode: err ? (err.code ?? 1) : 0 });
     });
   });
@@ -38,7 +42,7 @@ export const handler: NodeHandler = async (ctx) => {
     const command = registry.buildCommand(cli, prompt);
 
     try {
-      const result = await execCommand(command, cwd, timeoutMs);
+      const result = await execCommand(command, cwd, timeoutMs, ctx.signal);
       const output = result.stdout || result.stderr;
       const truncated = output.length > maxOutput ? `${output.slice(0, maxOutput)}\n... (truncated)` : output;
 

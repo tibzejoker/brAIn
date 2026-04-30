@@ -34,7 +34,10 @@ export const handler: NodeHandler = async (ctx) => {
     await registry.initialize();
     ctx.log("info", `LLM call → ${model} (${conversation.length} turns)`);
     const llm = registry.getModel(model);
-    const result = await generateText({ model: llm, system: systemPrompt, messages: conversation });
+    const result = await generateText({
+      model: llm, system: systemPrompt, messages: conversation,
+      abortSignal: ctx.signal,
+    });
 
     const r = result as unknown as Record<string, unknown>;
     let content = "";

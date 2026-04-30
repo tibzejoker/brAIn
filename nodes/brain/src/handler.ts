@@ -187,6 +187,7 @@ While sleeping, you'll only wake up if a message arrives on your subscribed topi
         system: systemPrompt,
         messages: conversation,
         maxOutputTokens: 2048,
+        abortSignal: ctx.signal,
       });
 
       // AI SDK v6: text may be in result.text or result.steps[0].text

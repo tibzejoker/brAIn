@@ -118,6 +118,7 @@ export const handler: NodeHandler = async (ctx) => {
       model,
       system: SYSTEM_PROMPT,
       messages: conversation,
+      abortSignal: ctx.signal,
     });
 
     const text = typeof result.text === "string" ? result.text : "";

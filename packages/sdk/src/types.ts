@@ -268,6 +268,21 @@ export interface NodeContext {
   iteration: number;
   wasPreempted: boolean;
   preemptionContext?: PreemptionContext;
+
+  /**
+   * Cancellation handle for the current handler iteration. The runner
+   * aborts this signal when a higher-criticality message arrives
+   * during execution, so any I/O the handler is waiting on (LLM call,
+   * fetch, child-process spawn, …) can short-circuit and let the
+   * runner re-invoke the handler with `wasPreempted = true` +
+   * `preemptionContext`.
+   *
+   * Pass it to every long-lived async API the handler uses:
+   *   await generateText({ ..., abortSignal: ctx.signal });
+   *   spawn("claude", args, { signal: ctx.signal });
+   *   await fetch(url, { signal: ctx.signal });
+   */
+  signal: AbortSignal;
 }
 
 // === Handler ===

@@ -15,6 +15,7 @@ import {
   type FileContent,
   type FileFilter,
   type FileInfo,
+  type PreemptionContext,
   type RunMode,
   NodeState,
 } from "@brain/sdk";
@@ -22,6 +23,7 @@ import type { IBusService } from "../bus/bus.interface";
 import type { InstanceRegistry } from "../registry/instance-registry";
 import type { SleepService } from "./sleep.service";
 import { NodeLog, type LogEntry } from "./node-log";
+import { PreemptionMonitor } from "./preemption";
 import { logger } from "../logger";
 
 export const DEFAULT_HANDLER_TIMEOUT_MS = 60_000;
@@ -65,6 +67,11 @@ export abstract class BaseRunner {
   private readonly deadLetters: Array<{ ts: number; error: string; message: Message }> = [];
   private static readonly DLQ_MAX = 50;
 
+  // Preemption: when a handler is in flight and a higher-criticality
+  // message lands, we abort it so the next iteration can prioritise
+  // the urgent one.
+  private readonly preemption: PreemptionMonitor;
+
   constructor(
     protected readonly nodeInfo: NodeInfo,
     protected readonly handler: NodeHandler,
@@ -76,6 +83,12 @@ export abstract class BaseRunner {
     this.handlerTimeoutMs = typeof nodeInfo.config_overrides?.handler_timeout_ms === "number"
       ? nodeInfo.config_overrides.handler_timeout_ms
       : DEFAULT_HANDLER_TIMEOUT_MS;
+    // Default threshold: incoming must exceed active iteration's max
+    // criticality by > 3 (e.g. crit 3 active → preempted by crit ≥ 7).
+    const threshold = typeof nodeInfo.config_overrides?.preemption_threshold === "number"
+      ? nodeInfo.config_overrides.preemption_threshold
+      : 3;
+    this.preemption = new PreemptionMonitor(deps.bus, nodeInfo.id, this.log, threshold);
     this.runMode = runMode ?? "auto";
   }
 
@@ -171,6 +184,10 @@ export abstract class BaseRunner {
     if (this.runMode === "manual") return;
     if (!this.deps.bus.hasUnreadMessages(this.nodeInfo.id)) return;
     if (this.sleeping && !this.shouldWake()) return;
+    if (this.busy) {
+      this.preemption.inspect();
+      return;
+    }
     this.startRun();
   }
 
@@ -217,7 +234,11 @@ export abstract class BaseRunner {
       });
     }
 
-    const ctx = this.buildContext(messages);
+    // Arm preemption: the runner's bus listener calls
+    // preemption.inspect() on every incoming message and aborts this
+    // signal if the criticality bar is breached.
+    const { signal, preemption } = this.preemption.arm(messages);
+    const ctx = this.buildContext(messages, signal, preemption);
 
     try {
       let timer: NodeJS.Timeout | undefined;
@@ -231,14 +252,26 @@ export abstract class BaseRunner {
         }),
       ]).finally(() => { if (timer) clearTimeout(timer); });
     } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      this.log.error(`Handler error: ${errMsg}`);
-      logger.error({ err, node: this.nodeInfo.name, iteration: this.iteration }, "Handler error");
-      const ts = Date.now();
-      for (const m of messages) {
-        this.deadLetters.push({ ts, error: errMsg, message: m });
-        if (this.deadLetters.length > BaseRunner.DLQ_MAX) this.deadLetters.shift();
+      // Preemption is the only path that aborts the signal — timeouts
+      // race a separate Promise, natural errors leave it alone.
+      if (this.preemption.wasPreempted()) {
+        this.log.info(`Iteration ${this.iteration} preempted`);
+      } else {
+        this.recordHandlerError(err, messages);
       }
+    } finally {
+      this.preemption.disarm();
+    }
+  }
+
+  private recordHandlerError(err: unknown, messages: Message[]): void {
+    const errMsg = err instanceof Error ? err.message : String(err);
+    this.log.error(`Handler error: ${errMsg}`);
+    logger.error({ err, node: this.nodeInfo.name, iteration: this.iteration }, "Handler error");
+    const ts = Date.now();
+    for (const m of messages) {
+      this.deadLetters.push({ ts, error: errMsg, message: m });
+      if (this.deadLetters.length > BaseRunner.DLQ_MAX) this.deadLetters.shift();
     }
   }
 
@@ -284,7 +317,11 @@ export abstract class BaseRunner {
 
   // === Context builder ===
 
-  protected buildContext(messages: Message[]): NodeContext {
+  protected buildContext(
+    messages: Message[],
+    signal: AbortSignal,
+    preemption: PreemptionContext | null,
+  ): NodeContext {
     const nodeId = this.nodeInfo.id;
     const bus = this.deps.bus;
     const self = this;
@@ -342,8 +379,9 @@ export abstract class BaseRunner {
       },
       node: { ...self.nodeInfo },
       iteration: self.iteration,
-      wasPreempted: false,
-      preemptionContext: undefined,
+      wasPreempted: preemption !== null,
+      preemptionContext: preemption ?? undefined,
+      signal,
     };
   }
 }

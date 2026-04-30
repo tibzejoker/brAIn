@@ -78,6 +78,7 @@ export const handler: NodeHandler = async (ctx) => {
             role: "user",
             content: `Query: "${pendingQuery}"\n\nKey-value results:\n${kvData || "(empty)"}\n\nVector search results:\n${vecData || "(empty)"}\n\nSynthesize a clear answer.`,
           }],
+          abortSignal: ctx.signal,
         });
 
         const text = typeof result.text === "string" ? result.text : "";
@@ -142,6 +143,7 @@ export const handler: NodeHandler = async (ctx) => {
           model,
           system: "Extract search keywords from the user question. ALWAYS produce keywords in English. Respond with ONLY a JSON object: {\"kv\": \"short keywords\", \"vec\": \"natural language query\"}. No explanation.",
           messages: [{ role: "user", content }],
+          abortSignal: ctx.signal,
         });
 
         const raw = typeof reformulation.text === "string" ? reformulation.text : "";

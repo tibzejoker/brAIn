@@ -6,33 +6,33 @@ roadmap fleuve. Quand un point passe à `[x]`, il sort d'ici.
 
 ---
 
-## 1. Préemption mid-handler — pour de vrai
+## 1. Préemption mid-handler — done
 
-**Aujourd'hui** le SDK définit `PreemptionContext` mais le runner n'en
-fait jamais usage. Le handler tourne jusqu'au bout même si un message
-de criticité plus haute arrive entre-temps. Une revendication
-non-implémentée vaut moins que pas de revendication.
-
-**Décision binaire** : on l'implémente, ou on sort le scaffold.
-Tranchons pour l'implémenter — c'est le primitive qui rend cohérent le
-modèle "agent ambient temps-réel" face à un workflow LangGraph
-classique.
-
-- [ ] **AbortSignal propagé dans `NodeContext`**: `ctx.signal:
-  AbortSignal` que le handler peut check (et qu'on passe aux fetch /
-  LLM streams).
-- [ ] **Politique d'interrupt dans le runner**: à chaque message
-  arrivé pendant un handler en cours, comparer
-  `incoming.criticality > active.criticality + threshold` (seuil
-  configurable, default = 3). Si oui → `controller.abort()` + on
-  rappelle le handler avec `ctx.preemption: PreemptionContext`.
-- [ ] **Capture partial_response** sur LLM streaming: accumuler les
-  chunks reçus côté `ctx.callLLM` et les exposer au moment de
-  l'abort.
-- [ ] **Tests**: handler 5 s, interrupt à 2 s par msg crit 9, vérifier
-  que le second appel reçoit un `PreemptionContext` non-vide.
-- [ ] **Doc**: ajouter le pattern "handler préemptable" dans la
-  section *Authoring a node* du README.
+- [x] **`ctx.signal: AbortSignal`** dans `NodeContext`. Le runner crée
+  un `AbortController` par itération, expose son signal au handler,
+  et l'abort à la préemption.
+- [x] **`PreemptionMonitor`** (`packages/core/src/runner/preemption.ts`)
+  qui inspecte les unread peek à chaque arrivée bus pendant un handler
+  en cours: si `incoming.criticality > active.maxCriticality +
+  threshold`, abort + stash d'un `PreemptionContext`. Threshold default
+  3, configurable via `config_overrides.preemption_threshold`.
+- [x] **Wire-up sur tous les providers via Vercel AI SDK**:
+  `generateText({ ..., abortSignal: ctx.signal })` dans `brain`,
+  `llm-basic`, `memory-proxy`, `memory-consolidator`. Couvre
+  Anthropic, OpenAI, Google, Ollama d'un coup (le SDK propage
+  l'abort au fetch HTTP).
+- [x] **Wire-up CLI agents**: `exec(..., { signal })` dans `llm-cli`,
+  `spawn(..., { signal })` dans `developer`. SIGTERM-on-abort —
+  claude / codex / gemini se font tuer si préemptés.
+- [x] **Tests**: `tests/preemption.test.ts` — abort effectivement
+  pendant un await, `wasPreempted=true` à l'itération suivante,
+  `interrupting_message` + `previous_messages` peuplés, threshold
+  par défaut respecté, override `preemption_threshold=0` honoré,
+  les vrais bugs handler atterrissent toujours en DLQ.
+- [ ] *Suite*: capture `partial_response` LLM via `streamText` (
+  réceptionner les chunks et les exposer dans le PreemptionContext).
+  Pas implémenté: `generateText` n'est pas streaming, donc à l'abort
+  on n'a rien à donner. Travail séparé si on en a un jour besoin.
 
 ---
 
