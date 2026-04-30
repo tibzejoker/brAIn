@@ -29,6 +29,15 @@ roadmap fleuve. Quand un point passe à `[x]`, il sort d'ici.
   `interrupting_message` + `previous_messages` peuplés, threshold
   par défaut respecté, override `preemption_threshold=0` honoré,
   les vrais bugs handler atterrissent toujours en DLQ.
+- [x] **Test E2E avec un vrai LLM**:
+  `tests/preemption-llm-e2e.test.ts` — gate `RUN_LLM_E2E=1`, spawn
+  un `llm-basic` Ollama, déclenche un long generateText, envoie un
+  msg crit 9 pendant le call, vérifie que le runner log "preempted"
+  dans le buffer du node. **A révélé un vrai bug** que les tests
+  unit n'attrapaient pas: les handlers comme `llm-basic` catch
+  l'AbortError dans leur try/catch et retournent clean. Le runner
+  ne voyait pas la préemption. Fix: détecter via `signal.aborted`
+  après le handler, indépendamment de si l'abort a été propagé.
 - [ ] *Suite*: capture `partial_response` LLM via `streamText` (
   réceptionner les chunks et les exposer dans le PreemptionContext).
   Pas implémenté: `generateText` n'est pas streaming, donc à l'abort
@@ -52,6 +61,15 @@ roadmap fleuve. Quand un point passe à `[x]`, il sort d'ici.
   `tests/fixtures/mcp-echo-server.mjs` qui expose un tool `echo` via
   le Server SDK. 3 cas: discovery, tool call roundtrip, erreur
   structurée pour tool inconnu.
+- [x] **Test E2E avec un vrai serveur public**:
+  `tests/mcp-host-public-server-e2e.test.ts` — gate `RUN_MCP_E2E=1`,
+  spawn `npx @modelcontextprotocol/server-filesystem` (l'impl de
+  référence d'Anthropic), drive le mcp-host contre lui : discovery
+  (read_file, write_file, list_directory…), `read_file`,
+  write+read roundtrip. **A révélé un piège macOS**: le serveur
+  realpath les paths avant sa check d'allow-list (/var/folders →
+  /private/var/folders), donc on doit envoyer des paths déjà
+  canonicalisés.
 - [ ] **Endpoint `/mcp` côté API**: expose chaque node brAIn comme
   tool MCP pour qu'un client externe (Claude Desktop, Cursor) drive
   brAIn comme un MCP server. Pas implémenté pour l'instant — l'usage

@@ -251,9 +251,14 @@ export abstract class BaseRunner {
           );
         }),
       ]).finally(() => { if (timer) clearTimeout(timer); });
+      // Handlers sometimes catch their own abort errors and return
+      // cleanly (e.g. wrapping generateText in try/catch). Detect the
+      // preemption from the signal state, not from a thrown error,
+      // so the next iteration still gets the PreemptionContext.
+      if (this.preemption.wasPreempted()) {
+        this.log.info(`Iteration ${this.iteration} preempted`);
+      }
     } catch (err) {
-      // Preemption is the only path that aborts the signal — timeouts
-      // race a separate Promise, natural errors leave it alone.
       if (this.preemption.wasPreempted()) {
         this.log.info(`Iteration ${this.iteration} preempted`);
       } else {
