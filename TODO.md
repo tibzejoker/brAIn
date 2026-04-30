@@ -38,22 +38,26 @@ roadmap fleuve. Quand un point passe à `[x]`, il sort d'ici.
 
 ## 2. MCP — host + server
 
-**Pourquoi** : en 2026 c'est l'API tools standard de facto. Tout
-framework agentique qui ne parle pas MCP s'isole de l'écosystème
-Claude Desktop / Cursor / Cline / etc. Pour un agent ambient qui
-veut consommer des capacités tierces (Slack, GitHub, Notion, FS),
-c'est non-négociable.
-
-- [ ] **`mcp-host` node**: connecte un serveur MCP externe
-  (stdio ou HTTP), expose ses tools sur le bus comme topics
-  `mcp.<server>.<tool>`. Le brain peut les appeler via
-  `publish_message`.
+- [x] **`mcp-host` node** (`nodes/mcp-host/`): consomme N serveurs
+  MCP externes via le SDK officiel `@modelcontextprotocol/sdk`. Au
+  spawn, lit `config_overrides.servers: [{name, command, args, env}]`,
+  spawn chacun en stdio (`StdioClientTransport`), discover les tools
+  via `client.listTools()`. Sur le bus expose 2 topics :
+  - `mcp.call` → payload `{server?, tool, arguments?}`, dispatch et
+    répond sur `mcp.result`. AbortSignal (`ctx.signal`) propagé au
+    `client.callTool` → préemption tue les calls MCP en cours.
+  - `mcp.tools.list` → republie le toolset agrégé sur
+    `mcp.tools.available` pour discovery.
+- [x] **Tests** (`tests/mcp-host.test.ts`): fixture
+  `tests/fixtures/mcp-echo-server.mjs` qui expose un tool `echo` via
+  le Server SDK. 3 cas: discovery, tool call roundtrip, erreur
+  structurée pour tool inconnu.
 - [ ] **Endpoint `/mcp` côté API**: expose chaque node brAIn comme
-  un tool MCP — un agent extérieur (Claude Desktop) peut driver
-  brAIn comme n'importe quel MCP server.
-- [ ] **Tests**: roundtrip avec un MCP server de référence (par ex.
-  `@modelcontextprotocol/server-everything`).
-- [ ] **Section dédiée dans le README** côté authoring + architecture.
+  tool MCP pour qu'un client externe (Claude Desktop, Cursor) drive
+  brAIn comme un MCP server. Pas implémenté pour l'instant — l'usage
+  primaire est *consume*, pas *expose*. Suite si besoin.
+- [ ] **Section dédiée dans le README** côté authoring + architecture
+  (à faire avec le repositionnement #3).
 
 ---
 

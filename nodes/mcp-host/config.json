@@ -1,0 +1,13 @@
+{
+  "name": "mcp-host",
+  "description": "Bridges external MCP servers onto the brAIn bus. Each configured server's tools become callable via mcp.call (one canonical topic) or mcp.<server>.<tool> (per-tool sugar). Useful so the brain can call Claude-Desktop-style tools (filesystem, git, slack, …) the same way it calls any other node.",
+  "tags": ["service", "mcp", "tools"],
+  "default_authority": 1,
+  "default_priority": 3,
+  "default_subscriptions": [
+    { "topic": "mcp.call" },
+    { "topic": "mcp.tools.list" }
+  ],
+  "default_publishes": ["mcp.result", "mcp.tools.available"],
+  "supports_transport": ["process"]
+}
