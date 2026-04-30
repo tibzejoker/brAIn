@@ -1,327 +1,117 @@
-# brAIn — Roadmap
+# TODO
 
-Plan d'évolution post-audit. Chaque étape est checkable, ordonnée du moins
-cher au plus structurant.
-
----
-
-## Phase 1 — Extraction par domaines (les fondations)
-
-Découpler le framework des nodes applicatifs. À la fin: `brAIn` (core
-seul) + 1 repo par domaine. Le framework découvre les nodes installés
-via npm.
-
-- [x] **1.1 Étendre `TypeRegistry`** pour scanner aussi
-  `node_modules/@brain/node-*` (en plus de `nodes/`). Implémentation:
-  `scanInstalledPackages(nodeModulesDir)` qui parcourt les packages
-  matchant `@brain/node-*` et registre leur `config.json`. Tests
-  unitaires (4 nouveaux tests, tous verts).
-- [x] **1.2 Boot du framework**: `BrainService.bootstrap()` appelle
-  les deux scans (statique = `nodes/`, installé = remontée vers
-  `node_modules/` parent par parent). Récap structuré dans le log
-  `Registered node types { static: N, installed: M, types: [...] }`.
-- [x] **1.3 Préparer les nodes pour publication npm**: chaque
-  `nodes/<x>/package.json` a `version`, `description`, `license`,
-  `files` (avec `dist/`, `config.json`, `ui/`, et pour voice/gaze le
-  `server/app/` + requirements), `publishConfig: access=public`.
-  `private: true` retiré.
-- [x] **1.4 Créer `brAIn-perception` repo** sur GitHub
-  ([tibzejoker/brAIn-perception](https://github.com/tibzejoker/brAIn-perception),
-  public, MIT). Code copié (voice + gaze + intent + seeds + scripts +
-  setup-py.mjs cross-platform), pushé sur `main`. Workspace pnpm
-  autonome.
-- [x] **1.5 + 1.6 Cross-repo workspace + suppression in-tree**:
-  `pnpm-workspace.yaml` du repo `brAIn` pointe sur
-  `../brAIn-perception/nodes/*`, les workspace deps `@brain/core` /
-  `@brain/sdk` se résolvent vers le sibling. `nodes/voice|gaze|intent`
-  supprimés du repo `brAIn`. `BrainService.bootstrap()` accepte
-  maintenant un array de directories. `app.module.ts` ajoute
-  automatiquement les paths sibling conventionnels (brAIn-perception,
-  brAIn-memory, brAIn-reasoning, brAIn-tools) s'ils existent — pas
-  besoin d'env var.
-- [x] **1.7 Vérif end-to-end**: API boot → `Registered node types
-  { static: 19, dirs: [brAIn/nodes, brAIn-perception/nodes], types:
-  [..., gaze, intent, voice] }`. Spawn d'un node intent → mini-server
-  HTTP sur :8767 répond (`status: ok`). DELETE → cleanup propre.
-- [~] **1.8 Extraire les autres domaines** — **abandonné**
-  consciemment. Décision actée le 2026-04-30 : le shape "core engine
-  + nodes curated par défaut" est un produit valide (cf Express qui
-  ship des middlewares). Les 3 domaines restants (memory, reasoning,
-  tools) sont pure TS, légers, sans deps externes lourdes, et
-  intriqués (brain → memory-proxy via aliases dans
-  `message-formatter.ts`). Bénéfice cosmétique pour beaucoup de
-  travail structurel — pas le bon ratio. Sortie de perception
-  (Phase 1.4-1.7) reste justifiée parce que ça portait ~200 MB de
-  modèles ML + venvs Python.
-- [x] **1.9 Mise à jour README** post-extraction perception:
-  perception correctement marquée sibling repo, paths corrigés,
-  prerequisites Python conditionnel — fait dans `d6273af` /
-  `4d1e317`.
+État après audit externe (2026-04-30). On garde 4 chantiers, pas un de
+plus. Chacun a un *pourquoi* clair — pas de cargo-cult, pas de
+roadmap fleuve. Quand un point passe à `[x]`, il sort d'ici.
 
 ---
 
-## Phase 2 — Store / registry des nodes
+## 1. Préemption mid-handler — pour de vrai
 
-Permettre l'installation de nodes depuis le dashboard, sur le modèle
-plugin. Pose les bases pour les nodes générés par `developer`.
+**Aujourd'hui** le SDK définit `PreemptionContext` mais le runner n'en
+fait jamais usage. Le handler tourne jusqu'au bout même si un message
+de criticité plus haute arrive entre-temps. Une revendication
+non-implémentée vaut moins que pas de revendication.
 
-- [x] **2.1 Créer le repo `brAIn-store`**
-  ([tibzejoker/brAIn-store](https://github.com/tibzejoker/brAIn-store)).
-  `registry.json` v1 + `registry.schema.json` (validable). Initial:
-  perception (voice, gaze, intent) → `brAIn-perception`. README explique
-  comment proposer un node via PR.
-- [x] **2.2 + 2.3 Routes REST côté API** (`packages/core/src/store/`
-  + `packages/api/src/rest/store.controller.ts`):
-  - `GET /store/index` → registry brut, cache 60s, override via
-    `BRAIN_STORE_URL`.
-  - `GET /store/nodes` → registry décoré avec `installed` / `install_path`
-    (true si le repo parent est checkouté en sibling et que le subpath
-    a un `config.json`).
-  - `POST /store/install {package_name}` → `git clone --depth 1` du repo
-    parent en sibling de brAIn s'il manque, puis `typeRegistry.scanDirectory`
-    pour enregistrer les nouveaux types. Retourne `installed` /
-    `already_present` / `failed` avec message + nombre de types nouvellement
-    enregistrés.
-- [x] **2.4 Onglet "Store" dans le dashboard**
-  (`packages/dashboard/src/components/StorePanel.tsx`): liste les nodes
-  du registry avec dot status (installed / not), badges (`py`, `ollama`,
-  `ui`), bouton "Install" qui appelle l'endpoint, banner de feedback,
-  refresh manuel. Ajout d'un item "⊞ Store" dans le menu nav.
-- [~] **2.5 Store-candidates** (pragmatic v1, **suite réservée aux
-  devs**): `StoreService.listCandidates()` scanne le `TypeRegistry`
-  pour les types `origin: "dynamic"` (créés par le node `developer`)
-  avec un `dist/handler.js` build, et synthétise un manifest
-  `StoreNode` prêt à coller dans `brAIn-store/registry.json`.
-  Endpoint REST `GET /store/candidates` + section "Local candidates"
-  dans le StorePanel avec un bouton "Copy registry entry" qui copie
-  le JSON dans le presse-papier.
+**Décision binaire** : on l'implémente, ou on sort le scaffold.
+Tranchons pour l'implémenter — c'est le primitive qui rend cohérent le
+modèle "agent ambient temps-réel" face à un workflow LangGraph
+classique.
 
-  **Reste explicitement non-prioritaire** (décision 2026-04-30):
-  l'auto-PR contre `tibzejoker/brAIn-store` via `gh` reste une
-  feature dev/contribution — pas dans le chemin critique du produit.
-  Le copy-paste manifest suffit largement pour le besoin actuel.
+- [ ] **AbortSignal propagé dans `NodeContext`**: `ctx.signal:
+  AbortSignal` que le handler peut check (et qu'on passe aux fetch /
+  LLM streams).
+- [ ] **Politique d'interrupt dans le runner**: à chaque message
+  arrivé pendant un handler en cours, comparer
+  `incoming.criticality > active.criticality + threshold` (seuil
+  configurable, default = 3). Si oui → `controller.abort()` + on
+  rappelle le handler avec `ctx.preemption: PreemptionContext`.
+- [ ] **Capture partial_response** sur LLM streaming: accumuler les
+  chunks reçus côté `ctx.callLLM` et les exposer au moment de
+  l'abort.
+- [ ] **Tests**: handler 5 s, interrupt à 2 s par msg crit 9, vérifier
+  que le second appel reçoit un `PreemptionContext` non-vide.
+- [ ] **Doc**: ajouter le pattern "handler préemptable" dans la
+  section *Authoring a node* du README.
 
 ---
 
-## Phase 3 — Transport `web` (any-language nodes via HTTP/WS)
+## 2. MCP — host + server
 
-Plus général que stdio Python: un node = un service HTTP/WS qui parle
-le protocole brAIn. N'importe quelle stack (Python FastAPI, Go, Rust,
-JS) peut implémenter un node. Auth bearer token. Distribuable
-nativement (le node peut être sur une autre machine ou en container).
+**Pourquoi** : en 2026 c'est l'API tools standard de facto. Tout
+framework agentique qui ne parle pas MCP s'isole de l'écosystème
+Claude Desktop / Cursor / Cline / etc. Pour un agent ambient qui
+veut consommer des capacités tierces (Slack, GitHub, Notion, FS),
+c'est non-négociable.
 
-- [x] **3.1 SDK étendu**: `TransportMode = "process" | "container" | "web"`,
-  nouvelle interface `WebTransportConfig`, `NodeTypeConfig.web?: WebTransportConfig`.
-- [x] **3.2 Protocole WS** documenté dans `web-runner.ts` (frames
-  bidirectionnelles JSON: `messages` / `ping` côté framework, `publish` /
-  `subscribe` / `unsubscribe` / `sleep` / `log` / `pong` côté node).
-- [x] **3.3 `WebRunner`** créé dans `packages/core/src/runner/web-runner.ts`.
-  WS persistant avec reconnect backoff, ping/pong heartbeat, dispatch
-  via `runner-factory.ts` quand `transport === "web"` ou
-  `config_overrides.web` présent.
-- [x] **3.4 `loadHandler` + `spawnNode` + `restoreNodes`** sautent le
-  module JS quand le transport est web (handler stub `() => Promise.resolve()`).
-  Le bloc `web` du `config.json` est mergé dans `config_overrides.web`
-  au spawn.
-- [x] **3.5 SDK Python `brain-web`** (`packages/python-sdk/`):
-  `BrainNode` avec `@node.on(topic)`, `publish/subscribe/sleep/log`
-  asyncio. `attach(app)` enregistre la route `/brain/ws` sur n'importe
-  quel app FastAPI. **Bug FastAPI subtil rencontré**: le paramètre du
-  handler doit être typé `WebSocket` (pas `Any`) sinon FastAPI 403e
-  silencieusement — fix documenté dans le commentaire.
-- [x] **3.6 Demo `nodes/calc-py/`**: ~50 lignes Python, eval AST safe.
-  E2e validé: spawn via API → WS s'ouvre → publish `calc.request`
-  depuis un autre node → calc-py évalue → `calc.result` revient sur le
-  bus avec metadata `{expression, value}`.
+- [ ] **`mcp-host` node**: connecte un serveur MCP externe
+  (stdio ou HTTP), expose ses tools sur le bus comme topics
+  `mcp.<server>.<tool>`. Le brain peut les appeler via
+  `publish_message`.
+- [ ] **Endpoint `/mcp` côté API**: expose chaque node brAIn comme
+  un tool MCP — un agent extérieur (Claude Desktop) peut driver
+  brAIn comme n'importe quel MCP server.
+- [ ] **Tests**: roundtrip avec un MCP server de référence (par ex.
+  `@modelcontextprotocol/server-everything`).
+- [ ] **Section dédiée dans le README** côté authoring + architecture.
 
 ---
 
-## Phase 4 — Bus distribué (NATS) + remote agent
+## 3. README — repositionner
 
-Le pari le plus ambitieux. Justifie le "N" du sigle.
+**Critique honnête à acter** : le README actuel pitche un
+"orchestration framework générique brain-inspired", catégorie morte
+en 2026 face à LangGraph / AutoGen / Mastra. Mais le code a un vrai
+angle libre : **agent ambient embodied** (voice + gaze + intent
+correlator + brain réactif sur bus). Pivot le pitch dessus, le reste
+devient le substrat (NATS, agents, mailboxes), pas le titre.
 
-- [x] **4.1 Abstraire `BusService`**: nouvelle interface
-  `IBusService` (`packages/core/src/bus/bus.interface.ts`) qui liste
-  publish / subscribe / mailbox / history / event-emitter. `BusService`
-  l'implémente. Tous les call-sites (`SleepService`, `BaseRunner`,
-  `BrainService`, lifecycle) pris en référence par interface; swap de
-  backend = changement d'une ligne au constructeur.
-- [x] **4.2 `NatsBusService`** (`packages/core/src/bus/nats-bus.service.ts`):
-  même contract que l'in-memory bus, plus un client NATS qui pousse
-  chaque publish sur `<prefix>.<topic>` et reçoit toutes les autres.
-  Anti-loop par origin id, traduction wildcard (filtre côté brAIn,
-  NATS subscribe est `>` greedy). 9 tests local-routing + 3 tests
-  d'intégration cross-instance avec un vrai `nats-server` (skip auto
-  si binaire absent). Tous verts.
-- [x] **4.3 `brAIn-agent` daemon** (`packages/agent/`, ~250 lignes TS):
-  binaire `brain-agent` config par env (`BRAIN_NATS_URL`, etc.). Boot
-  une `BrainService` câblée sur `NatsBusService`, scanne ses node types
-  locaux, annonce sur `brain.agents.discover` toutes les 10s.
-  `AgentDirectory` côté API collecte les annonces avec TTL pour
-  surfacer une liste live des agents. `BrainService` accepte maintenant
-  un bus injectable au constructeur. 2 tests d'intégration verts
-  (annonce reçue + bus cross-process).
-- [x] **4.4 `transport: "remote"`**: nouvelle valeur dans le SDK +
-  `target_agent_id` dans `NodeInstanceConfig` + champ optionnel `id?`
-  pour qu'API et agent référencent le même instance id. La lifecycle
-  intercepte les spawns remote: `dispatchRemoteSpawn` (`brain-remote.ts`)
-  publie une spawn-request sur `brain.agents.<id>.spawn`, retourne un
-  stub `NodeInfo`, et mémoïse `node_id → agent_id` dans
-  `BrainService.remoteNodes`. `killNode` route via NATS sur
-  `brain.agents.<id>.kill` quand l'id est dans cette map. L'`Agent`
-  s'abonne aux deux topics et appelle ses `spawnNode`/`killNode` locaux.
-  **E2e validé**: 1 test full-cycle (API spawn remote → agent héberge
-  le runner → message bus voyage cross-process → kill via API →
-  l'agent supprime son instance).
-- [x] **4.5 Dashboard — onglet "Agents"**: vue live des agents
-  connectés sur le bus partagé.
-  - `AgentDirectory` (déjà présent côté agent) déplacé dans
-    `@brain/core/src/agents/agent-directory.ts` pour que l'API puisse
-    s'abonner au topic d'annonce sans dépendre de `@brain/agent`.
-  - `BrainService` instancie l'annuaire dans son constructeur
-    (`brain.agents = new AgentDirectory(this.bus); attach()`) et l'API
-    expose `GET /agents` (`AgentsController`).
-  - L'API peut désormais joindre le bus distribué: si
-    `BRAIN_NATS_URL` est défini, `app.module.ts` instancie un
-    `NatsBusService` partagé et le passe au `BrainService` (sinon le
-    bus en mémoire reste la valeur par défaut).
-  - `AgentsPanel` (icône ⚯ dans le menu) poll `GET /agents` toutes les
-    3 s, affiche host / pid / uptime / types[], avec un état vide qui
-    explique comment câbler NATS.
-  - **E2e validé**: `nats-server` + API (NATS) + `brain-agent` →
-    `curl /agents` retourne l'annonce avec les 17 types locaux du
-    brAIn et un `ts` qui se rafraîchit toutes les 10 s.
-- [x] **4.5b Spawn ciblé depuis le dashboard**: `NodeCreator` fetch
-  `/agents` à l'ouverture et affiche un select "Target" (Local +
-  chaque agent vivant). Sélectionner un agent envoie automatiquement
-  `transport: "remote"` + `target_agent_id` au `POST /nodes`.
-  **E2e validé**: API+NATS+agent → `curl POST /nodes` avec
-  `transport=remote` → l'agent log `agent: spawned remote node
-  locally` avec le même id que celui retourné par l'API.
-- [x] **4.5c Control plane distant**: les ops d'état lifecycle
-  (`stop`, `start`, `wake`) routent automatiquement vers l'agent
-  hôte quand le node est `transport: "remote"`. `dispatchRemoteAction`
-  publie `brain.agents.<id>.<action>` et met à jour optimistement
-  l'état local. L'agent souscrit aux topics `.stop/.start/.wake` (en
-  plus de `.spawn/.kill`) et appelle ses brainService locaux. Les
-  nodes distants sont aussi enregistrés dans `instanceRegistry` côté
-  API → ils apparaissent dans `/network` (et donc le graphe du
-  dashboard) avec `target_agent_id`. **Test**: nouveau cas dans
-  `tests/remote-spawn.test.ts` qui spawn un echo distant, applique
-  stop puis start puis kill et vérifie l'état des deux côtés.
-- [x] **4.5e Cleanup des nodes zombies**: `AgentDirectory` étend
-  EventEmitter et émet `agent:added` / `agent:expired` via une sweep
-  périodique. `BrainService` souscrit à `agent:expired` et appelle
-  `dropExpiredAgentNodes(agentId)` qui retire toute remote-node
-  enregistrée pour cet agent (de `remoteNodes` + `instanceRegistry`).
-  Sans ça, un agent qui crashe laissait ses nodes en zombie dans le
-  graphe du dashboard. Le constructeur de `BrainService` accepte
-  désormais un `opts.agentDirectory` pour configurer TTL et sweep
-  interval (utile en test). **Test**: nouveau cas dans
-  `tests/agent.test.ts` qui injecte une seule annonce, spawn un node
-  remote dessus, et vérifie qu'il disparaît passé le TTL.
-- [x] **4.5d Read-back distant** (logs / mailbox): `NatsBusService`
-  expose `requestRemote()` + `respondToRequests()` (NATS request-reply
-  natif). L'agent répond aux subjects `brain.agents.<id>.read.logs`
-  / `.read.mailboxes`. Le controller consomme les variantes async
-  `getNodeLogsAny` / `getNodeMailboxesAny` sur `BrainService`, qui
-  routent automatiquement local vs distant. Bonus: `consumeRemote`
-  filtre maintenant les payloads non-enveloppe pour ne pas envoyer
-  les RPC dans le router de bus. **Test**: nouveau cas dans
-  `tests/remote-spawn.test.ts` qui spawn un echo distant, lui envoie
-  un message, puis lit logs + mailboxes via l'API et vérifie que
-  les deux remontent les bonnes données depuis l'agent.
+- [ ] **Tuer "Bridged Reactive Artificial Intelligence Network"**
+  comme baseline. Remplacer par un sous-titre direct du genre
+  "Ambient agent runtime — your LLM lives among your sensors".
+- [ ] **Sortir le marketing "loosely modeled after the brain"**.
+  Remplacer par une généalogie technique honnête : actor model
+  (OTP), event-driven daemons, NATS bus, ROS-style topics. Le
+  lecteur ingénieur prend ça plus au sérieux qu'une métaphore.
+- [ ] **Lead avec le stack perception**: voice + gaze + intent en
+  premier dans la doc, parce que c'est l'angle défendable. Le bus,
+  les runners, la persistance, le distributed runtime → en *Engine*
+  plus bas.
+- [ ] **Réduire les sections sur-détaillées** (lifecycle, persistence,
+  authority): chacune en 3-4 lignes max, lien vers ARCHITECTURE.md
+  pour le détail. Aujourd'hui le README fait 650 lignes — viser
+  300-400.
+- [ ] **Tableau "ce que c'est / ce que ce n'est pas"**: vs LangGraph,
+  vs ROS, vs AutoGen. Définir le scope par les frontières.
 
 ---
 
-## Phase 5 — Transport `container` — **différée**
+## 4. Vidéo de démo (futur)
 
-Décision 2026-04-30: pas utile à ce stade. La phase 4 (NATS + agents)
-couvre déjà la distribution cross-machine; les containers n'apportent
-que de l'isolation reproductible, utile en multi-tenant ou pour des
-nodes ML douloureux à installer — pas le contexte actuel. À reprendre
-si on a besoin de sandbox un node `developer` non-fiable, ou de
-publier des nodes ML packagés avec Dockerfile.
+**Pourquoi** : un projet qui vit sans démo visuelle ne sort jamais
+du bruit. Voice + gaze + intent + brain qui réagit en live, c'est
+exactement le genre de chose qui se montre en 60 secondes et défonce
+n'importe quelle landing page de framework agentique.
 
-- [ ] **5.1 Créer un `ContainerRunner`** qui build l'image au spawn
-  (`docker build` depuis le repo du node si pas déjà construit) et
-  fait `docker run` avec network host ou bridge configurable.
-- [ ] **5.2 Standard de `Dockerfile`** par node: chaque node publié
-  doit shipper un `Dockerfile` qui expose le port et déclare le
-  port + healthcheck.
-- [ ] **5.3 Volumes pour les models ML**: convention
-  `~/.brain/models/` mounté en read-only dans tous les containers.
-- [ ] **5.4 Tests d'isolation**: vérifier qu'un node compromis ne
-  peut pas lire les autres DB SQLite, accéder à l'host network, etc.
+- [ ] **Script du scénario**: 3 personnes dans la pièce, gaze détecte
+  qui regarde qui, voice transcrit qui parle, intent corrèle "qui
+  s'adresse à qui", brain commente / répond quand on s'adresse à
+  lui. Le dashboard live en split-screen montre les events sur le
+  bus + le graphe + les traces causales.
+- [ ] **Capture**: macOS QuickTime ou OBS, camera externe + screen
+  capture du dashboard.
+- [ ] **Montage**: ~60 s, voiceover ou texte d'overlay.
+- [ ] **Embed** : top du README + GitHub repo description.
 
 ---
 
-## Phase 6 — Tracing + observabilité (recommandation critique)
+## Ce qui sort de la TODO (différé indéfiniment)
 
-Pour répondre à la critique "pub/sub = enfer à debugger en prod".
-
-- [x] **6.1 Tracing causal**: chaque message porte un `trace_id` +
-  `parent_id`. Le bus alloue un trace_id à la racine et hérite via
-  `parent_id`. Le runner injecte automatiquement `parent_id` quand un
-  handler appelle `ctx.publish` / `ctx.respond`. Le `WebRunner` propage
-  via les frames pour préserver la chaîne au-delà du process. Endpoint
-  `GET /network/traces/:trace_id` renvoie la chaîne ordonnée.
-- [x] **6.1b Trace viewer** dans le dashboard: chaque ligne du
-  `MessageLog` expose une icône ⛓ qui ouvre une `TraceModal` listant
-  toute la chaîne causale (récupérée via `GET /network/traces/:id`).
-  Indentation par profondeur basée sur `parent_id` → on voit qui a
-  causé qui. Loading + 404 friendly handlés.
-- [x] **6.2 Dead-letter queue**: `BaseRunner` capture désormais les
-  messages en flight quand le handler throw ou timeout — ring borné
-  de 50 entrées par node, exposé via `getDeadLetters()` côté runner
-  et `BrainService.getNodeDeadLetters(id)` côté API. Endpoint REST
-  `GET /nodes/:id/dead-letters`. Le `NodePanel` du dashboard ajoute
-  un onglet "DLQ" qui poll toutes les 4 s, montre `{ts, topic, from,
-  error, payload}` par entrée. Le label de l'onglet passe en rouge
-  avec un compteur dès qu'il y a au moins une dead letter, même
-  quand l'utilisateur est sur Info / Logs / Mailbox. Test ajouté
-  dans `runner-resilience.test.ts` qui vérifie qu'un crash handler
-  pousse le message dans le DLQ avec l'erreur attendue.
-- [x] **6.2b DLQ remote read-back**: l'agent expose
-  `brain.agents.<id>.read.dead_letters` via `respondToRequests` ; côté
-  API, `getNodeDeadLettersAny()` route automatiquement vers NATS quand
-  le node est remote, sinon retourne le buffer local. Le controller
-  REST passe en async. Test dans `remote-spawn.test.ts` qui spawn un
-  echo distant et vérifie que la roundtrip request-reply renvoie un
-  array (vide quand pas de crash, structure correcte) — la capture
-  réelle de DLQ est déjà couverte côté local dans
-  `runner-resilience.test.ts`.
-- [x] **6.3 Backpressure metrics**: `Mailbox` expose `dropped`
-  (compteur cumulatif d'évictions) + `capacity` (`max_size`).
-  `BusMailboxView` (et donc `GET /nodes/:id/mailboxes`) renvoient ces
-  champs sur chaque souscription. Le tab Mailbox du `NodePanel`
-  affiche maintenant une barre de remplissage colorée (vert / orange
-  / rouge selon `total / capacity`), les compteurs `unread / total of
-  capacity`, et un badge rouge `· N dropped` quand des messages ont
-  été évincés. Test ajouté dans `bus.test.ts` qui pousse 5 messages
-  dans un mailbox capacity 2 et vérifie `dropped === 3`.
-- [x] **6.4 Replay**: `replayTrace(bus, traceId, { intervalMs })`
-  dans `packages/core/src/brain-replay.ts`. Récupère la chaîne via
-  `bus.getTrace`, regénère un id-map old→new et republie chaque
-  message avec `parent_id` réécrit, sous un nouveau `trace_id`.
-  `metadata.replayed_from` / `metadata.replayed_trace` pointent
-  vers l'origine pour la traçabilité. Endpoint REST
-  `POST /network/traces/:trace_id/replay?interval_ms=N`. Bouton
-  "Replay" dans la `TraceModal` du dashboard. Caveat fenêtre
-  glissante (10k par défaut) → 404 si le trace est hors fenêtre.
-  Tests dans `bus.test.ts` qui couvrent le rewriting du chain et
-  le retour vide pour un trace inconnu.
-
----
-
-## Décisions à acter
-
-- [ ] Garder le mot "Network" dans le sigle? Si phase 4 est faite,
-  oui clairement. Sinon, soit on le tue (BRAIN = Bridged Reactive AI
-  Node-runtime?), soit on assume que c'est ambitieux et que la
-  phase 4 est en plan public.
-- [ ] Sandboxing du `developer` node: quelle stratégie? VM léger
-  (firecracker), container avec capabilities réduites, ou juste
-  doc warning "à utiliser avec des CLI agents de confiance"?
-- [ ] Niveau d'effort sur la phase 6 — c'est l'investissement le
-  moins fun mais le plus différenciant à long terme.
+- Phase 1.8 (extraction memory/reasoning/tools en siblings) : décision
+  actée, on ne fait pas. Le shape "engine + curated nodes" est valide.
+- Phase 2.5 auto-PR via gh : feature dev/contribution, pas dans le
+  chemin produit.
+- Phase 5 Docker / container transport : différée, NATS + agents
+  couvre déjà la distribution.
+- 6.1b/6.2/6.2b/6.3/6.4 (observabilité avancée): toutes shippées,
+  cf git log.
