@@ -91,7 +91,17 @@ export abstract class BaseRunner {
 
     this.watcherTimer = setInterval(() => { this.tryRun(); }, WATCHER_INTERVAL_MS);
     this.runOnSpawn();
-    this.tryRun();
+    // Nodes with at least one subscription bootstrap reactively when a
+    // matching message lands. Nodes with zero subscriptions (clock,
+    // cron, anything purely timer-based) would otherwise never fire,
+    // because tryRun's hasUnreadMessages guard gates them out — bypass
+    // the guard with one explicit run on start so they get a chance to
+    // schedule their first sleep timer.
+    if (this.nodeInfo.subscriptions.length === 0) {
+      this.startRun();
+    } else {
+      this.tryRun();
+    }
   }
 
   private runOnSpawn(): void {

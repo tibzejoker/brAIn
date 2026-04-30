@@ -32,9 +32,6 @@ let lastIntents: IntentRecord[] = [];
  *    the framework re-wakes us even when no bus message landed.
  */
 export const handler: NodeHandler = async (ctx) => {
-  // Belt and braces: stdout for the api console, ctx.log for the
-  // /nodes/:id/logs buffer the dashboard reads.
-  console.log(`[attention] handler invoked (messages=${ctx.messages.length}, servicesReady=${servicesReady ? "set" : "unset"})`);
   ctx.log("info", `handler invoked (messages=${ctx.messages.length}, servicesReady=${servicesReady ? "set" : "unset"})`);
   if (!servicesReady) {
     ctx.log("info", "first tick — bootstrapping voice / gaze / intent services");
