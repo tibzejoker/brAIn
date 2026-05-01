@@ -44,9 +44,10 @@ interface ServerSummary {
 
 interface ServerStatus {
   name: string;
-  status: "connected" | "error" | "pending";
+  status: "connected" | "error" | "pending" | "pending-auth";
   toolCount?: number;
   error?: string;
+  authorizationUrl?: string;
 }
 
 function summarize(name: string, raw: Record<string, unknown>): ServerSummary | null {
@@ -145,11 +146,14 @@ export function MCPPanel({ nodeId, configOverrides, onChanged }: MCPPanelProps):
         const fromThis = msgs.filter((m) => m.from === nodeId);
         if (fromThis.length === 0) return;
         const latest = fromThis[fromThis.length - 1];
-        const meta = latest.metadata as { servers?: Array<{ name: string; status: "connected" | "error"; toolCount?: number; error?: string }> } | undefined;
+        const meta = latest.metadata as { servers?: Array<{ name: string; status: "connected" | "error" | "pending-auth"; toolCount?: number; error?: string; authorizationUrl?: string }> } | undefined;
         if (!meta?.servers) return;
         const next: Record<string, ServerStatus | undefined> = {};
         for (const s of meta.servers) {
-          next[s.name] = { name: s.name, status: s.status, toolCount: s.toolCount, error: s.error };
+          next[s.name] = {
+            name: s.name, status: s.status, toolCount: s.toolCount,
+            error: s.error, authorizationUrl: s.authorizationUrl,
+          };
         }
         setStatuses(next);
       } catch { /* silent — periodic poll */ }
@@ -248,9 +252,10 @@ export function MCPPanel({ nodeId, configOverrides, onChanged }: MCPPanelProps):
           {servers.map((s) => {
             const st = statuses[s.name];
             const dotColor =
-              st?.status === "connected" ? "bg-node-active" :
-              st?.status === "error"     ? "bg-node-stopped" :
-                                           "bg-text-muted/40";
+              st?.status === "connected"    ? "bg-node-active" :
+              st?.status === "error"        ? "bg-node-stopped" :
+              st?.status === "pending-auth" ? "bg-node-sleeping" :
+                                              "bg-text-muted/40";
             return (
               <div key={s.name} className="py-2 px-1 border-b border-border/30 last:border-0">
                 <div className="flex items-center gap-2">
@@ -267,10 +272,23 @@ export function MCPPanel({ nodeId, configOverrides, onChanged }: MCPPanelProps):
                   {st?.status === "error" && (
                     <span className="text-[10px] text-node-stopped ml-auto font-semibold">error</span>
                   )}
+                  {st?.status === "pending-auth" && (
+                    <span className="text-[10px] text-node-sleeping ml-auto font-semibold">OAuth needed</span>
+                  )}
                 </div>
                 <p className="text-[11px] text-text-muted font-mono mt-0.5 break-all">
                   {s.endpoint}
                 </p>
+                {st?.status === "pending-auth" && st.authorizationUrl && (
+                  <a
+                    href={st.authorizationUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-block mt-1 px-2 py-1 text-[11px] rounded bg-node-sleeping/20 text-node-sleeping hover:bg-node-sleeping/30 font-medium"
+                  >
+                    Authorize in browser →
+                  </a>
+                )}
                 {st?.status === "error" && st.error && (
                   <p className="text-[11px] text-node-stopped font-mono mt-1 break-words bg-node-stopped/10 rounded px-2 py-1">
                     {st.error}

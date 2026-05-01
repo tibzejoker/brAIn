@@ -4,95 +4,40 @@
  * Configuration uses the `mcpServers` shape that's now the de-facto
  * standard across Claude Desktop / Claude Code / Cursor / Cline / etc.
  * Top-level key is an object map (server name → spec). Each spec
- * auto-discriminates from its fields:
- *
- *   {
- *     "mcpServers": {
- *       "filesystem": {                        // stdio (subprocess)
- *         "command": "npx",
- *         "args": ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"],
- *         "env": { "LOG_LEVEL": "info" }
- *       },
- *       "linear": {                            // Streamable HTTP (current standard)
- *         "url": "https://mcp.linear.app/mcp",
- *         "headers": { "Authorization": "Bearer ${env:LINEAR_API_KEY}" }
- *       },
- *       "exa-legacy": {                        // SSE (legacy)
- *         "url": "https://mcp.exa.ai/sse",
- *         "type": "sse"
- *       }
- *     }
- *   }
- *
- * Discriminator: presence of `command` → stdio, presence of `url` →
- * remote (default Streamable HTTP, override via `type: "sse"` / "ws").
+ * auto-discriminates from its fields: presence of `command` →
+ * stdio, presence of `url` → http (Streamable, default for remote),
+ * explicit `type: "sse" | "ws"` overrides.
  *
  * `${env:VAR}` interpolation in headers / args / env keeps secrets
  * out of the persisted config.
  *
- * The legacy `servers: [{name, transport, …}]` array form is still
- * accepted for back-compat with the first iteration of this node.
+ * OAuth 2.1 + DCR + PKCE is wired by default for http/sse transports
+ * via the SDK's authProvider. Servers that need consent (GitHub
+ * Copilot MCP, Notion, Linear OAuth-mode, …) end up in `pending-auth`
+ * state with an `authorizationUrl`; the dashboard surfaces it as a
+ * link, the user opens it, the API's /mcp/oauth/callback delivers
+ * the code back via the bus, the host calls finishAuth and connects.
  *
  * Bus topics:
- *   mcp.call           { server?, tool, arguments? } → mcp.result
- *   mcp.tools.list                                    → mcp.tools.available
- *   mcp.host.reload                                   diff config_overrides
- *                                                     and reconnect changed
+ *   mcp.call                  { server?, tool, arguments? } → mcp.result
+ *   mcp.tools.list                                           → mcp.tools.available
+ *   mcp.host.reload           diff config_overrides + reconcile
+ *   mcp.host.status.request   → mcp.host.status (full server state)
+ *   mcp.host.oauth.callback   delivers OAuth code from /mcp/oauth/callback
+ *                             → mcp.host.oauth.required surfaced when consent needed
  *
  * Multiple mcp-host instances in the same process keep independent
- * connection state — each instance is keyed by its node id.
+ * connection state, keyed by node id.
  */
 import type {
   NodeHandler, NodeInfo, NodeOnSpawn, NodeTeardown, TextPayload,
 } from "@brain/sdk";
-import { logger } from "@brain/core";
-import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
-import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
-import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
-import { WebSocketClientTransport } from "@modelcontextprotocol/sdk/client/websocket.js";
+import { parseSpecs } from "./parse";
 import {
-  type NormalizedSpec, expandArgs, expandRecord, hashSpec, parseSpecs,
-} from "./parse";
-
-type AnyTransport =
-  | StdioClientTransport
-  | StreamableHTTPClientTransport
-  | SSEClientTransport
-  | WebSocketClientTransport;
-
-interface ToolDescriptor {
-  server: string;
-  name: string;
-  description: string;
-  inputSchema: unknown;
-}
-
-interface ConnectedServer {
-  spec: NormalizedSpec;
-  client: Client;
-  transport: AnyTransport;
-  tools: ToolDescriptor[];
-  connectedAt: number;
-  /** Stable hash of the spec used to detect "needs reconnect". */
-  specHash: string;
-  status: "connected";
-  error?: undefined;
-}
-
-interface FailedServer {
-  spec: NormalizedSpec;
-  status: "error";
-  error: string;
-  specHash: string;
-}
-
-type ServerEntry = ConnectedServer | FailedServer;
-
-/** Per-node-instance state. */
-interface Instance {
-  servers: Map<string, ServerEntry>;
-}
+  type Instance, type ServerEntry, type ToolDescriptor,
+  connectOne, disconnect, finishOAuth, reconcile,
+} from "./connect";
+import type { OAuthEvent } from "./oauth";
 
 interface MCPCallRequest {
   server?: string;
@@ -110,104 +55,16 @@ function getInstance(nodeId: string): Instance {
   return i;
 }
 
-// === Connection ===
-
-function buildTransport(spec: NormalizedSpec): AnyTransport {
-  switch (spec.transport) {
-    case "stdio":
-      return new StdioClientTransport({
-        command: spec.command ?? "",
-        args: expandArgs(spec.args) ?? [],
-        env: expandRecord(spec.env),
-      });
-    case "http": {
-      const headers = expandRecord(spec.headers);
-      return new StreamableHTTPClientTransport(new URL(spec.url ?? ""), {
-        requestInit: headers ? { headers } : undefined,
-      });
-    }
-    case "sse": {
-      const headers = expandRecord(spec.headers);
-      return new SSEClientTransport(new URL(spec.url ?? ""), {
-        requestInit: headers ? { headers } : undefined,
-      });
-    }
-    case "ws":
-      return new WebSocketClientTransport(new URL(spec.url ?? ""));
-  }
-}
-
-async function connectOne(spec: NormalizedSpec): Promise<ServerEntry> {
-  const specHash = hashSpec(spec);
-  try {
-    const transport = buildTransport(spec);
-    const client = new Client(
-      { name: `brAIn-mcp-host:${spec.name}`, version: "0.2.0" },
-      { capabilities: {} },
-    );
-    await client.connect(transport);
-    const list = await client.listTools();
-    const tools: ToolDescriptor[] = list.tools.map((t) => ({
-      server: spec.name,
-      name: t.name,
-      description: t.description ?? "",
-      inputSchema: t.inputSchema,
-    }));
-    return { spec, client, transport, tools, connectedAt: Date.now(), specHash, status: "connected" };
-  } catch (err) {
-    return { spec, status: "error", error: err instanceof Error ? err.message : String(err), specHash };
-  }
-}
-
-async function disconnect(entry: ServerEntry): Promise<void> {
-  if (entry.status !== "connected") return;
-  try { await entry.client.close(); } catch { /* ignore */ }
-  try { await entry.transport.close(); } catch { /* ignore */ }
-}
-
-/**
- * Diff the desired specs vs the current connections and reconcile:
- * - new specs → connect
- * - removed specs → disconnect + drop
- * - changed specs (different hash) → disconnect + reconnect
- * Idempotent.
- */
-async function reconcile(nodeId: string, desired: NormalizedSpec[]): Promise<void> {
-  const inst = getInstance(nodeId);
-  const desiredByName = new Map(desired.map((s) => [s.name, s]));
-
-  // Remove servers no longer wanted, or with a changed hash.
-  for (const [name, entry] of [...inst.servers]) {
-    const want = desiredByName.get(name);
-    if (!want || hashSpec(want) !== entry.specHash) {
-      await disconnect(entry);
-      inst.servers.delete(name);
-    }
-  }
-
-  // Connect new / re-add changed.
-  for (const spec of desired) {
-    if (inst.servers.has(spec.name)) continue;
-    const entry = await connectOne(spec);
-    inst.servers.set(spec.name, entry);
-    if (entry.status === "connected") {
-      logger.info({ server: spec.name, tools: entry.tools.length }, "mcp-host: connected");
-    } else {
-      logger.error({ server: spec.name, error: entry.error }, "mcp-host: failed to connect");
-    }
-  }
-}
-
-/** Snapshot used for status messages + the public getNodeMCPSnapshot. */
 function snapshotEntries(inst: Instance): Array<{
   name: string;
-  transport: NormalizedSpec["transport"];
-  status: "connected" | "error";
+  transport: ServerEntry["spec"]["transport"];
+  status: "connected" | "error" | "pending-auth";
   url?: string;
   command?: string;
   toolCount: number;
   tools: Array<{ name: string; description: string }>;
   error?: string;
+  authorizationUrl?: string;
   connectedAt?: number;
 }> {
   return [...inst.servers.values()].map((e) => ({
@@ -219,6 +76,7 @@ function snapshotEntries(inst: Instance): Array<{
     toolCount: e.status === "connected" ? e.tools.length : 0,
     tools: e.status === "connected" ? e.tools.map((t) => ({ name: t.name, description: t.description })) : [],
     error: e.status === "error" ? e.error : undefined,
+    authorizationUrl: e.status === "pending-auth" ? e.authorizationUrl : undefined,
     connectedAt: e.status === "connected" ? e.connectedAt : undefined,
   }));
 }
@@ -231,7 +89,7 @@ function flatToolList(inst: Instance): ToolDescriptor[] {
   return out;
 }
 
-function pickServer(inst: Instance, req: MCPCallRequest): ConnectedServer | null {
+function pickServer(inst: Instance, req: MCPCallRequest): Extract<ServerEntry, { status: "connected" }> | null {
   if (req.server) {
     const e = inst.servers.get(req.server);
     return e?.status === "connected" ? e : null;
@@ -245,16 +103,23 @@ function pickServer(inst: Instance, req: MCPCallRequest): ConnectedServer | null
 // === Lifecycle ===
 
 /**
- * Pending status publishes — keyed by node id. Filled by onSpawn /
- * handler reload, drained on the next handler tick (when the node
- * has a `ctx` and can publish). onSpawn doesn't get ctx so it can't
- * publish directly; we defer the broadcast to the next iteration.
+ * Pending publishes — keyed by node id. Filled by onSpawn / OAuth
+ * provider callbacks (which fire from outside a handler tick where
+ * we have ctx), drained on the next handler tick.
  */
 const pendingStatus = new Set<string>();
+const pendingOAuthEvents = new Map<string, OAuthEvent[]>();
+
+function bufferOAuthEvent(nodeId: string, e: OAuthEvent): void {
+  const list = pendingOAuthEvents.get(nodeId) ?? [];
+  list.push(e);
+  pendingOAuthEvents.set(nodeId, list);
+  pendingStatus.add(nodeId);
+}
 
 export const onSpawn: NodeOnSpawn = async (info: NodeInfo) => {
   const overrides = info.config_overrides ?? {};
-  await reconcile(info.id, parseSpecs(overrides));
+  await reconcile(getInstance(info.id), info.id, parseSpecs(overrides), (e) => bufferOAuthEvent(info.id, e));
   pendingStatus.add(info.id);
 };
 
@@ -277,20 +142,26 @@ function publishStatus(ctx: Parameters<NodeHandler>[0], inst: Instance): void {
 export const handler: NodeHandler = async (ctx) => {
   const inst = getInstance(ctx.node.id);
 
-  // Drain any onSpawn / external trigger that asked us to publish status
-  // on the next tick (onSpawn has no ctx).
+  // Drain any onSpawn / OAuth-callback trigger that asked us to
+  // publish on the next tick (they fire outside a handler ctx).
   if (pendingStatus.has(ctx.node.id)) {
     pendingStatus.delete(ctx.node.id);
+    const events = pendingOAuthEvents.get(ctx.node.id) ?? [];
+    pendingOAuthEvents.delete(ctx.node.id);
+    for (const e of events) {
+      ctx.publish("mcp.host.oauth.required", {
+        type: "text", criticality: 1,
+        payload: { content: JSON.stringify(e) },
+        metadata: { ...e },
+      });
+    }
     publishStatus(ctx, inst);
   }
 
   for (const msg of ctx.messages) {
     if (msg.topic === "mcp.host.reload") {
-      // Re-read config and reconcile. Lets the dashboard PATCH
-      // config_overrides then publish this topic to take effect
-      // without killing the node.
       const overrides = ctx.node.config_overrides ?? {};
-      await reconcile(ctx.node.id, parseSpecs(overrides));
+      await reconcile(inst, ctx.node.id, parseSpecs(overrides), (e) => bufferOAuthEvent(ctx.node.id, e));
       publishStatus(ctx, inst);
       ctx.publish("mcp.tools.available", {
         type: "text", criticality: 1,
@@ -302,6 +173,18 @@ export const handler: NodeHandler = async (ctx) => {
 
     if (msg.topic === "mcp.host.status.request") {
       publishStatus(ctx, inst);
+      continue;
+    }
+
+    if (msg.topic === "mcp.host.oauth.callback") {
+      try {
+        const data = JSON.parse((msg.payload as TextPayload).content) as { node_id: string; server_name: string; code: string };
+        if (data.node_id !== ctx.node.id) continue;
+        await finishOAuth(inst, data.server_name, data.code);
+        publishStatus(ctx, inst);
+      } catch (err) {
+        ctx.log("error", `oauth.callback parse failed: ${err instanceof Error ? err.message : String(err)}`);
+      }
       continue;
     }
 
@@ -355,9 +238,13 @@ export const handler: NodeHandler = async (ctx) => {
 
 /**
  * Snapshot of one node-instance's connections — exposed so callers
- * can introspect status without reaching into private state.
+ * (tests, future API endpoints) can introspect status without
+ * reaching into private state.
  */
 export function getNodeMCPSnapshot(nodeId: string): ReturnType<typeof snapshotEntries> {
   const inst = instances.get(nodeId);
   return inst ? snapshotEntries(inst) : [];
 }
+
+// Avoid unused import warning when connectOne moves out — re-export.
+export { connectOne };

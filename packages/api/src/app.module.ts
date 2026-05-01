@@ -7,6 +7,7 @@ import { SeedsController } from "./rest/seeds.controller";
 import { NodeUiController } from "./rest/node-ui.controller";
 import { StoreController } from "./rest/store.controller";
 import { AgentsController } from "./rest/agents.controller";
+import { MCPOAuthController } from "./rest/mcp-oauth.controller";
 import { DashboardGateway } from "./ws/dashboard.gateway";
 import * as path from "path";
 
@@ -73,7 +74,7 @@ const brainServiceProvider = {
 };
 
 @Module({
-  controllers: [NodesController, TypesController, NetworkController, SeedsController, NodeUiController, StoreController, AgentsController],
+  controllers: [NodesController, TypesController, NetworkController, SeedsController, NodeUiController, StoreController, AgentsController, MCPOAuthController],
   providers: [brainServiceProvider, DashboardGateway],
 })
 export class AppModule implements OnModuleInit {

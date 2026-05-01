@@ -8,8 +8,9 @@
     { "topic": "mcp.call" },
     { "topic": "mcp.tools.list" },
     { "topic": "mcp.host.reload" },
-    { "topic": "mcp.host.status.request" }
+    { "topic": "mcp.host.status.request" },
+    { "topic": "mcp.host.oauth.callback" }
   ],
-  "default_publishes": ["mcp.result", "mcp.tools.available", "mcp.host.status"],
+  "default_publishes": ["mcp.result", "mcp.tools.available", "mcp.host.status", "mcp.host.oauth.required"],
   "supports_transport": ["process"]
 }
