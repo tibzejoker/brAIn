@@ -120,6 +120,35 @@ export function updateNodePosition(
   });
 }
 
+// === Node config overrides ===
+
+export function patchNodeConfig(
+  id: string,
+  patch: Record<string, unknown>,
+): Promise<{ updated: boolean; config_overrides: Record<string, unknown> }> {
+  return request(`/nodes/${id}/config`, {
+    method: "PATCH",
+    body: JSON.stringify(patch),
+  });
+}
+
+/**
+ * Publish a message into a node from the dashboard. Wraps the
+ * existing `/nodes/:id/ui/send` endpoint that turns the dashboard
+ * into a bus publisher addressed at one node.
+ */
+export function sendToNode(
+  id: string,
+  topic: string,
+  content: string,
+  metadata?: Record<string, unknown>,
+): Promise<{ published: boolean }> {
+  return request(`/nodes/${id}/ui/send`, {
+    method: "POST",
+    body: JSON.stringify({ topic, content, metadata }),
+  });
+}
+
 // === Seeds ===
 
 export interface SeedValidationError {

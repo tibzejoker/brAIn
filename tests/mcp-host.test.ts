@@ -54,6 +54,7 @@ describe.skipIf(!SDK_AVAILABLE)("mcp-host node", () => {
   let handler: NodeHandler;
   let onSpawn: NodeOnSpawn | undefined;
   let teardown: NodeTeardown | undefined;
+  let nodeInfo: NodeInfo;
 
   beforeAll(async () => {
     const mod = await import(HANDLER_PATH);
@@ -65,12 +66,12 @@ describe.skipIf(!SDK_AVAILABLE)("mcp-host node", () => {
     registry = new InstanceRegistry();
     sleep = new SleepService(bus, registry);
 
-    const node = makeNode();
-    registry.add(node);
-    bus.subscribe(node.id, "mcp.call");
-    bus.subscribe(node.id, "mcp.tools.list");
+    nodeInfo = makeNode();
+    registry.add(nodeInfo);
+    bus.subscribe(nodeInfo.id, "mcp.call");
+    bus.subscribe(nodeInfo.id, "mcp.tools.list");
 
-    runner = new ServiceRunner(node, handler, { bus, registry, sleepService: sleep }, "auto", teardown, onSpawn);
+    runner = new ServiceRunner(nodeInfo, handler, { bus, registry, sleepService: sleep }, "auto", teardown, onSpawn);
     runner.start();
     // Give the child server time to spawn + listTools to come back.
     await wait(2500);
@@ -78,7 +79,7 @@ describe.skipIf(!SDK_AVAILABLE)("mcp-host node", () => {
 
   afterAll(async () => {
     runner.stop();
-    if (teardown) await teardown();
+    if (teardown) await teardown(nodeInfo);
     sleep.destroy();
   });
 
@@ -137,4 +138,51 @@ describe.skipIf(!SDK_AVAILABLE)("mcp-host node", () => {
     const body = JSON.parse((seen[0].payload as { content: string }).content);
     expect(typeof body.error).toBe("string");
   });
+
+  it("two mcp-host instances in the same process keep independent connections", async () => {
+    // Spin up a second mcp-host node in the same test process and
+    // verify that:
+    //   - both connect their own configured server (no crosstalk)
+    //   - tearing one down doesn't disconnect the other
+    // Regression guard for the previous bug where the connection
+    // Map lived at module scope and was shared across instances.
+    const FIXTURE = resolve(__dirname, "fixtures", "mcp-echo-server.mjs");
+
+    const node2: NodeInfo = makeNode({
+      id: "mcp-host-second",
+      config_overrides: {
+        response_topic: "mcp.result",
+        mcpServers: {
+          "test-2": { command: process.execPath, args: [FIXTURE] },
+        },
+      },
+    });
+    registry.add(node2);
+    bus.subscribe(node2.id, "mcp.call");
+    bus.subscribe(node2.id, "mcp.tools.list");
+
+    const runner2 = new ServiceRunner(node2, handler, { bus, registry, sleepService: sleep }, "auto", teardown, onSpawn);
+    runner2.start();
+    await wait(2500);
+
+    // Read snapshots from the module — verify both instances exist
+    // independently with their own server entries.
+    const mod = await import(HANDLER_PATH);
+    const snap1 = mod.getNodeMCPSnapshot(nodeInfo.id);
+    const snap2 = mod.getNodeMCPSnapshot(node2.id);
+
+    expect(snap1.length).toBeGreaterThan(0);
+    expect(snap2.length).toBeGreaterThan(0);
+    expect(snap1[0].name).toBe("test");      // first instance's server
+    expect(snap2[0].name).toBe("test-2");    // second instance's server
+
+    // Teardown only the second instance, then verify the first is untouched.
+    runner2.stop();
+    if (teardown) await teardown(node2);
+
+    const snap1After = mod.getNodeMCPSnapshot(nodeInfo.id);
+    const snap2After = mod.getNodeMCPSnapshot(node2.id);
+    expect(snap1After.length).toBe(snap1.length);  // still alive
+    expect(snap2After.length).toBe(0);             // gone
+  }, 15_000);
 });

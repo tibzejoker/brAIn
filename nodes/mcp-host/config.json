@@ -6,7 +6,8 @@
   "default_priority": 3,
   "default_subscriptions": [
     { "topic": "mcp.call" },
-    { "topic": "mcp.tools.list" }
+    { "topic": "mcp.tools.list" },
+    { "topic": "mcp.host.reload" }
   ],
   "default_publishes": ["mcp.result", "mcp.tools.available"],
   "supports_transport": ["process"]

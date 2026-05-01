@@ -2,9 +2,11 @@ import { useCallback, useState, useEffect, useRef } from "react";
 import type { NodeSnapshot } from "../api/types";
 import { killNode, stopNode, startNode, wakeNode, tickNode, getNodeLogs, getNodeMailboxes, getNodeDeadLetters, type NodeLogEntry, type MailboxInfo, type DeadLetterEntry } from "../api/client";
 import { DeadLetterTab } from "./DeadLetterTab";
+import { MCPPanel } from "./MCPPanel";
+import { TabButton, InfoRow, ActionButton } from "./NodePanelHelpers";
 
 function noop(): void { /* best-effort */ }
-type PanelTab = "info" | "logs" | "mailbox" | "dlq";
+type PanelTab = "info" | "logs" | "mailbox" | "dlq" | "mcp";
 
 interface NodePanelProps {
   node: NodeSnapshot;
@@ -126,6 +128,9 @@ export function NodePanel({
           onClick={() => setTab("dlq")}
           warn={deadLetters.length > 0}
         />
+        {node.type === "mcp-host" && (
+          <TabButton label="MCP" active={tab === "mcp"} onClick={() => setTab("mcp")} />
+        )}
       </div>
 
       {/* Tab content */}
@@ -247,6 +252,14 @@ export function NodePanel({
 
       {tab === "dlq" && <DeadLetterTab entries={deadLetters} />}
 
+      {tab === "mcp" && node.type === "mcp-host" && (
+        <MCPPanel
+          nodeId={node.id}
+          configOverrides={node.config_overrides ?? {}}
+          onChanged={onAction}
+        />
+      )}
+
       {/* Actions */}
       <div className="p-4 border-t border-border flex flex-wrap gap-2">
         {node.state === "active" && (
@@ -267,53 +280,3 @@ export function NodePanel({
   );
 }
 
-function TabButton({ label, active, onClick, warn = false }: {
-  label: string;
-  active: boolean;
-  onClick: () => void;
-  warn?: boolean;
-}): React.ReactElement {
-  const base = "px-4 py-2 text-xs font-medium transition-colors";
-  const tone = active
-    ? "text-accent border-b-2 border-accent"
-    : warn
-      ? "text-node-stopped hover:text-node-stopped/80"
-      : "text-text-muted hover:text-text";
-  return (
-    <button onClick={onClick} className={`${base} ${tone}`}>
-      {label}
-    </button>
-  );
-}
-
-function InfoRow({ label, value, mono = false }: { label: string; value: string; mono?: boolean }): React.ReactElement {
-  return (
-    <div className="flex justify-between gap-2">
-      <span className="text-text-muted shrink-0">{label}</span>
-      <span className={`text-text truncate text-right ${mono ? "font-mono text-xs" : ""}`}>{value}</span>
-    </div>
-  );
-}
-
-function ActionButton({ label, variant, loading, onClick }: {
-  label: string;
-  variant: "success" | "warning" | "danger";
-  loading: boolean;
-  onClick: () => void;
-}): React.ReactElement {
-  const colors = {
-    success: "bg-node-active/20 text-node-active hover:bg-node-active/30",
-    warning: "bg-node-sleeping/20 text-node-sleeping hover:bg-node-sleeping/30",
-    danger: "bg-node-stopped/20 text-node-stopped hover:bg-node-stopped/30",
-  };
-
-  return (
-    <button
-      onClick={onClick}
-      disabled={loading}
-      className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors disabled:opacity-50 ${colors[variant]}`}
-    >
-      {label}
-    </button>
-  );
-}

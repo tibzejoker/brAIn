@@ -136,6 +136,20 @@ export class NodesController {
       }
     }
     node.config_overrides = overrides;
+    // Type-aware side effects after a config change:
+    // mcp-host should reconnect when its `mcpServers` / `servers` map
+    // changed. Publishing from `system.api` (not the node id) keeps
+    // anti-loop happy so the node actually receives its own reload
+    // signal.
+    if (node.type === "mcp-host" && ("mcpServers" in body || "servers" in body)) {
+      this.brain.bus.publish({
+        from: "system.api",
+        topic: "mcp.host.reload",
+        type: "text", criticality: 1,
+        payload: { content: JSON.stringify({ node_id: id }) },
+        metadata: { node_id: id },
+      });
+    }
     return { updated: true, node_id: id, config_overrides: overrides };
   }
 

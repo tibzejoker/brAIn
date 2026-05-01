@@ -313,7 +313,15 @@ export type NodeOnSpawn = (info: NodeInfo) => Promise<void> | void;
  * Fire-and-forget from the runner's perspective — failures are logged
  * but don't block the kill flow.
  */
-export type NodeTeardown = () => Promise<void> | void;
+/**
+ * Teardown hook. Called once when the node is killed or stopped.
+ * The `info` argument is passed so handlers that maintain per-instance
+ * state (e.g. an mcp-host with multiple nodes in the same process)
+ * can clean up the right slot without a closure dance — read
+ * `info.id`. Existing zero-arg implementations stay valid (TS allows
+ * fewer parameters than declared).
+ */
+export type NodeTeardown = (info: NodeInfo) => Promise<void> | void;
 
 /**
  * Shape a node module is allowed to export. The dynamic loader accepts

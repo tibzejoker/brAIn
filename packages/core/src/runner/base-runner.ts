@@ -147,11 +147,9 @@ export abstract class BaseRunner {
     this.teardownFired = true;
     const t = this.teardown;
     if (!t) return;
-    // Fire-and-forget: SIGTERM-style cleanups should be quick. Errors get
-    // logged but don't block the kill flow — the registry/runner tear-down
-    // continues either way.
+    const info = this.nodeInfo;
     void Promise.resolve()
-      .then(() => t())
+      .then(() => t(info))
       .catch((err: unknown) => {
         this.log.error(`teardown failed: ${err instanceof Error ? err.message : String(err)}`);
         logger.error({ err, node: this.nodeInfo.name }, "teardown failed");
@@ -234,9 +232,8 @@ export abstract class BaseRunner {
       });
     }
 
-    // Arm preemption: the runner's bus listener calls
-    // preemption.inspect() on every incoming message and aborts this
-    // signal if the criticality bar is breached.
+    // Arm preemption: bus listener pings inspect() on every incoming
+    // message and aborts the signal if the criticality bar is breached.
     const { signal, preemption } = this.preemption.arm(messages);
     const ctx = this.buildContext(messages, signal, preemption);
 
@@ -296,11 +293,8 @@ export abstract class BaseRunner {
     this.deps.registry.updateState(this.nodeInfo.id, NodeState.SLEEPING);
 
     this.deps.sleepService.registerSleep(this.nodeInfo.id, this.sleepConditions, () => {
-      this.sleeping = false;
-      this.sleepConditions = [];
-      this.startRun();
+      this.sleeping = false; this.sleepConditions = []; this.startRun();
     });
-
     const desc = this.sleepConditions
       .map((c) => c.type === "timer" ? `timer:${c.value}` : c.type === "topic" ? `topic:${c.value}` : "any")
       .join(", ");
