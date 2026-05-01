@@ -51,18 +51,9 @@ import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { SSEClientTransport } from "@modelcontextprotocol/sdk/client/sse.js";
 import { WebSocketClientTransport } from "@modelcontextprotocol/sdk/client/websocket.js";
-
-interface NormalizedSpec {
-  /** Stable name used to address the server in `mcp.call`. */
-  name: string;
-  /** "stdio" | "http" | "sse" | "ws". Auto-derived if not set. */
-  transport: "stdio" | "http" | "sse" | "ws";
-  command?: string;
-  args?: string[];
-  env?: Record<string, string>;
-  url?: string;
-  headers?: Record<string, string>;
-}
+import {
+  type NormalizedSpec, expandArgs, expandRecord, hashSpec, parseSpecs,
+} from "./parse";
 
 type AnyTransport =
   | StdioClientTransport
@@ -117,90 +108,6 @@ function getInstance(nodeId: string): Instance {
   let i = instances.get(nodeId);
   if (!i) { i = { servers: new Map() }; instances.set(nodeId, i); }
   return i;
-}
-
-// === Config parsing ===
-
-/**
- * Resolve `${env:VAR}` references in a string. Returns the original if
- * no match; replaces with `process.env[VAR]` (or empty string when
- * unset) so a config can ship without leaking secrets.
- */
-function expandEnv(input: string): string {
-  return input.replace(/\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}/g, (_, v) => process.env[v] ?? "");
-}
-
-function expandRecord(rec?: Record<string, string>): Record<string, string> | undefined {
-  if (!rec) return undefined;
-  const out: Record<string, string> = {};
-  for (const [k, v] of Object.entries(rec)) out[k] = expandEnv(v);
-  return out;
-}
-
-function expandArgs(args?: string[]): string[] | undefined {
-  return args?.map((a) => expandEnv(a));
-}
-
-function normalizeSpec(name: string, raw: Record<string, unknown>): NormalizedSpec | null {
-  const cmd = typeof raw.command === "string" ? raw.command : undefined;
-  const url = typeof raw.url === "string" ? raw.url : undefined;
-  const explicitTransport = typeof raw.transport === "string" ? raw.transport : typeof raw.type === "string" ? raw.type : undefined;
-
-  let transport: NormalizedSpec["transport"];
-  if (explicitTransport === "stdio") transport = "stdio";
-  else if (explicitTransport === "sse") transport = "sse";
-  else if (explicitTransport === "ws" || explicitTransport === "websocket") transport = "ws";
-  else if (explicitTransport === "http" || explicitTransport === "streamable-http") transport = "http";
-  else if (cmd) transport = "stdio";
-  else if (url) transport = "http";
-  else return null;
-
-  if (transport === "stdio" && !cmd) return null;
-  if (transport !== "stdio" && !url) return null;
-
-  return {
-    name,
-    transport,
-    command: cmd,
-    args: Array.isArray(raw.args) ? raw.args.filter((a): a is string => typeof a === "string") : undefined,
-    env: typeof raw.env === "object" && raw.env !== null ? raw.env as Record<string, string> : undefined,
-    url,
-    headers: typeof raw.headers === "object" && raw.headers !== null ? raw.headers as Record<string, string> : undefined,
-  };
-}
-
-/**
- * Read `config_overrides` and produce the canonical list of specs.
- * Accepts both the standard `mcpServers: { name: {…} }` map AND the
- * legacy `servers: [{name, …}]` array.
- */
-function parseSpecs(overrides: Record<string, unknown>): NormalizedSpec[] {
-  const out: NormalizedSpec[] = [];
-  const map = overrides.mcpServers;
-  if (typeof map === "object" && map !== null && !Array.isArray(map)) {
-    for (const [name, raw] of Object.entries(map as Record<string, unknown>)) {
-      if (typeof raw !== "object" || raw === null) continue;
-      const spec = normalizeSpec(name, raw as Record<string, unknown>);
-      if (spec) out.push(spec);
-    }
-  }
-  const arr = overrides.servers;
-  if (Array.isArray(arr)) {
-    for (const raw of arr) {
-      if (typeof raw !== "object" || raw === null) continue;
-      const r = raw as Record<string, unknown>;
-      if (typeof r.name !== "string") continue;
-      const spec = normalizeSpec(r.name, r);
-      if (spec) out.push(spec);
-    }
-  }
-  return out;
-}
-
-/** Stable JSON hash of a spec. Used to detect "config changed → reconnect". */
-function hashSpec(spec: NormalizedSpec): string {
-  // Sort keys for stable hashing.
-  return JSON.stringify(spec, Object.keys(spec).sort());
 }
 
 // === Connection ===
@@ -291,6 +198,31 @@ async function reconcile(nodeId: string, desired: NormalizedSpec[]): Promise<voi
   }
 }
 
+/** Snapshot used for status messages + the public getNodeMCPSnapshot. */
+function snapshotEntries(inst: Instance): Array<{
+  name: string;
+  transport: NormalizedSpec["transport"];
+  status: "connected" | "error";
+  url?: string;
+  command?: string;
+  toolCount: number;
+  tools: Array<{ name: string; description: string }>;
+  error?: string;
+  connectedAt?: number;
+}> {
+  return [...inst.servers.values()].map((e) => ({
+    name: e.spec.name,
+    transport: e.spec.transport,
+    status: e.status,
+    url: e.spec.url,
+    command: e.spec.command,
+    toolCount: e.status === "connected" ? e.tools.length : 0,
+    tools: e.status === "connected" ? e.tools.map((t) => ({ name: t.name, description: t.description })) : [],
+    error: e.status === "error" ? e.error : undefined,
+    connectedAt: e.status === "connected" ? e.connectedAt : undefined,
+  }));
+}
+
 function flatToolList(inst: Instance): ToolDescriptor[] {
   const out: ToolDescriptor[] = [];
   for (const e of inst.servers.values()) {
@@ -312,9 +244,18 @@ function pickServer(inst: Instance, req: MCPCallRequest): ConnectedServer | null
 
 // === Lifecycle ===
 
+/**
+ * Pending status publishes — keyed by node id. Filled by onSpawn /
+ * handler reload, drained on the next handler tick (when the node
+ * has a `ctx` and can publish). onSpawn doesn't get ctx so it can't
+ * publish directly; we defer the broadcast to the next iteration.
+ */
+const pendingStatus = new Set<string>();
+
 export const onSpawn: NodeOnSpawn = async (info: NodeInfo) => {
   const overrides = info.config_overrides ?? {};
   await reconcile(info.id, parseSpecs(overrides));
+  pendingStatus.add(info.id);
 };
 
 export const teardown: NodeTeardown = async (info: NodeInfo) => {
@@ -324,8 +265,24 @@ export const teardown: NodeTeardown = async (info: NodeInfo) => {
   instances.delete(info.id);
 };
 
+function publishStatus(ctx: Parameters<NodeHandler>[0], inst: Instance): void {
+  const servers = snapshotEntries(inst);
+  ctx.publish("mcp.host.status", {
+    type: "text", criticality: 1,
+    payload: { content: JSON.stringify({ node_id: ctx.node.id, servers }) },
+    metadata: { node_id: ctx.node.id, servers },
+  });
+}
+
 export const handler: NodeHandler = async (ctx) => {
   const inst = getInstance(ctx.node.id);
+
+  // Drain any onSpawn / external trigger that asked us to publish status
+  // on the next tick (onSpawn has no ctx).
+  if (pendingStatus.has(ctx.node.id)) {
+    pendingStatus.delete(ctx.node.id);
+    publishStatus(ctx, inst);
+  }
 
   for (const msg of ctx.messages) {
     if (msg.topic === "mcp.host.reload") {
@@ -334,11 +291,17 @@ export const handler: NodeHandler = async (ctx) => {
       // without killing the node.
       const overrides = ctx.node.config_overrides ?? {};
       await reconcile(ctx.node.id, parseSpecs(overrides));
+      publishStatus(ctx, inst);
       ctx.publish("mcp.tools.available", {
         type: "text", criticality: 1,
         payload: { content: JSON.stringify({ tools: flatToolList(inst) }) },
         metadata: { tools: flatToolList(inst), reload: true },
       });
+      continue;
+    }
+
+    if (msg.topic === "mcp.host.status.request") {
+      publishStatus(ctx, inst);
       continue;
     }
 
@@ -391,33 +354,10 @@ export const handler: NodeHandler = async (ctx) => {
 };
 
 /**
- * Snapshot of one node-instance's connections — exposed so the API /
- * dashboard can surface server status without reaching into private
- * state. Returns one entry per configured server, including failed
- * connections (status="error").
+ * Snapshot of one node-instance's connections — exposed so callers
+ * can introspect status without reaching into private state.
  */
-export function getNodeMCPSnapshot(nodeId: string): Array<{
-  name: string;
-  transport: NormalizedSpec["transport"];
-  status: "connected" | "error";
-  url?: string;
-  command?: string;
-  toolCount: number;
-  tools: Array<{ name: string; description: string }>;
-  error?: string;
-  connectedAt?: number;
-}> {
+export function getNodeMCPSnapshot(nodeId: string): ReturnType<typeof snapshotEntries> {
   const inst = instances.get(nodeId);
-  if (!inst) return [];
-  return [...inst.servers.values()].map((e) => ({
-    name: e.spec.name,
-    transport: e.spec.transport,
-    status: e.status,
-    url: e.spec.url,
-    command: e.spec.command,
-    toolCount: e.status === "connected" ? e.tools.length : 0,
-    tools: e.status === "connected" ? e.tools.map((t) => ({ name: t.name, description: t.description })) : [],
-    error: e.status === "error" ? e.error : undefined,
-    connectedAt: e.status === "connected" ? e.connectedAt : undefined,
-  }));
+  return inst ? snapshotEntries(inst) : [];
 }

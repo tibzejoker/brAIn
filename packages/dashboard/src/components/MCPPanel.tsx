@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { patchNodeConfig } from "../api/client";
+import { patchNodeConfig, sendToNode, getMessages } from "../api/client";
 
 /**
  * Per-instance MCP server config editor for an mcp-host node.
@@ -40,6 +40,13 @@ interface ServerSummary {
   transport: "stdio" | "http" | "sse" | "ws";
   endpoint: string;
   raw: Record<string, unknown>;
+}
+
+interface ServerStatus {
+  name: string;
+  status: "connected" | "error" | "pending";
+  toolCount?: number;
+  error?: string;
 }
 
 function summarize(name: string, raw: Record<string, unknown>): ServerSummary | null {
@@ -101,20 +108,66 @@ const DEFAULT_TEMPLATE = `{
 }`;
 
 export function MCPPanel({ nodeId, configOverrides, onChanged }: MCPPanelProps): React.ReactElement {
-  const servers = useMemo(() => readServers(configOverrides), [configOverrides]);
+  // Local override of the source-of-truth so saving immediately
+  // reflects in the UI (deletes disappear, adds show up) without
+  // waiting for the parent's network refresh to round-trip.
+  const [localOverrides, setLocalOverrides] = useState<Record<string, unknown> | null>(null);
+  const effectiveOverrides = localOverrides ?? configOverrides;
 
+  // When the parent's config matches our local override (refresh
+  // caught up), drop the override so we trust the parent again.
+  useEffect(() => {
+    if (localOverrides
+        && JSON.stringify(localOverrides.mcpServers) === JSON.stringify(configOverrides.mcpServers)) {
+      setLocalOverrides(null);
+    }
+  }, [configOverrides, localOverrides]);
+
+  const servers = useMemo(() => readServers(effectiveOverrides), [effectiveOverrides]);
+
+  const [statuses, setStatuses] = useState<Record<string, ServerStatus | undefined>>({});
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [savedAt, setSavedAt] = useState<number | null>(null);
 
+  // Poll mcp.host.status from this node every 2 s — the host
+  // re-publishes after each reconcile so we get connected/error
+  // state including the SDK's underlying error message.
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = async (): Promise<void> => {
+      try {
+        if (cancelled) return;
+        const msgs = await getMessages({ topic: "mcp.host.status", last: 50 });
+        if (cancelled as boolean) return;
+        const fromThis = msgs.filter((m) => m.from === nodeId);
+        if (fromThis.length === 0) return;
+        const latest = fromThis[fromThis.length - 1];
+        const meta = latest.metadata as { servers?: Array<{ name: string; status: "connected" | "error"; toolCount?: number; error?: string }> } | undefined;
+        if (!meta?.servers) return;
+        const next: Record<string, ServerStatus | undefined> = {};
+        for (const s of meta.servers) {
+          next[s.name] = { name: s.name, status: s.status, toolCount: s.toolCount, error: s.error };
+        }
+        setStatuses(next);
+      } catch { /* silent — periodic poll */ }
+    };
+    void refresh();
+    // Also publish a status request so we get an immediate status
+    // even without a recent reconcile.
+    void sendToNode(nodeId, "mcp.host.status.request", "").catch(() => { /* may be filtered by anti-loop, the periodic refresh still works */ });
+    const iv = setInterval(refresh, 2000);
+    return (): void => { cancelled = true; clearInterval(iv); };
+  }, [nodeId]);
+
   const openEditor = useCallback((): void => {
-    const initial = configOverrides.mcpServers ?? configOverrides.servers ?? {};
+    const initial = effectiveOverrides.mcpServers ?? effectiveOverrides.servers ?? {};
     setDraft(JSON.stringify({ mcpServers: initial }, null, 2));
     setError(null);
     setEditing(true);
-  }, [configOverrides]);
+  }, [effectiveOverrides]);
 
   const cancelEdit = useCallback((): void => {
     setEditing(false);
@@ -137,7 +190,18 @@ export function MCPPanel({ nodeId, configOverrides, onChanged }: MCPPanelProps):
       }
       // Patch — also clear any legacy `servers` array so the new
       // shape wins cleanly. `null` deletes a key per the API contract.
-      await patchNodeConfig(nodeId, { mcpServers: map, servers: null });
+      const res = await patchNodeConfig(nodeId, { mcpServers: map, servers: null });
+      // Optimistic local update so the UI reflects deletes / adds
+      // before the parent's network refresh round-trips.
+      setLocalOverrides(res.config_overrides);
+      // Drop stale statuses for servers that are no longer in the
+      // config — they'll be re-populated by the next reconcile poll.
+      setStatuses((prev) => {
+        const wantedNames = new Set(Object.keys(map));
+        const next: Record<string, ServerStatus | undefined> = {};
+        for (const [k, v] of Object.entries(prev)) if (wantedNames.has(k)) next[k] = v;
+        return next;
+      });
       setEditing(false);
       setSavedAt(Date.now());
       onChanged();
@@ -181,19 +245,40 @@ export function MCPPanel({ nodeId, configOverrides, onChanged }: MCPPanelProps):
             </div>
           )}
 
-          {servers.map((s) => (
-            <div key={s.name} className="py-2 px-1 border-b border-border/30 last:border-0">
-              <div className="flex items-center gap-2">
-                <span className="text-sm font-medium text-text">{s.name}</span>
-                <span className={`px-1.5 py-0.5 text-[10px] rounded font-mono ${transportTone(s.transport)}`}>
-                  {s.transport}
-                </span>
+          {servers.map((s) => {
+            const st = statuses[s.name];
+            const dotColor =
+              st?.status === "connected" ? "bg-node-active" :
+              st?.status === "error"     ? "bg-node-stopped" :
+                                           "bg-text-muted/40";
+            return (
+              <div key={s.name} className="py-2 px-1 border-b border-border/30 last:border-0">
+                <div className="flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full ${dotColor}`} title={st?.status ?? "pending"} />
+                  <span className="text-sm font-medium text-text">{s.name}</span>
+                  <span className={`px-1.5 py-0.5 text-[10px] rounded font-mono ${transportTone(s.transport)}`}>
+                    {s.transport}
+                  </span>
+                  {st?.status === "connected" && (
+                    <span className="text-[10px] text-text-muted ml-auto">
+                      {st.toolCount ?? 0} tool{(st.toolCount ?? 0) > 1 ? "s" : ""}
+                    </span>
+                  )}
+                  {st?.status === "error" && (
+                    <span className="text-[10px] text-node-stopped ml-auto font-semibold">error</span>
+                  )}
+                </div>
+                <p className="text-[11px] text-text-muted font-mono mt-0.5 break-all">
+                  {s.endpoint}
+                </p>
+                {st?.status === "error" && st.error && (
+                  <p className="text-[11px] text-node-stopped font-mono mt-1 break-words bg-node-stopped/10 rounded px-2 py-1">
+                    {st.error}
+                  </p>
+                )}
               </div>
-              <p className="text-[11px] text-text-muted font-mono mt-0.5 break-all">
-                {s.endpoint}
-              </p>
-            </div>
-          ))}
+            );
+          })}
 
           {savedAt !== null && (
             <div className="mt-3 px-2 py-1 text-[11px] text-node-active bg-node-active/10 rounded">
