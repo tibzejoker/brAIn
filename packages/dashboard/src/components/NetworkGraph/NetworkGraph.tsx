@@ -88,7 +88,12 @@ function topicColor(topic: string): string {
   return `hsl(${Math.abs(hash) % 360}, 70%, 65%)`;
 }
 
-function matchWildcard(pattern: string, topic: string): boolean {
+function matchWildcard(pattern: string | undefined | null, topic: string | undefined | null): boolean {
+  // Defensive: a transient malformed snapshot (e.g. just-spawned node
+  // with subscriptions still being wired) can hand us undefined here.
+  // Returning false instead of crashing keeps the whole dashboard up
+  // — the missed edge re-appears on the next snapshot poll.
+  if (!pattern || !topic) return false;
   if (pattern === topic) return true;
   if (pattern === "*") return true;
   if (pattern.endsWith(".*")) {
