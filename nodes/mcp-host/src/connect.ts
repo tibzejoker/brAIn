@@ -63,6 +63,11 @@ export interface Instance {
 }
 
 function buildTransport(spec: NormalizedSpec, nodeId: string, emit: (e: OAuthEvent) => void): AnyTransport {
+  const oauthOpts = {
+    clientId: spec.oauthClientId,
+    clientSecret: spec.oauthClientSecret,
+    scope: spec.oauthScope,
+  };
   switch (spec.transport) {
     case "stdio":
       return new StdioClientTransport({
@@ -74,14 +79,14 @@ function buildTransport(spec: NormalizedSpec, nodeId: string, emit: (e: OAuthEve
       const headers = expandRecord(spec.headers);
       return new StreamableHTTPClientTransport(new URL(spec.url ?? ""), {
         requestInit: headers ? { headers } : undefined,
-        authProvider: new BrainOAuthProvider(nodeId, spec.name, emit),
+        authProvider: new BrainOAuthProvider(nodeId, spec.name, emit, oauthOpts),
       });
     }
     case "sse": {
       const headers = expandRecord(spec.headers);
       return new SSEClientTransport(new URL(spec.url ?? ""), {
         requestInit: headers ? { headers } : undefined,
-        authProvider: new BrainOAuthProvider(nodeId, spec.name, emit),
+        authProvider: new BrainOAuthProvider(nodeId, spec.name, emit, oauthOpts),
       });
     }
     case "ws":

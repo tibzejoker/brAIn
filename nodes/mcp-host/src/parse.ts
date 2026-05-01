@@ -21,6 +21,18 @@ export interface NormalizedSpec {
   env?: Record<string, string>;
   url?: string;
   headers?: Record<string, string>;
+  /**
+   * Pre-registered OAuth client info, used when the auth server
+   * does NOT accept Dynamic Client Registration (RFC 7591) — e.g.
+   * GitHub Copilot MCP. The user creates an OAuth App on the
+   * provider's developer settings, sets the callback URL to
+   * http://localhost:3000/mcp/oauth/callback, and pastes the
+   * resulting client_id (and client_secret if confidential) here.
+   */
+  oauthClientId?: string;
+  oauthClientSecret?: string;
+  /** Optional space-separated OAuth scopes to request. */
+  oauthScope?: string;
 }
 
 export function expandEnv(input: string): string {
@@ -65,6 +77,9 @@ export function normalizeSpec(name: string, raw: Record<string, unknown>): Norma
     env: typeof raw.env === "object" && raw.env !== null ? raw.env as Record<string, string> : undefined,
     url,
     headers: typeof raw.headers === "object" && raw.headers !== null ? raw.headers as Record<string, string> : undefined,
+    oauthClientId: typeof raw.oauthClientId === "string" ? expandEnv(raw.oauthClientId) : undefined,
+    oauthClientSecret: typeof raw.oauthClientSecret === "string" ? expandEnv(raw.oauthClientSecret) : undefined,
+    oauthScope: typeof raw.oauthScope === "string" ? raw.oauthScope : undefined,
   };
 }
 

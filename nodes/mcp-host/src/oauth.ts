@@ -95,23 +95,33 @@ export function decodeState(s: string): { nodeId: string; serverName: string } |
   } catch { return null; }
 }
 
+export interface BrainOAuthOptions {
+  /** Pre-registered OAuth client_id (skips DCR). */
+  clientId?: string;
+  clientSecret?: string;
+  scope?: string;
+}
+
 export class BrainOAuthProvider implements OAuthClientProvider {
   constructor(
     private readonly nodeId: string,
     private readonly serverName: string,
     private readonly emit: OAuthEmit,
+    private readonly opts: BrainOAuthOptions = {},
   ) {}
 
   get redirectUrl(): string { return REDIRECT_URL; }
 
   get clientMetadata(): OAuthClientMetadata {
-    return {
+    const md: OAuthClientMetadata = {
       client_name: `brAIn-mcp-host:${this.nodeId.slice(0, 8)}/${this.serverName}`,
       redirect_uris: [REDIRECT_URL],
       grant_types: ["authorization_code", "refresh_token"],
       response_types: ["code"],
-      token_endpoint_auth_method: "none",
+      token_endpoint_auth_method: this.opts.clientSecret ? "client_secret_post" : "none",
     };
+    if (this.opts.scope) md.scope = this.opts.scope;
+    return md;
   }
 
   state(): string {
@@ -119,6 +129,17 @@ export class BrainOAuthProvider implements OAuthClientProvider {
   }
 
   clientInformation(): OAuthClientInformationMixed | undefined {
+    // Pre-registered creds take precedence over anything stored from
+    // a previous DCR attempt — needed for servers (GitHub Copilot
+    // MCP) that don't support DCR and require a user-created OAuth
+    // App.
+    if (this.opts.clientId) {
+      return {
+        client_id: this.opts.clientId,
+        client_secret: this.opts.clientSecret,
+        redirect_uris: [REDIRECT_URL],
+      } as OAuthClientInformationFull;
+    }
     const s = loadState(this.nodeId, this.serverName);
     return s.clientInformation;
   }
