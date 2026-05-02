@@ -5,9 +5,12 @@
   "default_authority": 1,
   "default_priority": 3,
   "default_subscriptions": [
-    { "topic": "mcp.config.reload" }
+    { "topic": "mcp.config.reload" },
+    { "topic": "mcp.config.tools.request" },
+    { "topic": "mcp.config.call" },
+    { "topic": "mcp.config.set" }
   ],
-  "default_publishes": ["mcp.config.status"],
+  "default_publishes": ["mcp.config.status", "mcp.config.tools", "mcp.config.call.result"],
   "has_ui": true,
   "supports_transport": ["process"]
 }

@@ -16,6 +16,7 @@ const SCHEMA = `
     config_overrides TEXT NOT NULL DEFAULT '{}',
     position_x REAL NOT NULL DEFAULT 0,
     position_y REAL NOT NULL DEFAULT 0,
+    spawned_by TEXT,
     created_at INTEGER NOT NULL
   );
 
@@ -72,6 +73,13 @@ export function getDb(dbPath?: string): Database.Database {
   db.pragma("foreign_keys = ON");
   db.exec(SCHEMA);
 
+  // Lightweight forward-only migrations for columns added after the
+  // initial schema landed. SQLite has no `ADD COLUMN IF NOT EXISTS`,
+  // so we try-catch the "duplicate column" case rather than reading
+  // pragma table_info first.
+  try { db.exec("ALTER TABLE node_instances ADD COLUMN spawned_by TEXT"); }
+  catch { /* already exists */ }
+
   logger.info({ path: resolvedPath }, "Database initialized");
   return db;
 }
@@ -95,6 +103,7 @@ export interface SavedNode {
   config_overrides: string;
   position_x: number;
   position_y: number;
+  spawned_by: string | null;
   created_at: number;
 }
 
@@ -112,8 +121,8 @@ export function saveNode(
   node: SavedNode,
 ): void {
   db.prepare(`
-    INSERT OR REPLACE INTO node_instances (id, type, name, description, tags, authority_level, priority, transport, config_overrides, position_x, position_y, created_at)
-    VALUES (@id, @type, @name, @description, @tags, @authority_level, @priority, @transport, @config_overrides, @position_x, @position_y, @created_at)
+    INSERT OR REPLACE INTO node_instances (id, type, name, description, tags, authority_level, priority, transport, config_overrides, position_x, position_y, spawned_by, created_at)
+    VALUES (@id, @type, @name, @description, @tags, @authority_level, @priority, @transport, @config_overrides, @position_x, @position_y, @spawned_by, @created_at)
   `).run(node);
 }
 

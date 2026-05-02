@@ -122,6 +122,7 @@ export async function spawnNode(
     config_overrides: JSON.stringify(config.config_overrides ?? {}),
     position_x: nodeInfo.position.x,
     position_y: nodeInfo.position.y,
+    spawned_by: nodeInfo.spawned_by ?? null,
     created_at: nodeInfo.created_at,
   });
 

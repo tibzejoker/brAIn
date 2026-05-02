@@ -1,0 +1,14 @@
+{
+  "name": "mcp-export",
+  "description": "Exposes brAIn nodes as an external MCP server. The mirror of mcp-server: instead of consuming an external MCP, it spins up an HTTP MCP endpoint where each declared tool maps to a bus topic. When a remote MCP client (Claude Code, Cursor, …) calls a tool, the node publishes on the topic, awaits the reply, and returns it. One mcp-export instance = one HTTP endpoint; spawn multiple if you want different curated tool sets.",
+  "tags": ["service", "mcp", "export"],
+  "default_authority": 0,
+  "default_priority": 3,
+  "default_subscriptions": [
+    { "topic": "mcp.export.reply.*" },
+    { "topic": "mcp.export.reload" }
+  ],
+  "default_publishes": [],
+  "has_ui": true,
+  "supports_transport": ["process"]
+}

@@ -76,6 +76,7 @@ export async function restoreNodes(opts: {
       position: { x: saved.position_x, y: saved.position_y },
       config_overrides: JSON.parse(saved.config_overrides) as Record<string, unknown>,
       default_publishes: typeConfig?.default_publishes,
+      spawned_by: saved.spawned_by ?? undefined,
       created_at: saved.created_at,
     };
 

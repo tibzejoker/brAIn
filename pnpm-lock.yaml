@@ -381,9 +381,28 @@ importers:
 
   nodes/mcp-config:
     dependencies:
+      '@brain/core':
+        specifier: workspace:*
+        version: link:../../packages/core
       '@brain/sdk':
         specifier: workspace:*
         version: link:../../packages/sdk
+    devDependencies:
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+
+  nodes/mcp-export:
+    dependencies:
+      '@brain/core':
+        specifier: workspace:*
+        version: link:../../packages/core
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../packages/sdk
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.3.6)
     devDependencies:
       typescript:
         specifier: ^5.4.0

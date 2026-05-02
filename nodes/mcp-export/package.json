@@ -1,5 +1,5 @@
 {
-  "name": "@brain/node-mcp-config",
+  "name": "@brain/node-mcp-export",
   "version": "0.1.0",
   "private": true,
   "main": "dist/handler.js",
@@ -10,7 +10,8 @@
   },
   "dependencies": {
     "@brain/sdk": "workspace:*",
-    "@brain/core": "workspace:*"
+    "@brain/core": "workspace:*",
+    "@modelcontextprotocol/sdk": "^1.29.0"
   },
   "devDependencies": {
     "typescript": "^5.4.0"

@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>brAIn — MCP Export</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #0f1117; --surface: #1a1d27; --surface2: #22252f; --border: #2a2d3a;
+      --text: #e2e4e9; --muted: #8b8fa3; --accent: #6366f1;
+      --green: #22c55e; --amber: #f59e0b; --red: #ef4444; --cyan: #06b6d4;
+    }
+    body { background: var(--bg); color: var(--text); font-family: "Inter", system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; font-size: 13px; }
+    .header { padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--surface); display: flex; align-items: center; gap: 10px; }
+    .header h1 { font-size: 14px; font-weight: 600; }
+    .header .grow { flex: 1; }
+    .header .badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(99,102,241,0.2); color: var(--accent); font-family: "SF Mono", monospace; }
+    .header .saved { font-size: 11px; color: var(--green); opacity: 0; transition: opacity 0.2s; }
+    .header .saved.show { opacity: 1; }
+
+    .main { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+    h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); padding: 12px 14px 6px; }
+    textarea {
+      flex: 1; background: var(--surface2); border: none; color: var(--text);
+      padding: 10px 14px; font-size: 12px; font-family: "SF Mono", monospace;
+      resize: none; line-height: 1.55;
+    }
+    textarea:focus { outline: none; }
+
+    .toolbar { padding: 8px 14px; border-top: 1px solid var(--border); background: var(--surface); display: flex; gap: 8px; align-items: center; }
+    .btn { padding: 6px 12px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); cursor: pointer; font-size: 11px; font-family: inherit; }
+    .btn:hover { border-color: var(--accent); color: var(--accent); }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .err {
+      flex: 1; padding: 6px 10px; border-radius: 4px; background: rgba(239,68,68,0.12);
+      color: var(--red); font-size: 11px; font-family: "SF Mono", monospace;
+      white-space: pre-wrap; word-break: break-word;
+    }
+    .endpoint { padding: 8px 14px; font-size: 12px; color: var(--muted); border-top: 1px solid var(--border); background: var(--surface); display: flex; align-items: center; gap: 8px; }
+    .endpoint code { font-family: "SF Mono", monospace; color: var(--cyan); background: var(--surface2); padding: 2px 8px; border-radius: 3px; }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <h1>MCP Export</h1>
+    <span class="badge" id="port-badge">:----</span>
+    <span class="grow"></span>
+    <span class="saved" id="saved">Saved · server reloading</span>
+  </header>
+
+  <div class="main">
+    <h2>Tool bindings (port + topic mapping)</h2>
+    <textarea id="json-editor" spellcheck="false"></textarea>
+    <div class="toolbar">
+      <button class="btn" id="btn-template">Insert template</button>
+      <span class="err" id="err" style="display:none"></span>
+      <span style="flex:1"></span>
+      <button class="btn primary" id="btn-save">Save & restart server</button>
+    </div>
+    <div class="endpoint">
+      MCP endpoint: <code id="endpoint-url">http://localhost:----/mcp</code>
+      <span style="flex:1"></span>
+      <span style="font-size: 11px;">Connect a client (Claude Code, Cursor) to this URL.</span>
+    </div>
+  </div>
+
+  <script>
+    const NODE_ID = location.pathname.match(/\/nodes\/([^/]+)\/ui/)?.[1];
+    if (!NODE_ID) { document.body.innerHTML = "<p style='padding:20px'>No node id</p>"; throw new Error(); }
+
+    const TEMPLATE = JSON.stringify({
+      port: 4000,
+      tools: [
+        {
+          name: "ask_brain",
+          description: "Ask the central brAIn node a question",
+          topic: "brain.ask",
+          inputSchema: {
+            type: "object",
+            properties: { question: { type: "string", description: "What to ask" } },
+            required: ["question"],
+          },
+          timeoutMs: 30000,
+        },
+        {
+          name: "search_memory",
+          description: "Search the persistent memory store",
+          topic: "mem.ask",
+          inputSchema: {
+            type: "object",
+            properties: { query: { type: "string" } },
+            required: ["query"],
+          },
+        },
+      ],
+    }, null, 2);
+
+    const editor = document.getElementById("json-editor");
+    const errEl = document.getElementById("err");
+    const savedEl = document.getElementById("saved");
+    const portBadge = document.getElementById("port-badge");
+    const endpointEl = document.getElementById("endpoint-url");
+
+    let focused = false;
+    editor.addEventListener("focus", () => { focused = true; });
+    editor.addEventListener("blur", () => { focused = false; });
+
+    function showErr(msg) { errEl.textContent = msg; errEl.style.display = msg ? "" : "none"; }
+    function flashSaved() { savedEl.classList.add("show"); setTimeout(() => savedEl.classList.remove("show"), 3000); }
+
+    function validate(text) {
+      let parsed;
+      try { parsed = JSON.parse(text); } catch (e) { throw new Error("Invalid JSON: " + e.message); }
+      if (typeof parsed !== "object" || parsed === null) throw new Error("Top-level must be an object");
+      if (typeof parsed.port !== "number") throw new Error("`port` must be a number");
+      if (!Array.isArray(parsed.tools)) throw new Error("`tools` must be an array");
+      for (const [i, t] of parsed.tools.entries()) {
+        if (typeof t !== "object" || t === null) throw new Error(`tools[${i}]: must be an object`);
+        if (typeof t.name !== "string") throw new Error(`tools[${i}].name: required string`);
+        if (typeof t.topic !== "string") throw new Error(`tools[${i}].topic: required string`);
+      }
+      return parsed;
+    }
+
+    editor.addEventListener("input", () => {
+      try { const cfg = validate(editor.value); showErr(""); updatePort(cfg.port); }
+      catch (e) { showErr(e.message); }
+    });
+
+    function updatePort(p) {
+      portBadge.textContent = `:${p}`;
+      endpointEl.textContent = `http://localhost:${p}/mcp`;
+    }
+
+    document.getElementById("btn-template").onclick = () => {
+      editor.value = TEMPLATE; editor.dispatchEvent(new Event("input"));
+    };
+
+    document.getElementById("btn-save").onclick = async () => {
+      let cfg;
+      try { cfg = validate(editor.value); }
+      catch (e) { showErr(e.message); return; }
+      try {
+        const r = await fetch(`/nodes/${NODE_ID}/config`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ port: cfg.port, tools: cfg.tools }),
+        });
+        if (!r.ok) throw new Error((await r.json()).error || `HTTP ${r.status}`);
+        flashSaved();
+        showErr("");
+      } catch (e) { showErr("Save failed: " + e.message); }
+    };
+
+    async function refresh() {
+      if (focused) return;
+      try {
+        const net = await (await fetch("/network")).json();
+        const self = net.nodes.find(n => n.id === NODE_ID);
+        const overrides = self?.config_overrides ?? {};
+        const cfg = { port: overrides.port ?? 4000, tools: overrides.tools ?? [] };
+        const serialized = JSON.stringify(cfg, null, 2);
+        if (editor.value !== serialized) {
+          editor.value = serialized;
+          updatePort(cfg.port);
+        }
+      } catch { /* silent */ }
+    }
+    refresh();
+    setInterval(refresh, 2000);
+  </script>
+</body>
+</html>

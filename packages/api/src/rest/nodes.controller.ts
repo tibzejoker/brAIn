@@ -151,6 +151,16 @@ export class NodesController {
         metadata: { node_id: id },
       });
     }
+    // mcp-export: rebuild the HTTP server when port or tools change.
+    if (node.type === "mcp-export" && ("port" in body || "tools" in body)) {
+      this.brain.bus.publish({
+        from: "system.api",
+        topic: "mcp.export.reload",
+        type: "text", criticality: 1,
+        payload: { content: JSON.stringify({ node_id: id }) },
+        metadata: { node_id: id },
+      });
+    }
     return { updated: true, node_id: id, config_overrides: overrides };
   }
 
