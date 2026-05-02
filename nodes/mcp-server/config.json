@@ -1,0 +1,10 @@
+{
+  "name": "mcp-server",
+  "description": "Bridges ONE external MCP server onto the brAIn bus. Each tool becomes its own topic — `mcp.<alias>.<tool>` — so callers wire to capabilities directly without going through a generic `mcp.call`. Status, OAuth, and tools list are surfaced on `mcp.<alias>.status|tools|oauth.required`. Spawned by mcp-config, never by a human.",
+  "tags": ["service", "mcp", "tools"],
+  "default_authority": 0,
+  "default_priority": 3,
+  "default_subscriptions": [],
+  "default_publishes": [],
+  "supports_transport": ["process"]
+}

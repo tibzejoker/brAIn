@@ -2,11 +2,10 @@ import { useCallback, useState, useEffect, useRef } from "react";
 import type { NodeSnapshot } from "../api/types";
 import { killNode, stopNode, startNode, wakeNode, tickNode, getNodeLogs, getNodeMailboxes, getNodeDeadLetters, type NodeLogEntry, type MailboxInfo, type DeadLetterEntry } from "../api/client";
 import { DeadLetterTab } from "./DeadLetterTab";
-import { MCPPanel } from "./MCPPanel";
 import { TabButton, InfoRow, ActionButton } from "./NodePanelHelpers";
 
 function noop(): void { /* best-effort */ }
-type PanelTab = "info" | "logs" | "mailbox" | "dlq" | "mcp";
+type PanelTab = "info" | "logs" | "mailbox" | "dlq";
 
 interface NodePanelProps {
   node: NodeSnapshot;
@@ -128,9 +127,6 @@ export function NodePanel({
           onClick={() => setTab("dlq")}
           warn={deadLetters.length > 0}
         />
-        {node.type === "mcp-host" && (
-          <TabButton label="MCP" active={tab === "mcp"} onClick={() => setTab("mcp")} />
-        )}
       </div>
 
       {/* Tab content */}
@@ -251,14 +247,6 @@ export function NodePanel({
       )}
 
       {tab === "dlq" && <DeadLetterTab entries={deadLetters} />}
-
-      {tab === "mcp" && node.type === "mcp-host" && (
-        <MCPPanel
-          nodeId={node.id}
-          configOverrides={node.config_overrides ?? {}}
-          onChanged={onAction}
-        />
-      )}
 
       {/* Actions */}
       <div className="p-4 border-t border-border flex flex-wrap gap-2">

@@ -144,7 +144,11 @@ export async function spawnNode(
   const runner = createRunner(
     nodeInfo,
     handler,
-    { bus: deps.bus, registry: deps.instanceRegistry, sleepService: deps.sleepService },
+    {
+      bus: deps.bus, registry: deps.instanceRegistry, sleepService: deps.sleepService,
+      spawnNode: (c, caller) => spawnNode(deps, c, caller),
+      killNode: (id, caller, reason) => killNode(deps, id, caller, reason),
+    },
     deps.globalRunMode,
     teardown,
     onSpawn,
@@ -273,7 +277,11 @@ export async function startNode(
 
   const runner = createRunner(
     node, handler,
-    { bus: deps.bus, registry: deps.instanceRegistry, sleepService: deps.sleepService },
+    {
+      bus: deps.bus, registry: deps.instanceRegistry, sleepService: deps.sleepService,
+      spawnNode: (c, caller) => spawnNode(deps, c, caller),
+      killNode: (id, caller, reason) => killNode(deps, id, caller, reason),
+    },
     deps.globalRunMode,
     teardown,
     onSpawn,

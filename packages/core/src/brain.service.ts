@@ -207,6 +207,8 @@ export class BrainService extends EventEmitter {
       instanceRegistry: this.instanceRegistry, sleepService: this.sleepService,
       runners: this.runners, globalRunMode: this.globalRunMode,
       loadHandler: this.loadHandler.bind(this),
+      spawnNode: (c, caller) => this.spawnNode(c, caller),
+      killNode: (id, caller, reason) => this.killNode(id, caller, reason),
     });
     this.sleepService.restoreSleepStates((nodeId) => { logger.info({ nodeId }, "Runner wake after restore"); });
     return restored;

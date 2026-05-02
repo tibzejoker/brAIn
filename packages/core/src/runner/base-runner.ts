@@ -4,21 +4,14 @@ import {
   type NodeOnSpawn,
   type NodeTeardown,
   type NodeContext,
+  type NodeInstanceConfig,
   type Message,
   type WakeCondition,
-  type ReadMessagesOptions,
-  type MailboxConfig,
-  type LLMRequest,
-  type LLMResponse,
-  type FileOpts,
-  type FileRef,
-  type FileContent,
-  type FileFilter,
-  type FileInfo,
   type PreemptionContext,
   type RunMode,
   NodeState,
 } from "@brain/sdk";
+import { buildNodeContext } from "./context-builder";
 import type { IBusService } from "../bus/bus.interface";
 import type { InstanceRegistry } from "../registry/instance-registry";
 import type { SleepService } from "./sleep.service";
@@ -33,6 +26,16 @@ export interface RunnerDeps {
   bus: IBusService;
   registry: InstanceRegistry;
   sleepService: SleepService;
+  /**
+   * Optional bridges back to the lifecycle. When provided, `ctx.spawn`
+   * / `ctx.kill` route through them with the running node's id as
+   * caller (so AuthorityService gates the operation). The brain
+   * service wires these to its own `spawnNode` / `killNode`. Tests
+   * with a stubbed runner can omit them — handlers that try to use
+   * `ctx.spawn` without them get a clear error.
+   */
+  spawnNode?: (config: NodeInstanceConfig, caller?: string) => Promise<NodeInfo>;
+  killNode?: (id: string, caller?: string, reason?: string) => boolean;
 }
 
 /**
@@ -103,7 +106,19 @@ export abstract class BaseRunner {
     this.deps.bus.on(`message:${this.nodeInfo.id}`, this.messageListener);
 
     this.watcherTimer = setInterval(() => { this.tryRun(); }, WATCHER_INTERVAL_MS);
-    this.runOnSpawn();
+    void this.bootstrap();
+  }
+
+  /**
+   * Run `onSpawn` to completion BEFORE the first handler tick, so
+   * handlers that initialise per-instance state in onSpawn don't
+   * race the runner's first invocation. Without this, zero-subscription
+   * nodes can land in the handler before their onSpawn microtask
+   * fires (handler runs synchronously up to its first await, while
+   * onSpawn is queued on the microtask queue).
+   */
+  private async bootstrap(): Promise<void> {
+    await this.runOnSpawn();
     // Nodes with at least one subscription bootstrap reactively when a
     // matching message lands. Nodes with zero subscriptions (clock,
     // cron, anything purely timer-based) would otherwise never fire,
@@ -117,18 +132,16 @@ export abstract class BaseRunner {
     }
   }
 
-  private runOnSpawn(): void {
+  private async runOnSpawn(): Promise<void> {
     if (this.onSpawnFired) return;
     this.onSpawnFired = true;
     const fn = this.onSpawn;
     if (!fn) return;
-    const info = this.nodeInfo;
-    void Promise.resolve()
-      .then(() => fn(info))
-      .catch((err: unknown) => {
-        this.log.error(`onSpawn failed: ${err instanceof Error ? err.message : String(err)}`);
-        logger.error({ err, node: this.nodeInfo.name }, "onSpawn failed");
-      });
+    try { await fn(this.nodeInfo); }
+    catch (err) {
+      this.log.error(`onSpawn failed: ${err instanceof Error ? err.message : String(err)}`);
+      logger.error({ err, node: this.nodeInfo.name }, "onSpawn failed");
+    }
   }
 
   stop(): void {
@@ -314,73 +327,26 @@ export abstract class BaseRunner {
     this.enterSleep();
   }
 
-  // === Context builder ===
+  // === Context builder (delegated to ./context-builder) ===
 
   protected buildContext(
     messages: Message[],
     signal: AbortSignal,
     preemption: PreemptionContext | null,
   ): NodeContext {
-    const nodeId = this.nodeInfo.id;
-    const bus = this.deps.bus;
-    const self = this;
-
-    // Resolve response topic: config override > default_publishes[0]
-    const responseTopic = (self.nodeInfo.config_overrides?.response_topic as string | undefined)
-      ?? self.nodeInfo.default_publishes?.[0]
-      ?? "";
-
-    // Causal-trace inheritance: when the handler publishes during an
-    // iteration, fold in the trace_id of one of the messages it's
-    // processing as `parent_id`. The bus then inherits trace_id from
-    // that parent. We pick the first message's id for stability —
-    // handlers fanning out to many topics still share one trace.
-    const parentId = messages.length > 0 ? messages[0].id : undefined;
-
-    return {
-      messages,
-      readMessages: (opts?: ReadMessagesOptions): Message[] => bus.readMessages(nodeId, opts),
-      respond(content: string, metadata?: Record<string, unknown>): void {
-        if (!responseTopic) {
-          self.log.error("respond() called but no response_topic configured");
-          return;
-        }
-        self.log.info(`respond → ${responseTopic}`);
-        bus.publish({
-          from: nodeId, topic: responseTopic,
-          type: "text", criticality: 1,
-          payload: { content },
-          metadata,
-          parent_id: parentId,
-        });
+    return buildNodeContext(
+      {
+        nodeInfo: this.nodeInfo,
+        state: this.state,
+        log: this.log,
+        iteration: this.iteration,
+        requestSleep: (conditions: WakeCondition[]) => {
+          this.sleepRequested = true;
+          this.pendingSleepConditions = conditions;
+        },
       },
-      publish(topic: string, msg: Omit<Message, "id" | "from" | "timestamp" | "topic">): void {
-        self.log.info(`publish ${topic} (crit:${msg.criticality})`);
-        bus.publish({ ...msg, from: nodeId, topic, parent_id: msg.parent_id ?? parentId });
-      },
-      subscribe(topic: string, mailbox?: Partial<MailboxConfig>): void {
-        self.log.info(`+ subscribe ${topic}`);
-        bus.subscribe(nodeId, topic, { mailbox });
-      },
-      unsubscribe: (topic: string): void => { bus.unsubscribe(nodeId, topic); },
-      sleep: (conditions: WakeCondition[]): void => {
-        self.sleepRequested = true;
-        self.pendingSleepConditions = conditions;
-      },
-      callLLM: (_o: LLMRequest): Promise<LLMResponse> => Promise.reject(new Error("not implemented")),
-      callTool: (_s: string, _t: string, _p: unknown): Promise<unknown> => Promise.reject(new Error("not implemented")),
-      readFile: (_id: string): Promise<FileContent> => Promise.reject(new Error("not implemented")),
-      writeFile: (_n: string, _c: string, _o?: FileOpts): Promise<FileRef> => Promise.reject(new Error("not implemented")),
-      listFiles: (_f?: FileFilter): Promise<FileInfo[]> => Promise.reject(new Error("not implemented")),
-      state: self.state,
-      log: (level: "info" | "warn" | "error" | "debug", message: string, data?: Record<string, unknown>): void => {
-        self.log.add(level, message, data);
-      },
-      node: { ...self.nodeInfo },
-      iteration: self.iteration,
-      wasPreempted: preemption !== null,
-      preemptionContext: preemption ?? undefined,
-      signal,
-    };
+      { bus: this.deps.bus, spawnNode: this.deps.spawnNode, killNode: this.deps.killNode },
+      messages, signal, preemption,
+    );
   }
 }

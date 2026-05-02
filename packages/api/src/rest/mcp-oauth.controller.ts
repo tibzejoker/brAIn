@@ -43,23 +43,17 @@ export class MCPOAuthController {
       return;
     }
 
-    // Route the code back to the right mcp-host instance via the bus.
-    // Publishing from `system.api` keeps anti-loop happy so the node
-    // actually receives its own callback.
+    // Route the code back to the right node via the bus on the
+    // alias-scoped topic `mcp.<alias>.oauth.callback`. Payload is
+    // just `{code}` since the topic itself does the routing.
+    // Publishing from `system.api` keeps anti-loop happy so the
+    // node actually receives its own callback.
     this.brain.bus.publish({
       from: "system.api",
-      topic: "mcp.host.oauth.callback",
+      topic: `mcp.${decoded.serverName}.oauth.callback`,
       type: "text", criticality: 5,
-      payload: {
-        content: JSON.stringify({
-          node_id: decoded.nodeId,
-          server_name: decoded.serverName,
-          code,
-        }),
-      },
-      metadata: {
-        node_id: decoded.nodeId, server_name: decoded.serverName,
-      },
+      payload: { content: JSON.stringify({ code }) },
+      metadata: { node_id: decoded.nodeId, alias: decoded.serverName },
     });
 
     res.status(200).send(html(true, decoded.serverName));

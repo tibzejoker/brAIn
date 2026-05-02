@@ -1,3 +1,5 @@
+import type { NodeInstanceConfig } from "./config";
+
 // === Enums ===
 
 export enum NodeState {
@@ -245,6 +247,22 @@ export interface NodeContext {
 
   // Lifecycle
   sleep(conditions: WakeCondition[]): void;
+
+  /**
+   * Spawn a new node. Requires the caller to have at least ELEVATED
+   * authority — the AuthorityService check on the lifecycle path
+   * enforces this and caps the child's authority at one level below
+   * the caller. Throws if BrainService is not available (e.g. during
+   * isolated tests with a stubbed runner).
+   */
+  spawn(config: NodeInstanceConfig): Promise<NodeInfo>;
+
+  /**
+   * Kill a node by id. Requires ELEVATED+ authority and the target
+   * must have strictly lower authority than the caller. Returns false
+   * if the node doesn't exist; throws on permission denial.
+   */
+  kill(nodeId: string, reason?: string): boolean;
 
   // LLM (optional)
   callLLM(opts: LLMRequest): Promise<LLMResponse>;

@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>brAIn — MCP Config</title>
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+    :root {
+      --bg: #0f1117; --surface: #1a1d27; --surface2: #22252f; --border: #2a2d3a;
+      --text: #e2e4e9; --muted: #8b8fa3; --accent: #6366f1;
+      --green: #22c55e; --amber: #f59e0b; --red: #ef4444; --cyan: #06b6d4;
+    }
+    body { background: var(--bg); color: var(--text); font-family: "Inter", system-ui, sans-serif; height: 100vh; display: flex; flex-direction: column; font-size: 13px; }
+
+    .header { padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--surface); display: flex; align-items: center; gap: 10px; }
+    .header h1 { font-size: 14px; font-weight: 600; }
+    .header .badge { font-size: 10px; padding: 2px 6px; border-radius: 4px; background: rgba(99,102,241,0.2); color: var(--accent); }
+    .header .grow { flex: 1; }
+    .header .saved { font-size: 11px; color: var(--green); opacity: 0; transition: opacity 0.2s; }
+    .header .saved.show { opacity: 1; }
+
+    .main { flex: 1; display: grid; grid-template-columns: 1fr 360px; overflow: hidden; }
+
+    /* Editor pane */
+    .editor { display: flex; flex-direction: column; overflow: hidden; border-right: 1px solid var(--border); }
+    .editor h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); padding: 12px 14px 6px; }
+    .editor textarea {
+      flex: 1; background: var(--surface2); border: none; color: var(--text);
+      padding: 10px 14px; font-size: 12px; font-family: "SF Mono", "Fira Code", monospace;
+      resize: none; line-height: 1.55;
+    }
+    .editor textarea:focus { outline: none; }
+
+    .toolbar { padding: 8px 14px; border-top: 1px solid var(--border); background: var(--surface); display: flex; gap: 8px; align-items: center; }
+    .btn { padding: 6px 12px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface2); color: var(--text); cursor: pointer; font-size: 11px; font-family: inherit; }
+    .btn:hover { border-color: var(--accent); color: var(--accent); }
+    .btn.primary { background: var(--accent); border-color: var(--accent); color: white; }
+    .btn.primary:hover { opacity: 0.9; }
+    .btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .err {
+      flex: 1; padding: 6px 10px; border-radius: 4px; background: rgba(239,68,68,0.12);
+      color: var(--red); font-size: 11px; font-family: "SF Mono", monospace;
+      white-space: pre-wrap; word-break: break-word;
+    }
+
+    /* Children pane */
+    .children { display: flex; flex-direction: column; overflow: hidden; }
+    .children h2 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--muted); padding: 12px 14px 6px; }
+    .child-list { flex: 1; overflow-y: auto; }
+
+    .child {
+      padding: 10px 14px; border-bottom: 1px solid var(--border); display: flex;
+      flex-direction: column; gap: 4px;
+    }
+    .child .row { display: flex; align-items: center; gap: 8px; }
+    .child .name { font-weight: 500; }
+    .child .transport {
+      font-size: 10px; padding: 1px 6px; border-radius: 3px; font-family: "SF Mono", monospace;
+      background: var(--surface2); color: var(--muted);
+    }
+    .child .dot { width: 8px; height: 8px; border-radius: 50%; }
+    .child .dot.connected { background: var(--green); }
+    .child .dot.error { background: var(--red); }
+    .child .dot.pending-auth { background: var(--amber); }
+    .child .dot.unconfigured { background: var(--muted); }
+    .child .meta { font-size: 11px; color: var(--muted); margin-left: auto; }
+    .child .endpoint { font-size: 11px; color: var(--muted); font-family: "SF Mono", monospace; word-break: break-all; }
+    .child .err-msg {
+      font-size: 11px; color: var(--red); background: rgba(239,68,68,0.08);
+      padding: 4px 6px; border-radius: 3px; font-family: "SF Mono", monospace; word-break: break-word;
+    }
+    .child .auth-btn {
+      align-self: flex-start; font-size: 11px; padding: 4px 8px; border-radius: 3px;
+      background: rgba(245,158,11,0.15); color: var(--amber); text-decoration: none;
+    }
+    .child .auth-btn:hover { background: rgba(245,158,11,0.25); }
+    .child .tools {
+      font-size: 11px; color: var(--muted); display: flex; flex-wrap: wrap; gap: 4px;
+      margin-top: 2px;
+    }
+    .child .tool {
+      padding: 1px 6px; border-radius: 3px; background: var(--surface2);
+      font-family: "SF Mono", monospace; font-size: 10px; color: var(--cyan);
+    }
+    .empty { padding: 24px; text-align: center; color: var(--muted); font-size: 12px; }
+  </style>
+</head>
+<body>
+  <header class="header">
+    <h1>MCP Config</h1>
+    <span class="badge" id="alias-count">0 servers</span>
+    <span class="grow"></span>
+    <span class="saved" id="saved-flash">Saved · children reconciling</span>
+  </header>
+
+  <div class="main">
+    <section class="editor">
+      <h2>mcpServers JSON</h2>
+      <textarea id="json-editor" spellcheck="false"></textarea>
+      <div class="toolbar">
+        <button class="btn" id="btn-template">Insert template</button>
+        <span class="err" id="err" style="display:none"></span>
+        <span style="flex:1"></span>
+        <button class="btn primary" id="btn-save">Save & reconcile</button>
+      </div>
+    </section>
+
+    <section class="children">
+      <h2>Spawned servers</h2>
+      <div class="child-list" id="child-list">
+        <div class="empty">No servers configured. Add an entry to <code>mcpServers</code> and save.</div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    const NODE_ID = location.pathname.match(/\/nodes\/([^/]+)\/ui/)?.[1];
+    if (!NODE_ID) { document.body.innerHTML = "<p style='padding:20px'>Could not detect node id from URL.</p>"; throw new Error("no node id"); }
+
+    const TEMPLATE = JSON.stringify({
+      mcpServers: {
+        notion: { type: "http", url: "https://mcp.notion.com/mcp" },
+        filesystem: { command: "npx", args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp"] },
+      },
+    }, null, 2);
+
+    const editor = document.getElementById("json-editor");
+    const aliasCount = document.getElementById("alias-count");
+    const errEl = document.getElementById("err");
+    const savedFlash = document.getElementById("saved-flash");
+    const childList = document.getElementById("child-list");
+
+    function showErr(msg) { errEl.textContent = msg; errEl.style.display = msg ? "" : "none"; }
+    function flashSaved() {
+      savedFlash.classList.add("show");
+      setTimeout(() => savedFlash.classList.remove("show"), 3000);
+    }
+
+    function validate(text) {
+      let parsed;
+      try { parsed = JSON.parse(text); } catch (e) { throw new Error("Invalid JSON: " + e.message); }
+      if (typeof parsed !== "object" || parsed === null) throw new Error("Top-level must be an object");
+      const map = parsed.mcpServers;
+      if (typeof map !== "object" || map === null || Array.isArray(map)) {
+        throw new Error("Expected `mcpServers` to be an object map");
+      }
+      for (const [alias, spec] of Object.entries(map)) {
+        if (typeof spec !== "object" || spec === null) throw new Error(`mcpServers.${alias}: must be an object`);
+        const cmd = spec.command, url = spec.url;
+        if (!cmd && !url) throw new Error(`mcpServers.${alias}: needs either \`command\` (stdio) or \`url\` (http/sse/ws)`);
+      }
+      return map;
+    }
+
+    let focused = false;
+    editor.addEventListener("focus", () => { focused = true; });
+    editor.addEventListener("blur", () => { focused = false; });
+    editor.addEventListener("input", () => {
+      try { validate(editor.value); showErr(""); }
+      catch (e) { showErr(e.message); }
+      const cur = (() => { try { return Object.keys(JSON.parse(editor.value).mcpServers ?? {}).length; } catch { return 0; } })();
+      aliasCount.textContent = `${cur} server${cur === 1 ? "" : "s"}`;
+    });
+
+    document.getElementById("btn-template").onclick = () => {
+      editor.value = TEMPLATE; editor.dispatchEvent(new Event("input"));
+    };
+
+    document.getElementById("btn-save").onclick = async () => {
+      let map;
+      try { map = validate(editor.value); }
+      catch (e) { showErr(e.message); return; }
+      try {
+        const r = await fetch(`/nodes/${NODE_ID}/config`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mcpServers: map }),
+        });
+        if (!r.ok) throw new Error((await r.json()).error || `HTTP ${r.status}`);
+        flashSaved();
+        showErr("");
+      } catch (e) { showErr("Save failed: " + e.message); }
+    };
+
+    // Periodic refresh: load own config + each child's status snapshot.
+    async function refresh() {
+      if (focused) return;
+      try {
+        const net = await (await fetch("/network")).json();
+        const self = net.nodes.find(n => n.id === NODE_ID);
+        const children = net.nodes.filter(n => n.spawned_by === NODE_ID);
+
+        // Sync editor from server config (only when not focused).
+        const map = self?.config_overrides?.mcpServers ?? {};
+        const serialized = JSON.stringify({ mcpServers: map }, null, 2);
+        if (editor.value !== serialized) {
+          editor.value = serialized;
+          aliasCount.textContent = `${Object.keys(map).length} server${Object.keys(map).length === 1 ? "" : "s"}`;
+        }
+
+        // Pull each child's last status from the bus.
+        const statuses = await Promise.all(children.map(async c => {
+          const alias = c.config_overrides?.alias ?? c.name?.replace(/^mcp-/, "") ?? "?";
+          try {
+            const msgs = await (await fetch(`/network/messages?topic=mcp.${alias}.status&last=5`)).json();
+            const last = msgs.filter(m => m.from === c.id).pop();
+            return { alias, child: c, snap: last?.metadata ?? null };
+          } catch { return { alias, child: c, snap: null }; }
+        }));
+
+        renderChildren(statuses);
+      } catch { /* silent */ }
+    }
+
+    function renderChildren(statuses) {
+      if (statuses.length === 0) {
+        childList.innerHTML = `<div class="empty">No servers spawned yet.</div>`;
+        return;
+      }
+      childList.innerHTML = statuses.map(({ alias, child, snap }) => {
+        const status = snap?.status ?? "unconfigured";
+        const transport = snap?.transport ?? child.config_overrides?.spec?.type ?? "?";
+        const endpoint = snap?.url ?? snap?.command ?? "(unknown)";
+        const tools = snap?.tools ?? [];
+        const errMsg = status === "error" ? snap?.error : null;
+        const authUrl = status === "pending-auth" ? snap?.authorizationUrl : null;
+        return `
+          <div class="child">
+            <div class="row">
+              <span class="dot ${status}"></span>
+              <span class="name">${escapeHtml(alias)}</span>
+              <span class="transport">${escapeHtml(transport)}</span>
+              ${status === "connected" ? `<span class="meta">${tools.length} tool${tools.length === 1 ? "" : "s"}</span>` : ""}
+              ${status === "error" ? `<span class="meta" style="color:var(--red)">error</span>` : ""}
+              ${status === "pending-auth" ? `<span class="meta" style="color:var(--amber)">OAuth needed</span>` : ""}
+            </div>
+            <div class="endpoint">${escapeHtml(endpoint)}</div>
+            ${errMsg ? `<div class="err-msg">${escapeHtml(errMsg)}</div>` : ""}
+            ${authUrl ? `<a class="auth-btn" target="_blank" rel="noopener noreferrer" href="${escapeAttr(authUrl)}">Authorize in browser →</a>` : ""}
+            ${tools.length > 0 ? `<div class="tools">${tools.map(t => `<span class="tool" title="${escapeAttr(t.description)}">${escapeHtml(t.name)}</span>`).join("")}</div>` : ""}
+          </div>
+        `;
+      }).join("");
+    }
+
+    function escapeHtml(s) {
+      return String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+    }
+    function escapeAttr(s) { return escapeHtml(s).replace(/`/g, "&#96;"); }
+
+    refresh();
+    setInterval(refresh, 2000);
+  </script>
+</body>
+</html>

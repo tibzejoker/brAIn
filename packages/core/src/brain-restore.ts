@@ -1,4 +1,4 @@
-import { type NodeInfo, type NodeModule, type RunMode, NodeState } from "@brain/sdk";
+import { type NodeInfo, type NodeInstanceConfig, type NodeModule, type RunMode, NodeState } from "@brain/sdk";
 import type Database from "better-sqlite3";
 import { loadAllNodes, loadSubscriptions } from "./db";
 import { logger } from "./logger";
@@ -17,6 +17,8 @@ export async function restoreNodes(opts: {
   runners: Map<string, BaseRunner>;
   globalRunMode: RunMode;
   loadHandler: HandlerLoader;
+  spawnNode?: (config: NodeInstanceConfig, caller?: string) => Promise<NodeInfo>;
+  killNode?: (id: string, caller?: string, reason?: string) => boolean;
 }): Promise<number> {
   const savedNodes = loadAllNodes(opts.db);
   let restored = 0;
@@ -89,7 +91,11 @@ export async function restoreNodes(opts: {
     const runner = createRunner(
       nodeInfo,
       mod.handler,
-      { bus: opts.bus, registry: opts.instanceRegistry, sleepService: opts.sleepService },
+      {
+        bus: opts.bus, registry: opts.instanceRegistry, sleepService: opts.sleepService,
+        spawnNode: opts.spawnNode,
+        killNode: opts.killNode,
+      },
       opts.globalRunMode,
       mod.teardown,
       mod.onSpawn,

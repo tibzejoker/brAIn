@@ -1,5 +1,5 @@
 {
-  "name": "@brain/node-mcp-host",
+  "name": "@brain/node-mcp-config",
   "version": "0.1.0",
   "private": true,
   "main": "dist/handler.js",
@@ -9,9 +9,7 @@
     "dev": "tsc --watch"
   },
   "dependencies": {
-    "@brain/sdk": "workspace:*",
-    "@brain/core": "workspace:*",
-    "@modelcontextprotocol/sdk": "^1.29.0"
+    "@brain/sdk": "workspace:*"
   },
   "devDependencies": {
     "typescript": "^5.4.0"

@@ -1,0 +1,13 @@
+{
+  "name": "mcp-config",
+  "description": "Manager of MCP servers. Owns a single global JSON of {mcpServers: {...}} and reconciles by spawning / killing mcp-server children — one node per entry. The de-facto config shape is the same one Claude Desktop / Cursor / Cline use, so the same JSON works across clients. Validation is enforced before save (no partial writes). Kill this node and all its children stop.",
+  "tags": ["service", "mcp", "manager"],
+  "default_authority": 1,
+  "default_priority": 3,
+  "default_subscriptions": [
+    { "topic": "mcp.config.reload" }
+  ],
+  "default_publishes": ["mcp.config.status"],
+  "has_ui": true,
+  "supports_transport": ["process"]
+}
