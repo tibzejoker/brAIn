@@ -31,3 +31,7 @@ export type {
   StoreRegistry, StoreRepo, StoreNode, StoreNodeStatus, StoreInstallResult,
   StoreCandidate,
 } from "./store";
+export {
+  MCPBridge, toolsForNode, federatedTools, resolveNode,
+} from "./mcp";
+export type { MCPTool, ResolveResult } from "./mcp";

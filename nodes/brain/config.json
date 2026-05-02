@@ -5,8 +5,8 @@
   "default_authority": 2,
   "default_priority": 10,
   "default_subscriptions": [
-    { "topic": "brain.*" },
-    { "topic": "alerts.*" }
+    { "topic": "brain.*", "description": "Anything addressed to the central consciousness — questions, instructions, status updates, etc." },
+    { "topic": "alerts.*", "description": "High-priority alerts from any node that need the brain's attention or intervention." }
   ],
   "default_publishes": ["brain.output"],
   "has_ui": true,

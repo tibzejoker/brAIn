@@ -5,10 +5,10 @@
   "default_authority": 1,
   "default_priority": 3,
   "default_subscriptions": [
-    { "topic": "mcp.config.reload" },
-    { "topic": "mcp.config.tools.request" },
-    { "topic": "mcp.config.call" },
-    { "topic": "mcp.config.set" }
+    { "topic": "mcp.config.reload", "description": "Re-read this manager's mcpServers config and reconcile children." },
+    { "topic": "mcp.config.tools.request", "description": "Request the aggregated catalog of all tools across child mcp-server nodes. Reply on mcp.config.tools." },
+    { "topic": "mcp.config.call", "description": "Call any aggregated tool by qualified name. Payload: {tool: \"<alias>__<name>\", args: {...}, reply_to?: \"<topic>\"}.", "inputSchema": {"type":"object","properties":{"tool":{"type":"string","description":"Qualified name like 'notion__notion-search'"},"args":{"type":"object"},"reply_to":{"type":"string"}},"required":["tool"]} },
+    { "topic": "mcp.config.set", "description": "Replace the global mcpServers config and reconcile. Payload: {mcpServers: {...}}.", "inputSchema": {"type":"object","properties":{"mcpServers":{"type":"object"}},"required":["mcpServers"]} }
   ],
   "default_publishes": ["mcp.config.status", "mcp.config.tools", "mcp.config.call.result"],
   "has_ui": true,

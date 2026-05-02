@@ -125,6 +125,21 @@ export const DEFAULT_MAILBOX_CONFIG: MailboxConfig = {
 
 export interface SubscriptionConfig {
   topic: string;
+  /**
+   * Human-readable purpose of this subscription. **Required.** Used as
+   * the description of the auto-exposed MCP tool when the framework's
+   * MCP service is consulted, and surfaced in the dashboard so anyone
+   * can see what each topic does without reading source. Keep it
+   * short, in English, and complete enough that an external client
+   * could decide whether to call this tool from the description alone.
+   */
+  description: string;
+  /**
+   * Optional JSON Schema describing the expected payload shape. When
+   * present, the framework's MCP service uses it as the tool's
+   * `inputSchema`. Defaults to a permissive `{type: "object"}`.
+   */
+  inputSchema?: Record<string, unknown>;
   min_criticality?: number;
   mailbox?: Partial<MailboxConfig>;
 }
@@ -242,7 +257,21 @@ export interface NodeContext {
   respond(content: string, metadata?: Record<string, unknown>): void;
   /** Publish to a specific topic. Use respond() unless you need explicit routing. */
   publish(topic: string, message: Omit<Message, "id" | "from" | "timestamp" | "topic">): void;
-  subscribe(topic: string, mailbox?: Partial<MailboxConfig>): void;
+  /**
+   * Add a runtime subscription. When `description` is supplied, the
+   * subscription is appended to the node's `subscriptions` list (so
+   * the framework's MCP service exposes it as a tool); without it,
+   * the subscription is treated as internal plumbing not surfaced
+   * outside the bus.
+   */
+  subscribe(
+    topic: string,
+    opts?: {
+      description?: string;
+      inputSchema?: Record<string, unknown>;
+      mailbox?: Partial<MailboxConfig>;
+    },
+  ): void;
   unsubscribe(topic: string): void;
 
   // Lifecycle

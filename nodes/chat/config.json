@@ -5,7 +5,7 @@
   "default_authority": 0,
   "default_priority": 5,
   "default_subscriptions": [
-    { "topic": "chat.response.*" }
+    { "topic": "chat.response.*", "description": "Chat responses from any other node, addressed to the human user via the chat UI." }
   ],
   "default_publishes": ["chat.input"],
   "has_ui": true,

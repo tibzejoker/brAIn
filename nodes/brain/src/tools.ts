@@ -135,13 +135,18 @@ async function spawnNode(
     return { error: "spawn_node requires 'type' and 'name'." };
   }
 
-  // Normalize subscriptions — LLM may send strings, null, or objects
-  let subscriptions: Array<{ topic: string }> | undefined;
+  // Normalize subscriptions — LLM may send strings, null, or objects.
+  // SubscriptionConfig requires a description; when the LLM omits one
+  // we fall back to the topic name so the framework's MCP exposure
+  // still has something readable to publish.
+  let subscriptions: Array<{ topic: string; description: string }> | undefined;
   const rawSubs = args.subscriptions;
   if (Array.isArray(rawSubs) && rawSubs.length > 0) {
-    subscriptions = rawSubs.map((s) =>
-      typeof s === "string" ? { topic: s } : s as { topic: string },
-    );
+    subscriptions = rawSubs.map((s) => {
+      if (typeof s === "string") return { topic: s, description: s };
+      const obj = s as { topic: string; description?: string };
+      return { topic: obj.topic, description: obj.description ?? obj.topic };
+    });
   } else if (rawSubs === null || rawSubs === undefined) {
     // No subscriptions — use type defaults (pass undefined, let the framework decide)
     subscriptions = undefined;

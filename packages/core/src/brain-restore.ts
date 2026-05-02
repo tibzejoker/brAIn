@@ -53,14 +53,28 @@ export async function restoreNodes(opts: {
     }
 
     const tags = JSON.parse(saved.tags) as string[];
-    const subscriptions = subs.map((s) => ({
-      topic: s.topic,
-      min_criticality: s.min_criticality ?? undefined,
-      mailbox: {
-        max_size: s.mailbox_max_size,
-        retention: s.mailbox_retention as "latest" | "lowest_priority",
-      },
-    }));
+    // Fall back to the type's default_subscriptions for description /
+    // inputSchema if the saved row was migrated from a pre-description
+    // schema (legacy NULL/empty). This keeps old DB rows usable while
+    // letting freshly-saved rows carry their own description.
+    const typeDefaults = new Map(
+      (typeConfig?.default_subscriptions ?? []).map((s) => [s.topic, s] as const),
+    );
+    const subscriptions = subs.map((s) => {
+      const fallback = typeDefaults.get(s.topic);
+      return {
+        topic: s.topic,
+        description: s.description || fallback?.description || s.topic,
+        inputSchema: s.input_schema
+          ? JSON.parse(s.input_schema) as Record<string, unknown>
+          : fallback?.inputSchema,
+        min_criticality: s.min_criticality ?? undefined,
+        mailbox: {
+          max_size: s.mailbox_max_size,
+          retention: s.mailbox_retention as "latest" | "lowest_priority",
+        },
+      };
+    });
 
     const nodeInfo: NodeInfo = {
       id: saved.id,

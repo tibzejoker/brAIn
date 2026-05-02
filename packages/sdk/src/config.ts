@@ -13,6 +13,13 @@ export interface NodeTypeConfig {
   default_priority: number;
   default_subscriptions: Array<{
     topic: string;
+    /**
+     * Required: what this topic does, used as MCP tool description
+     * and surfaced in the dashboard.
+     */
+    description: string;
+    /** Optional JSON Schema for the payload; defaults to open object. */
+    inputSchema?: Record<string, unknown>;
     mailbox?: Partial<MailboxConfig>;
   }>;
   default_publishes?: string[];
@@ -40,6 +47,9 @@ export interface NodeInstanceConfig {
   tags?: string[];
   subscriptions?: Array<{
     topic: string;
+    /** Required when overriding subscriptions at instance level too. */
+    description: string;
+    inputSchema?: Record<string, unknown>;
     mailbox?: Partial<MailboxConfig>;
   }>;
   priority?: number;

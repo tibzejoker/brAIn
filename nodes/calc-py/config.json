@@ -5,7 +5,7 @@
   "default_authority": 0,
   "default_priority": 1,
   "default_subscriptions": [
-    { "topic": "calc.request" }
+    { "topic": "calc.request", "description": "Evaluate a math expression in Python. Payload: {\"expression\": \"<python expression>\"}; result lands on calc.result." }
   ],
   "default_publishes": ["calc.result"],
   "supports_transport": ["web"],

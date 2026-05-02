@@ -63,7 +63,12 @@ export function NodeCreator({
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean)
-      .map((topic) => ({ topic }));
+      // Required by SubscriptionConfig: a description per topic. The
+      // dashboard creator doesn't ask for one (UX call), so we fall
+      // back to the topic name itself — meaningful enough for the
+      // network graph and good enough as an MCP tool description
+      // until the user edits the node's config.
+      .map((topic) => ({ topic, description: topic }));
 
     setLoading(true);
     setError(null);

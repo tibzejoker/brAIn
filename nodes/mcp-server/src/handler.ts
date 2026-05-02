@@ -111,9 +111,9 @@ function pickTool(rt: NodeRuntime, name: string): ToolDescriptor | null {
 // === Subscription reconciliation ===
 
 function reconcileToolSubs(ctx: NodeContext, rt: NodeRuntime): void {
-  const desired = new Set<string>();
+  const desired = new Map<string, ToolDescriptor>();
   if (rt.entry?.status === "connected") {
-    for (const t of rt.entry.tools) desired.add(TOPIC.toolCall(rt.alias, t.name));
+    for (const t of rt.entry.tools) desired.set(TOPIC.toolCall(rt.alias, t.name), t);
   }
   for (const topic of rt.subscribedToolTopics) {
     if (!desired.has(topic)) {
@@ -121,9 +121,15 @@ function reconcileToolSubs(ctx: NodeContext, rt: NodeRuntime): void {
       rt.subscribedToolTopics.delete(topic);
     }
   }
-  for (const topic of desired) {
+  for (const [topic, t] of desired) {
     if (!rt.subscribedToolTopics.has(topic)) {
-      ctx.subscribe(topic);
+      // Pass the upstream MCP tool's description + inputSchema so the
+      // framework's own MCP service can re-expose them as first-class
+      // tools instead of opaque bus topics.
+      ctx.subscribe(topic, {
+        description: t.description || `${rt.alias}: ${t.name}`,
+        inputSchema: (t.inputSchema ?? undefined) as Record<string, unknown> | undefined,
+      });
       rt.subscribedToolTopics.add(topic);
     }
   }

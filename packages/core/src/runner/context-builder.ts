@@ -73,11 +73,35 @@ export function buildNodeContext(
       log.info(`publish ${topic} (crit:${msg.criticality})`);
       bus.publish({ ...msg, from: nodeId, topic, parent_id: msg.parent_id ?? parentId });
     },
-    subscribe(topic: string, mailbox?: Partial<MailboxConfig>): void {
+    subscribe(
+      topic: string,
+      opts?: {
+        description?: string;
+        inputSchema?: Record<string, unknown>;
+        mailbox?: Partial<MailboxConfig>;
+      },
+    ): void {
       log.info(`+ subscribe ${topic}`);
-      bus.subscribe(nodeId, topic, { mailbox });
+      bus.subscribe(nodeId, topic, { mailbox: opts?.mailbox });
+      // When the caller declares the subscription's purpose, mirror it
+      // into NodeInfo.subscriptions so the framework MCP service (and
+      // anything else reading the static catalog) sees it as a
+      // first-class capability instead of a hidden bus listener.
+      if (opts?.description) {
+        const existing = rt.nodeInfo.subscriptions.findIndex((s) => s.topic === topic);
+        const entry = {
+          topic, description: opts.description,
+          inputSchema: opts.inputSchema, mailbox: opts.mailbox,
+        };
+        if (existing >= 0) rt.nodeInfo.subscriptions[existing] = entry;
+        else rt.nodeInfo.subscriptions.push(entry);
+      }
     },
-    unsubscribe: (topic: string): void => { bus.unsubscribe(nodeId, topic); },
+    unsubscribe: (topic: string): void => {
+      bus.unsubscribe(nodeId, topic);
+      const i = rt.nodeInfo.subscriptions.findIndex((s) => s.topic === topic);
+      if (i >= 0) rt.nodeInfo.subscriptions.splice(i, 1);
+    },
     sleep: (conditions: WakeCondition[]): void => { rt.requestSleep(conditions); },
     spawn: (config: NodeInstanceConfig): Promise<NodeInfo> => {
       const fn = deps.spawnNode;

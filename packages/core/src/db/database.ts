@@ -24,6 +24,8 @@ const SCHEMA = `
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     node_id TEXT NOT NULL,
     topic TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    input_schema TEXT,
     min_criticality INTEGER,
     mailbox_max_size INTEGER NOT NULL DEFAULT 100,
     mailbox_retention TEXT NOT NULL DEFAULT 'latest',
@@ -79,6 +81,10 @@ export function getDb(dbPath?: string): Database.Database {
   // pragma table_info first.
   try { db.exec("ALTER TABLE node_instances ADD COLUMN spawned_by TEXT"); }
   catch { /* already exists */ }
+  try { db.exec("ALTER TABLE subscriptions ADD COLUMN description TEXT NOT NULL DEFAULT ''"); }
+  catch { /* already exists */ }
+  try { db.exec("ALTER TABLE subscriptions ADD COLUMN input_schema TEXT"); }
+  catch { /* already exists */ }
 
   logger.info({ path: resolvedPath }, "Database initialized");
   return db;
@@ -111,6 +117,8 @@ export interface SavedSubscription {
   id: number;
   node_id: string;
   topic: string;
+  description: string;
+  input_schema: string | null;
   min_criticality: number | null;
   mailbox_max_size: number;
   mailbox_retention: string;
@@ -131,8 +139,8 @@ export function saveSubscription(
   sub: Omit<SavedSubscription, "id">,
 ): void {
   db.prepare(`
-    INSERT INTO subscriptions (node_id, topic, min_criticality, mailbox_max_size, mailbox_retention)
-    VALUES (@node_id, @topic, @min_criticality, @mailbox_max_size, @mailbox_retention)
+    INSERT INTO subscriptions (node_id, topic, description, input_schema, min_criticality, mailbox_max_size, mailbox_retention)
+    VALUES (@node_id, @topic, @description, @input_schema, @min_criticality, @mailbox_max_size, @mailbox_retention)
   `).run(sub);
 }
 

@@ -6,6 +6,9 @@ import { logger } from "../logger";
 
 interface SeedSubscription {
   topic: string;
+  /** Required when overriding subscriptions in a seed. */
+  description?: string;
+  inputSchema?: Record<string, unknown>;
   min_criticality?: number;
   mailbox?: Partial<MailboxConfig>;
 }
@@ -148,6 +151,12 @@ export function loadSeedFile(filePath: string): NodeInstanceConfig[] {
     tags: node.tags,
     subscriptions: node.subscriptions?.map((s) => ({
       topic: s.topic,
+      // Seeds without an explicit description fall back to the topic
+      // name — the type's default_subscriptions still carry the real
+      // description, so this only loses metadata when the seed
+      // overrides a subscription that didn't exist on the type.
+      description: s.description ?? s.topic,
+      ...(s.inputSchema ? { inputSchema: s.inputSchema } : {}),
       ...(s.min_criticality !== undefined ? { min_criticality: s.min_criticality } : {}),
       ...(s.mailbox ? { mailbox: s.mailbox } : {}),
     })),

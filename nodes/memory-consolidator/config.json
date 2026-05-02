@@ -5,7 +5,7 @@
   "default_authority": 0,
   "default_priority": 2,
   "default_subscriptions": [
-    { "topic": "memory.result" }
+    { "topic": "memory.result", "description": "Output of the memory KV store, observed by the consolidator to spot duplicates / stale entries." }
   ],
   "default_publishes": ["memory.maintenance.log"],
   "supports_transport": ["process"]

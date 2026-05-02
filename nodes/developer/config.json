@@ -5,9 +5,9 @@
   "default_authority": 2,
   "default_priority": 8,
   "default_subscriptions": [
-    { "topic": "types.validation_failed" },
-    { "topic": "types.registered" },
-    { "topic": "types.updated" }
+    { "topic": "types.validation_failed", "description": "Framework feedback when a workspace this node authored failed validation. Used to iterate on the failing build." },
+    { "topic": "types.registered", "description": "Framework confirmation that an authored workspace was successfully registered as a new node type." },
+    { "topic": "types.updated", "description": "Framework confirmation that an authored workspace's spec changed and was re-registered." }
   ],
   "default_publishes": ["dev.result"],
   "supports_transport": ["process"]

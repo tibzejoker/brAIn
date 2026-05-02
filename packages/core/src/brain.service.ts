@@ -32,6 +32,7 @@ import { LLMRegistry, type ProviderStatus } from "./llm/llm-registry";
 import { CLIRegistry, type CLIStatus } from "./llm/cli-registry";
 import { StoreService } from "./store";
 import { AgentDirectory, type AgentDirectoryOptions } from "./agents";
+import { MCPBridge } from "./mcp";
 
 export class BrainService extends EventEmitter {
   static current: BrainService | null = null;
@@ -54,6 +55,7 @@ export class BrainService extends EventEmitter {
   readonly cli = CLIRegistry.getInstance();
   store!: StoreService;  // wired in bootstrap() once we know siblingsRoot
   readonly agents: AgentDirectory;
+  readonly mcpBridge: MCPBridge;
 
   /**
    * @param dbPath SQLite path; falls back to the default in-memory db.
@@ -81,6 +83,8 @@ export class BrainService extends EventEmitter {
     this.sleepService.setDb(this.db);
     this.agents = new AgentDirectory(this.bus, opts?.agentDirectory);
     this.agents.attach();
+    this.mcpBridge = new MCPBridge(this.bus);
+    this.mcpBridge.install();
     this.agents.on("agent:expired", (ann: { agent_id: string }) => {
       this.dropExpiredAgentNodes(ann.agent_id);
     });

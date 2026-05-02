@@ -5,7 +5,7 @@
   "default_authority": 1,
   "default_priority": 8,
   "default_subscriptions": [
-    { "topic": "attention.*" }
+    { "topic": "attention.*", "description": "Catch-all attention/intent control messages forwarded from the standalone services." }
   ],
   "default_publishes": [
     "intent.output",

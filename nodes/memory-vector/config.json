@@ -5,10 +5,10 @@
   "default_authority": 0,
   "default_priority": 3,
   "default_subscriptions": [
-    { "topic": "memory-vector.store" },
-    { "topic": "memory-vector.search" },
-    { "topic": "memory-vector.index" },
-    { "topic": "memory-vector.reindex" }
+    { "topic": "memory-vector.store", "description": "Embed and store a piece of text. Payload: {text, metadata?}.", "inputSchema": {"type":"object","properties":{"text":{"type":"string"},"metadata":{"type":"object"}},"required":["text"]} },
+    { "topic": "memory-vector.search", "description": "Semantic similarity search over stored vectors. Payload: {query, top_k?}.", "inputSchema": {"type":"object","properties":{"query":{"type":"string"},"top_k":{"type":"number"}},"required":["query"]} },
+    { "topic": "memory-vector.index", "description": "Index a directory of text/markdown files into the vector store. Payload: {path}.", "inputSchema": {"type":"object","properties":{"path":{"type":"string"}},"required":["path"]} },
+    { "topic": "memory-vector.reindex", "description": "Drop and rebuild the vector store from all previously indexed sources." }
   ],
   "default_publishes": ["memory-vector.result"],
   "supports_transport": ["process"]
