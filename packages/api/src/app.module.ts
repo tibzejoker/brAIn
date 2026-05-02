@@ -64,7 +64,12 @@ const brainServiceProvider = {
       catch { return false; }
     });
     brain.bootstrap([nodesDir, ...allExtras]);
-    brain.startDynamicScanner({ dynamicDir: path.join(nodesDir, "_dynamic") });
+    // Passively watch every static node directory for new folders so a
+    // freshly added & built node auto-registers without an API restart.
+    brain.startDynamicScanner({
+      dynamicDir: path.join(nodesDir, "_dynamic"),
+      passiveDirs: [nodesDir, ...allExtras],
+    });
 
     const seedsDir = resolveFromRoot(process.env.BRAIN_SEEDS_DIR, "seeds");
     brain.setSeedsDir(seedsDir);

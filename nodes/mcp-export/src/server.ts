@@ -1,13 +1,17 @@
 /**
- * Wraps the MCP SDK's Server + StreamableHTTPServerTransport in a
- * thin shell wired to the brAIn bus.
+ * Lazy multi-session MCP HTTP server wired to the brAIn bus.
  *
- * The server exposes one tool per entry in `tools` (ToolBinding).
- * `tools/list` returns the static catalog; `tools/call` translates
- * the call into a bus publish on the binding's topic, with
- * `reply_to` set to a unique `mcp.export.reply.<reqId>` topic. The
- * incoming reply is matched by reqId in the handler tick which
- * resolves the promise the call is awaiting.
+ * Pattern: ONE shared HTTP listener + one Server+Transport pair PER
+ * connected MCP client (keyed by session id). The first call without
+ * a `Mcp-Session-Id` mints a new pair; subsequent calls with the
+ * same id reuse it. We never pre-mount a transport — sessions exist
+ * only because clients asked for them.
+ *
+ * Tool catalog is shared across sessions: each new Server is
+ * configured with the same `tools` list at creation time. Calls
+ * resolve through one process-wide `pending` Map keyed by request
+ * id, since the bus reply is delivered to the (single) mcp-export
+ * node regardless of which session originated the call.
  */
 import * as http from "node:http";
 import { randomUUID } from "node:crypto";
@@ -17,15 +21,10 @@ import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprot
 import { logger } from "@brain/core";
 
 export interface ToolBinding {
-  /** Tool name as advertised to MCP clients. */
   name: string;
-  /** Human-readable description. */
   description: string;
-  /** Bus topic the request is published on. The target node must reply via reply_to. */
   topic: string;
-  /** JSON Schema for the tool's arguments. Forwarded verbatim to MCP clients. */
   inputSchema: Record<string, unknown>;
-  /** Per-call timeout in ms. Default 30s. */
   timeoutMs?: number;
 }
 
@@ -39,19 +38,22 @@ interface PendingReply {
   timer: NodeJS.Timeout;
 }
 
+interface SessionEntry {
+  server: Server;
+  transport: StreamableHTTPServerTransport;
+  lastActivity: number;
+}
+
 export interface RunningServer {
   port: number;
   bindings: Map<string, ToolBinding>;
   pending: Map<string, PendingReply>;
+  sessions: Map<string, SessionEntry>;
   http: http.Server;
-  mcp: Server;
-  transport: StreamableHTTPServerTransport;
+  selfNodeId: string;
+  publish: PublishFn;
 }
 
-/**
- * Resolves the reply for a given reqId, if pending. Called by the
- * handler tick when a `mcp.export.reply.<reqId>` message lands.
- */
 export function deliverReply(rs: RunningServer, reqId: string, raw: string): void {
   const entry = rs.pending.get(reqId);
   if (!entry) return;
@@ -60,43 +62,31 @@ export function deliverReply(rs: RunningServer, reqId: string, raw: string): voi
   entry.resolve(raw);
 }
 
-export async function startServer(
-  port: number,
-  bindings: ToolBinding[],
-  publish: PublishFn,
-  selfNodeId: string,
-): Promise<RunningServer> {
-  const bindingMap = new Map<string, ToolBinding>();
-  for (const b of bindings) bindingMap.set(b.name, b);
-  const pending = new Map<string, PendingReply>();
-
-  const mcp = new Server(
-    { name: `brAIn-export:${selfNodeId.slice(0, 8)}`, version: "0.1.0" },
+function createSession(rs: RunningServer): SessionEntry {
+  const server = new Server(
+    { name: `brAIn-export:${rs.selfNodeId.slice(0, 8)}`, version: "0.1.0" },
     { capabilities: { tools: {} } },
   );
-
-  mcp.setRequestHandler(ListToolsRequestSchema, () => Promise.resolve({
-    tools: [...bindingMap.values()].map((b) => ({
+  server.setRequestHandler(ListToolsRequestSchema, () => Promise.resolve({
+    tools: [...rs.bindings.values()].map((b) => ({
       name: b.name, description: b.description, inputSchema: b.inputSchema,
     })),
   }));
-
-  mcp.setRequestHandler(CallToolRequestSchema, async (req) => {
-    const binding = bindingMap.get(req.params.name);
+  server.setRequestHandler(CallToolRequestSchema, async (req) => {
+    const binding = rs.bindings.get(req.params.name);
     if (!binding) throw new Error(`Unknown tool '${req.params.name}'`);
     const reqId = randomUUID();
     const replyTopic = `mcp.export.reply.${reqId}`;
     const args = req.params.arguments ?? {};
     const raw = await new Promise<string>((resolve, reject) => {
       const timer = setTimeout(() => {
-        pending.delete(reqId);
+        rs.pending.delete(reqId);
         reject(new Error(`tool '${binding.name}' timed out (no reply on ${replyTopic})`));
       }, binding.timeoutMs ?? 30_000);
-      pending.set(reqId, { resolve, reject, timer });
-      try {
-        publish(binding.topic, JSON.stringify(args), replyTopic);
-      } catch (err) {
-        pending.delete(reqId);
+      rs.pending.set(reqId, { resolve, reject, timer });
+      try { rs.publish(binding.topic, JSON.stringify(args), replyTopic); }
+      catch (err) {
+        rs.pending.delete(reqId);
         clearTimeout(timer);
         reject(err instanceof Error ? err : new Error(String(err)));
       }
@@ -106,10 +96,65 @@ export async function startServer(
 
   const transport = new StreamableHTTPServerTransport({
     sessionIdGenerator: () => randomUUID(),
+    onsessioninitialized: (sid) => {
+      // Move the freshly-minted entry into the keyed map. We register
+      // it under `__pending__` first because the SDK only tells us
+      // the id after init completes.
+      const placeholder = rs.sessions.get("__pending__");
+      if (!placeholder) return;
+      rs.sessions.delete("__pending__");
+      placeholder.lastActivity = Date.now();
+      rs.sessions.set(sid, placeholder);
+      logger.info({ port: rs.port, sid }, "mcp-export: new session");
+    },
+    onsessionclosed: (sid) => {
+      const entry = rs.sessions.get(sid);
+      if (!entry) return;
+      rs.sessions.delete(sid);
+      void entry.server.close().catch(() => { /* ignore */ });
+      logger.info({ port: rs.port, sid }, "mcp-export: session closed");
+    },
   });
-  await mcp.connect(transport);
+  return { server, transport, lastActivity: Date.now() };
+}
 
-  const httpServer = http.createServer((req, res) => {
+async function handleRequest(rs: RunningServer, req: http.IncomingMessage, res: http.ServerResponse): Promise<void> {
+  let body = "";
+  for await (const chunk of req) body += chunk;
+  const parsed = body ? JSON.parse(body) as unknown : undefined;
+
+  const sid = req.headers["mcp-session-id"];
+  const sessionId = typeof sid === "string" ? sid : undefined;
+
+  let entry = sessionId ? rs.sessions.get(sessionId) : undefined;
+  if (!entry) {
+    entry = createSession(rs);
+    // Park under __pending__ so onsessioninitialized can rename it.
+    rs.sessions.set("__pending__", entry);
+    await entry.server.connect(entry.transport);
+  }
+  entry.lastActivity = Date.now();
+  await entry.transport.handleRequest(req, res, parsed);
+}
+
+export function startServer(
+  port: number,
+  bindings: ToolBinding[],
+  publish: PublishFn,
+  selfNodeId: string,
+): Promise<RunningServer> {
+  const bindingMap = new Map<string, ToolBinding>();
+  for (const b of bindings) bindingMap.set(b.name, b);
+  const rs: RunningServer = {
+    port,
+    bindings: bindingMap,
+    pending: new Map(),
+    sessions: new Map(),
+    http: http.createServer(),
+    selfNodeId,
+    publish,
+  };
+  rs.http.on("request", (req, res) => {
     void (async (): Promise<void> => {
       try {
         const url = req.url ?? "/";
@@ -117,19 +162,19 @@ export async function startServer(
           res.writeHead(404).end("not found");
           return;
         }
-        let body = "";
-        for await (const chunk of req) body += chunk;
-        await transport.handleRequest(req, res, body ? JSON.parse(body) : undefined);
+        await handleRequest(rs, req, res);
       } catch (err) {
         logger.error({ err }, "mcp-export: HTTP handler crashed");
         if (!res.headersSent) res.writeHead(500).end("internal error");
       }
     })();
   });
-  await new Promise<void>((resolve) => httpServer.listen(port, resolve));
-  logger.info({ port, tools: bindings.length }, "mcp-export: HTTP server listening");
-
-  return { port, bindings: bindingMap, pending, http: httpServer, mcp, transport };
+  return new Promise((resolve) => {
+    rs.http.listen(port, () => {
+      logger.info({ port, tools: bindings.length }, "mcp-export: HTTP server listening (no sessions yet)");
+      resolve(rs);
+    });
+  });
 }
 
 export async function stopServer(rs: RunningServer): Promise<void> {
@@ -138,7 +183,10 @@ export async function stopServer(rs: RunningServer): Promise<void> {
     p.reject(new Error("server shutdown"));
   }
   rs.pending.clear();
-  try { await rs.transport.close(); } catch { /* ignore */ }
-  try { await rs.mcp.close(); } catch { /* ignore */ }
+  for (const entry of rs.sessions.values()) {
+    try { await entry.transport.close(); } catch { /* ignore */ }
+    try { await entry.server.close(); } catch { /* ignore */ }
+  }
+  rs.sessions.clear();
   await new Promise<void>((resolve) => rs.http.close(() => resolve()));
 }

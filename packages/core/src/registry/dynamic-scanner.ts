@@ -19,6 +19,15 @@ export interface DynamicScannerOptions {
   debounce_ms?: number;
   /** Publisher identity on the bus (default "framework.scanner") */
   publisher_id?: string;
+  /**
+   * Additional directories to scan in *passive* mode: each immediate
+   * subdir with a `config.json` is registered into the TypeRegistry
+   * directly (no build/install/test pipeline like dynamicDir). Use
+   * for hand-authored static node directories so adding a new node
+   * folder there picks up without an API restart. Removing a folder
+   * unregisters it.
+   */
+  passiveDirs?: string[];
 }
 
 interface WorkspaceTracker {
@@ -38,6 +47,13 @@ export class DynamicTypeScanner extends EventEmitter {
   private readonly log = logger.child({ svc: "dynamic-scanner" });
   private readonly validator: TypeValidatorService;
   private readonly trackers = new Map<string, WorkspaceTracker>();
+  /**
+   * type_name → workspace path, for types we registered passively.
+   * Lets us unregister cleanly when a folder disappears (without
+   * touching types that came from boot-time scanDirectory or the
+   * validating dynamicDir flow).
+   */
+  private readonly passiveOwned = new Map<string, string>();
   private timer: NodeJS.Timeout | null = null;
   private running = false;
 
@@ -71,8 +87,59 @@ export class DynamicTypeScanner extends EventEmitter {
       for (const ws of workspaces) {
         await this.handleWorkspace(ws);
       }
+      this.passiveScan();
     } finally {
       this.running = false;
+    }
+  }
+
+  /**
+   * Scan each `passiveDirs` entry: register any new `<name>/config.json`
+   * into the TypeRegistry, unregister any type we previously owned that
+   * no longer has its folder. No build/install/test — assumes the dist/
+   * is already built and the package is installed (workspace layout).
+   */
+  private passiveScan(): void {
+    const dirs = this.opts.passiveDirs ?? [];
+    if (dirs.length === 0) return;
+    const seenTypes = new Set<string>();
+    for (const dir of dirs) {
+      if (!fs.existsSync(dir)) continue;
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const e of entries) {
+        if (!e.isDirectory() || e.name.startsWith(".") || e.name.startsWith("_")) continue;
+        const ws = path.join(dir, e.name);
+        const cfgPath = path.join(ws, "config.json");
+        if (!fs.existsSync(cfgPath)) continue;
+        let typeName: string;
+        try {
+          const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf-8")) as { name?: string };
+          if (typeof cfg.name !== "string" || !cfg.name) continue;
+          typeName = cfg.name;
+        } catch { continue; }
+        seenTypes.add(typeName);
+        if (this.opts.typeRegistry.has(typeName)) continue;
+        try {
+          this.opts.typeRegistry.register(ws);
+          this.passiveOwned.set(typeName, ws);
+          this.publish("types.registered", {
+            type_name: typeName, path: ws, origin: "passive",
+          });
+          this.log.info({ type: typeName, workspace: ws }, "Type registered (passive)");
+          this.emit("type:registered", { typeName, workspacePath: ws });
+        } catch (err) {
+          this.log.error({ err, workspace: ws }, "Passive registration failed");
+        }
+      }
+    }
+    // Unregister types we previously owned passively whose folder vanished.
+    for (const [typeName, ws] of [...this.passiveOwned]) {
+      if (seenTypes.has(typeName)) continue;
+      this.opts.typeRegistry.unregister(typeName);
+      this.passiveOwned.delete(typeName);
+      this.publish("types.unregistered", { type_name: typeName, path: ws, origin: "passive" });
+      this.log.info({ type: typeName }, "Type unregistered (passive — folder gone)");
+      this.emit("type:unregistered", { typeName, workspacePath: ws });
     }
   }
 
