@@ -180,7 +180,7 @@ export const handler: NodeHandler = async (ctx) => {
       try {
         const data = JSON.parse((msg.payload as TextPayload).content) as { node_id: string; server_name: string; code: string };
         if (data.node_id !== ctx.node.id) continue;
-        await finishOAuth(inst, data.server_name, data.code);
+        await finishOAuth(inst, ctx.node.id, data.server_name, data.code, (e) => bufferOAuthEvent(ctx.node.id, e));
         publishStatus(ctx, inst);
       } catch (err) {
         ctx.log("error", `oauth.callback parse failed: ${err instanceof Error ? err.message : String(err)}`);

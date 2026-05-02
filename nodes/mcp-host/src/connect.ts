@@ -169,29 +169,44 @@ export async function reconcile(
 
 /**
  * Resume an OAuth flow after the browser callback delivered the
- * authorization code. Calls transport.finishAuth(code), reconnects,
- * and updates the instance's entry to "connected" or "error".
+ * authorization code.
+ *
+ * The SDK transport can't be re-`start()`ed (which is what
+ * client.connect() does), so we use the parked transport ONLY to
+ * call `finishAuth(code)` — that exchanges the code for tokens and
+ * persists them via our OAuthClientProvider.saveTokens. We then
+ * close the parked transport, build a fresh one (its authProvider
+ * loads the saved tokens automatically), and connect normally.
  */
 export async function finishOAuth(
   inst: Instance,
+  nodeId: string,
   serverName: string,
   code: string,
+  emit: (e: OAuthEvent) => void,
 ): Promise<void> {
   const entry = inst.servers.get(serverName);
   if (!entry || entry.status !== "pending-auth") return;
   try {
+    // Step 1: exchange the code → tokens are persisted via the
+    // OAuthClientProvider on the (still-parked) transport.
     await entry.transport.finishAuth(code);
-    await entry.client.connect(entry.transport);
-    const list = await entry.client.listTools();
-    inst.servers.set(serverName, {
-      spec: entry.spec, client: entry.client, transport: entry.transport,
-      tools: list.tools.map((t) => ({
-        server: entry.spec.name, name: t.name,
-        description: t.description ?? "", inputSchema: t.inputSchema,
-      })),
-      connectedAt: Date.now(), specHash: entry.specHash, status: "connected",
-    });
-    logger.info({ server: serverName }, "mcp-host: OAuth completed, connected");
+    // Step 2: dispose the parked transport — it's already started
+    // and can't be reused for another connect().
+    try { await entry.transport.close(); } catch { /* ignore */ }
+    try { await entry.client.close(); } catch { /* ignore */ }
+    // Step 3: rebuild a fresh transport. Its authProvider will load
+    // the access token we just persisted, so connect() succeeds
+    // without prompting again.
+    const fresh = await connectOne(nodeId, entry.spec, emit);
+    inst.servers.set(serverName, fresh);
+    if (fresh.status === "connected") {
+      logger.info({ server: serverName, tools: fresh.tools.length }, "mcp-host: OAuth completed, connected");
+    } else if (fresh.status === "pending-auth") {
+      logger.warn({ server: serverName }, "mcp-host: still pending after OAuth — token rejected?");
+    } else {
+      logger.error({ server: serverName, error: fresh.error }, "mcp-host: post-OAuth connect failed");
+    }
   } catch (err) {
     const errMsg = err instanceof Error ? err.message : String(err);
     inst.servers.set(serverName, {
