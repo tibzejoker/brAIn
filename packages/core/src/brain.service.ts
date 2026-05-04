@@ -252,15 +252,16 @@ export class BrainService extends EventEmitter {
   }
 
   killAll(): number {
-    const all = this.instanceRegistry.list();
-    for (const n of all) {
-      const r = this.runners.get(n.id);
-      if (r) { r.stop(); this.runners.delete(n.id); }
-      this.bus.removeAllSubscriptions(n.id);
-      this.instanceRegistry.remove(n.id);
+    // Route through `killNode` so the DB row is deleted alongside the
+    // runner / bus / registry teardown. Without this every seed apply
+    // leaks rows and the next restart resurrects ghosts via restore().
+    const ids = this.instanceRegistry.list().map((n) => n.id);
+    let killed = 0;
+    for (const id of ids) {
+      if (this.killNode(id, undefined, "killAll")) killed++;
     }
-    if (all.length > 0) recordHistory(this.db, { action: "network.reset", details: { killed: all.length } });
-    return all.length;
+    if (killed > 0) recordHistory(this.db, { action: "network.reset", details: { killed } });
+    return killed;
   }
 
   resetDb(): void { clearAll(this.db); }

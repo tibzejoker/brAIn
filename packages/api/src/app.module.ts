@@ -68,11 +68,15 @@ const brainServiceProvider = {
       .split(process.platform === "win32" ? ";" : ":")
       .map((p) => p.trim()).filter(Boolean)
       .map((p) => resolveFromRoot(p, p));
+    // Mirror pnpm-workspace.yaml's sibling globs so every repo cloned
+    // alongside brAIn/ contributes its node types automatically.
     const conventional = [
-      path.resolve(MONOREPO_ROOT, "..", "brAIn-perception", "nodes"),
+      path.resolve(MONOREPO_ROOT, "..", "brAIn-essentials", "nodes"),
       path.resolve(MONOREPO_ROOT, "..", "brAIn-memory", "nodes"),
-      path.resolve(MONOREPO_ROOT, "..", "brAIn-reasoning", "nodes"),
       path.resolve(MONOREPO_ROOT, "..", "brAIn-tools", "nodes"),
+      path.resolve(MONOREPO_ROOT, "..", "brAIn-llm", "nodes"),
+      path.resolve(MONOREPO_ROOT, "..", "brAIn-ui", "nodes"),
+      path.resolve(MONOREPO_ROOT, "..", "brAIn-perception", "nodes"),
     ];
     const allExtras = [...extras, ...conventional].filter((p) => {
       try { return path.resolve(p) !== path.resolve(nodesDir) && require("fs").existsSync(p); }
