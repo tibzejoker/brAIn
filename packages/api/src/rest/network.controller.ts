@@ -1,6 +1,24 @@
 import { Controller, Get, Post, Body, Query, Param, HttpException, HttpStatus } from "@nestjs/common";
 import { BrainService, BrokerService, type HistoryEntry, type ProviderStatus, type CLIStatus } from "@brain/core";
 import { type Message, type NodeInfo, type NodeState } from "@brain/sdk";
+import { networkInterfaces } from "node:os";
+
+/**
+ * Discover the IPv4 addresses of this host's external interfaces.
+ * `os.networkInterfaces()` is Node's cross-OS API — same shape on
+ * macOS / Linux / Windows. We filter out loopback (127/8) since the
+ * dashboard already exposes the broker's bind URL for that.
+ */
+function getLanIps(): string[] {
+  const out: string[] = [];
+  const ifaces = networkInterfaces();
+  for (const name of Object.keys(ifaces)) {
+    for (const iface of ifaces[name] ?? []) {
+      if (iface.family === "IPv4" && !iface.internal) out.push(iface.address);
+    }
+  }
+  return out;
+}
 
 interface NodeSnapshot extends Omit<NodeInfo, "subscriptions"> {
   subscriptions: Array<{ id: string; pattern: string }>;
@@ -141,13 +159,19 @@ export class NetworkController {
   /**
    * Surface the bus broker info for the dashboard. The framework
    * always runs on NATS now (embedded by default), so the
-   * Distributed tab can show the URL the user would point a remote
-   * `brain-agent` at and tell whether the broker is local
-   * (auto-spawned) or external (BRAIN_NATS_URL provided).
+   * Distributed tab can show the URL a remote `brain-agent` would
+   * point at and tell whether the broker is local (auto-spawned)
+   * or external (BRAIN_NATS_URL provided). `lan_ips` lists this
+   * machine's IPv4 addresses (non-loopback) so the user can build
+   * a URL reachable from another host without reaching for `ifconfig`.
    */
   @Get("transport")
-  transport(): { url: string | null; mode: "embedded" | "external" } {
-    return { url: this.broker.getUrl(), mode: this.broker.getMode() };
+  transport(): { url: string | null; mode: "embedded" | "external"; lan_ips: string[] } {
+    return {
+      url: this.broker.getUrl(),
+      mode: this.broker.getMode(),
+      lan_ips: getLanIps(),
+    };
   }
 
   @Post("devmode")

@@ -12,9 +12,16 @@ import { request } from "./request";
  * `mode` says whether the API spawned an embedded broker for this
  * single-host setup or joined an external one (BRAIN_NATS_URL set
  * by the user). The URL is what a remote `brain-agent` would point
- * at to join the same network.
+ * at to join the same network. `lan_ips` is this host's non-loopback
+ * IPv4 addresses, so the user can build a routable URL when the
+ * embedded broker is on 127.0.0.1.
  */
-export function getTransport(): Promise<{ url: string | null; mode: "embedded" | "external" }> {
+export interface TransportInfo {
+  url: string | null;
+  mode: "embedded" | "external";
+  lan_ips: string[];
+}
+export function getTransport(): Promise<TransportInfo> {
   return request("/network/transport");
 }
 
