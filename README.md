@@ -76,14 +76,18 @@ The framework's primitives:
 
 ### Bus + mailboxes
 
-`packages/core/src/bus` — same `IBusService` interface, two flavours:
+`packages/core/src/bus` — `NatsBusService` implements `IBusService`
+on top of a NATS broker. The framework boots an embedded
+`nats-server` (the bundled Go binary, downloaded by the postinstall
+hook) on a free localhost port; remote `brain-agent` processes
+connect to that same broker and share the bus. Set
+`BRAIN_NATS_URL` to skip the embedded broker and join an external
+one instead — typical when running across multiple hosts.
 
-- **`BusService`** (in-process, default) — purely in-memory.
-- **`NatsBusService`** — backed by a NATS broker. Multiple brAIn
-  processes (an API + N brain-agents on other hosts) share topics.
-  Native request/reply for synchronous read-back across the network.
+`BusService` (in-memory) is still exported but only as a test
+fixture — production code path always goes through NATS.
 
-Common features regardless of backend:
+Features:
 
 - Wildcard topic matching (`alerts.*`).
 - Per-subscription **mailbox** with configurable `max_size` and a
@@ -271,20 +275,24 @@ the ML weights on first spawn.
 - **Node.js** ≥ 20, **pnpm** 7+
 - **Ollama** for local LLM nodes (`ollama pull gemma3:4b`,
   `ollama pull qwen3-embedding:0.6b`)
-- **NATS** only for distributed setups (`brew install nats-server`)
+- **NATS** is included — `pnpm install` fetches the bundled
+  `nats-server` Go binary. To use a broker you already run, set
+  `BRAIN_NATS_URL` and the framework skips the download.
 - **Python 3.11** only if you check out
   [brAIn-perception](https://github.com/tibzejoker/brAIn-perception)
 
 ### Run the framework alone
 
 ```bash
-pnpm install            # postinstall builds sdk + core, clones brAIn-store
+pnpm install            # postinstall: builds sdk + core, clones
+                        # brAIn-store, downloads nats-server binary
 pnpm start
 # API       → http://localhost:3000
 # Dashboard → http://localhost:5173
 ```
 
-The framework boots empty (zero nodes). Open the dashboard's
+The framework boots empty (zero nodes) and spawns an embedded
+`nats-server` on a free localhost port. Open the dashboard's
 **Marketplace** tab to install seed bundles or individual nodes
 from the sister repos, or apply a YAML seed from `seeds/` (`default`,
 `chat`, `vocal-chat`, `demo-memory`, `demo-needs`).
@@ -303,21 +311,29 @@ pnpm dev:vocal-chat     # the full ambient stack
 
 ### Distributed runtime
 
+For a single host the embedded broker is enough. To bring nodes
+from another machine, point both sides at the same broker — either
+the embedded one (bind it to a routable address) or a standalone
+one you run yourself:
+
 ```bash
-# Broker
+# API host — bind the embedded broker so other hosts can reach it.
+BRAIN_NATS_URL=nats://0.0.0.0:4222 pnpm start
+# Or run your own broker and share the URL.
 nats-server -p 4222
-
-# API host
 BRAIN_NATS_URL=nats://<broker>:4222 pnpm start
+```
 
-# Each worker (Pi, GPU box, …) — point at any directory that
-# contains the node packages this agent should be able to host.
+```bash
+# Each worker (Pi, GPU box, …) — same URL + a directory of node
+# packages this agent can host locally.
 BRAIN_NATS_URL=nats://<broker>:4222 \
   BRAIN_NODES_DIR=/path/to/nodes \
   node packages/agent/dist/cli.js
 ```
 
-The agent appears in the dashboard's **Agents** tab; pick it as
+The agent appears in the dashboard's **Distributed** tab (which
+also shows the broker URL + a copy-paste snippet). Pick it as
 target in the Node Creator to spawn there. Optional env:
 `BRAIN_NATS_PREFIX` (default `brain`), `BRAIN_NATS_TOKEN`.
 
