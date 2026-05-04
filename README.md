@@ -29,9 +29,6 @@ re-runs the handler with the new context surfaced in
 a WebSocket, or on a remote `brain-agent` joined to a shared NATS
 bus.
 
-> [ARCHITECTURE.md](./ARCHITECTURE.md) for the long-form design. This
-> README is the operational tour.
-
 ---
 
 ## Concretely
@@ -295,14 +292,24 @@ The framework boots empty (zero nodes) and spawns an embedded
 `nats-server` on a free localhost port.
 
 ```bash
-pnpm brain list             # marketplace registry — installed + available
-pnpm brain pull memory      # install one by name
+pnpm brain list                  # marketplace registry — installed + available
+pnpm brain pull memory           # install a node from the marketplace
+pnpm brain remove memory --yes   # uninstall the node's parent sister repo
 ```
 
-Or open the dashboard's **Marketplace** tab to install seed bundles
-or individual nodes
-from the sister repos, or apply a YAML seed from `seeds/` (`default`,
-`chat`, `vocal-chat`, `demo-memory`, `demo-needs`).
+Or open the dashboard's **Marketplace** tab. Apply a YAML seed
+from `seeds/` (`default`, `chat`, `vocal-chat`, `demo-memory`,
+`demo-needs`) for a pre-wired starter network.
+
+#### Authoring locally
+
+- **Custom node**: drop `nodes/_dynamic/<your-node>/{config.json,
+  dist/handler.js}` — the dynamic scanner registers it on the fly,
+  no restart.
+- **Custom seed**: drop a YAML in `seeds/<name>.yaml` — picked up
+  by the seeds scanner. Apply via the dashboard or `POST
+  /network/seeds/<name>/apply`. Delete with `pnpm brain remove
+  <name>`.
 
 ### Pre-wired stacks (require sibling clones)
 
