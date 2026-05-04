@@ -1,5 +1,6 @@
 import { Module, Logger, type OnModuleInit, type OnModuleDestroy } from "@nestjs/common";
-import { BrainService, BrokerService, NatsBusService, readBrokerPrefs } from "@brain/core";
+import { BrainService, BrokerService, NatsBusService, readBrokerPrefs, getDb, getSetting, setSetting } from "@brain/core";
+import { randomBytes } from "node:crypto";
 import { NodesController } from "./rest/nodes.controller";
 import { TypesController } from "./rest/types.controller";
 import { NetworkController } from "./rest/network.controller";
@@ -24,6 +25,22 @@ function resolveFromRoot(envVar: string | undefined, fallback: string): string {
 /** data/broker.json — persisted bind preference, dashboard-toggleable. */
 export const BROKER_PREFS_PATH = resolveFromRoot(process.env.BRAIN_BROKER_PREFS_PATH, "data/broker.json");
 
+/**
+ * Read the persisted broker auth token, or generate + persist one.
+ * 32 bytes of randomness → 64 hex chars. Single token model: every
+ * brain-agent uses it via BRAIN_NATS_TOKEN. Rotation = overwrite +
+ * restart (UI exposes a button later).
+ */
+export function ensureBrokerToken(dbPath: string): string {
+  const db = getDb(dbPath);
+  let tok = getSetting(db, "broker_token");
+  if (!tok) {
+    tok = randomBytes(32).toString("hex");
+    setSetting(db, "broker_token", tok);
+  }
+  return tok;
+}
+
 // One BrokerService per API process. Started before BrainService so
 // the bus has a NATS URL to connect to. Held on AppModule so we can
 // stop it cleanly on shutdown.
@@ -33,9 +50,13 @@ const brokerProvider = {
     const log = new Logger("BrokerService");
     const externalUrl = process.env.BRAIN_NATS_URL;
     const prefs = readBrokerPrefs(BROKER_PREFS_PATH);
-    const broker = new BrokerService({ externalUrl, host: prefs.bindAddress });
+    const dbPath = resolveFromRoot(process.env.BRAIN_DB_PATH, "data/brain.db");
+    // External mode skips auth — caller manages the broker, so the
+    // token is theirs to set via BRAIN_NATS_TOKEN if they want one.
+    const authToken = externalUrl ? process.env.BRAIN_NATS_TOKEN : ensureBrokerToken(dbPath);
+    const broker = new BrokerService({ externalUrl, host: prefs.bindAddress, authToken });
     const r = await broker.start();
-    log.log(`NATS bus on ${r.url} (${r.mode}, bound to ${prefs.bindAddress})`);
+    log.log(`NATS bus on ${r.url} (${r.mode}, bound to ${prefs.bindAddress}${authToken ? ", auth: on" : ""})`);
     return broker;
   },
 };
@@ -49,10 +70,15 @@ const brainServiceProvider = {
     const url = broker.getUrl();
     if (!url) throw new Error("broker has no URL — start() was not awaited");
 
+    // Embedded broker → use the token we generated. External broker →
+    // the user owns the token (BRAIN_NATS_TOKEN), pass through.
+    const token = broker.getMode() === "embedded"
+      ? getSetting(getDb(dbPath), "broker_token") ?? undefined
+      : process.env.BRAIN_NATS_TOKEN;
     const natsBus = new NatsBusService({
       url,
       prefix: process.env.BRAIN_NATS_PREFIX ?? "brain",
-      token: process.env.BRAIN_NATS_TOKEN,
+      token,
     });
     await natsBus.connect();
 

@@ -57,6 +57,16 @@ const SCHEMA = `
     created_at INTEGER NOT NULL,
     FOREIGN KEY (node_id) REFERENCES node_instances(id) ON DELETE CASCADE
   );
+
+  -- Free-form key/value config the framework reads at boot. Currently
+  -- holds the embedded broker's auth token (rotatable from the UI),
+  -- room for more later (theme prefs, default seed, …) without a
+  -- migration each time.
+  CREATE TABLE IF NOT EXISTS kv_settings (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+  );
 `;
 
 let db: Database.Database | null = null;
@@ -95,6 +105,24 @@ export function closeDb(): void {
     db.close();
     db = null;
   }
+}
+
+// === kv_settings ===
+
+export function getSetting(d: Database.Database, key: string): string | null {
+  const row = d.prepare("SELECT value FROM kv_settings WHERE key = ?").get(key) as { value: string } | undefined;
+  return row?.value ?? null;
+}
+
+export function setSetting(d: Database.Database, key: string, value: string): void {
+  d.prepare(`
+    INSERT INTO kv_settings (key, value, updated_at) VALUES (?, ?, ?)
+    ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at
+  `).run(key, value, Date.now());
+}
+
+export function deleteSetting(d: Database.Database, key: string): void {
+  d.prepare("DELETE FROM kv_settings WHERE key = ?").run(key);
 }
 
 export interface SavedNode {

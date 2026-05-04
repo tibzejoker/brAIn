@@ -66,6 +66,12 @@ export interface BrokerOptions {
   host?: string;
   /** Specific port. Default: a free one picked from the OS. */
   port?: number;
+  /**
+   * Single auth token enforced by the embedded broker (`nats-server
+   * --auth <token>`). Clients must pass the same token via
+   * `BRAIN_NATS_TOKEN`. Ignored in external mode.
+   */
+  authToken?: string;
   /** SIGTERM grace before SIGKILL on stop(). Default 3000ms. */
   killGraceMs?: number;
   /** Wait for listening before resolving start(). Default 5000ms. */
@@ -136,6 +142,7 @@ export class BrokerService {
       "--addr", host,
       "--port", String(port),
     ];
+    if (this.opts.authToken) args.push("--auth", this.opts.authToken);
 
     logger.info({ binaryPath, host, port }, "broker: spawning embedded NATS");
     const child = spawn(binaryPath, args, { stdio: ["ignore", "pipe", "pipe"] });

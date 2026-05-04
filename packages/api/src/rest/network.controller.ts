@@ -1,7 +1,8 @@
 import { Controller, Get, Post, Body, Query, Param, HttpException, HttpStatus, Logger } from "@nestjs/common";
-import { BrainService, BrokerService, readBrokerPrefs, writeBrokerPrefs, type HistoryEntry, type ProviderStatus, type CLIStatus } from "@brain/core";
+import { BrainService, BrokerService, readBrokerPrefs, writeBrokerPrefs, getDb, getSetting, setSetting, type HistoryEntry, type ProviderStatus, type CLIStatus } from "@brain/core";
 import { type Message, type NodeInfo, type NodeState } from "@brain/sdk";
 import { networkInterfaces } from "node:os";
+import { randomBytes } from "node:crypto";
 import { BROKER_PREFS_PATH } from "../app.module";
 
 /**
@@ -170,14 +171,40 @@ export class NetworkController {
     mode: "embedded" | "external";
     bind_address: string;
     lan_ips: string[];
+    token: string | null;
   } {
     const prefs = readBrokerPrefs(BROKER_PREFS_PATH);
+    // Only expose the token in embedded mode — in external mode the
+    // user owns the broker, we don't have a token to share.
+    const token = this.broker.getMode() === "embedded"
+      ? getSetting(getDb(), "broker_token")
+      : null;
     return {
       url: this.broker.getUrl(),
       mode: this.broker.getMode(),
       bind_address: prefs.bindAddress,
       lan_ips: getLanIps(),
+      token,
     };
+  }
+
+  /**
+   * Generate a fresh broker token, persist it, and exit so the
+   * supervisor restarts the API with the new token. Existing agents
+   * will lose their connection — they need the new token to
+   * reconnect (intentional for credential rotation).
+   */
+  @Post("transport/rotate-token")
+  rotateToken(): { rotated: boolean; restart_scheduled: boolean } {
+    const log = new Logger("NetworkController");
+    if (this.broker.getMode() !== "embedded") {
+      throw new HttpException("rotate only valid for embedded broker", HttpStatus.BAD_REQUEST);
+    }
+    const fresh = randomBytes(32).toString("hex");
+    setSetting(getDb(), "broker_token", fresh);
+    log.log(`broker token rotated; exiting in 200ms for restart`);
+    setTimeout(() => { process.exit(0); }, 200);
+    return { rotated: true, restart_scheduled: true };
   }
 
   /**

@@ -75,6 +75,7 @@ function snapshotToFlowNode(
       nodeType: n.type,
       state: n.state,
       transport: n.transport,
+      targetAgentId: (n as unknown as { target_agent_id?: string }).target_agent_id,
       tags: n.tags,
       hasUi: typeConfig?.has_ui ?? false,
       onOpenUi: () => { onOpenUi(n.id); },

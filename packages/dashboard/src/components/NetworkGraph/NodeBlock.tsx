@@ -5,6 +5,7 @@ type NodeBlockData = Node<{
   nodeType: string;
   state: string;
   transport: string;
+  targetAgentId?: string;
   tags: string[];
   hasUi: boolean;
   onOpenUi?: () => void;
@@ -80,6 +81,22 @@ export function NodeBlock({ data, selected }: NodeProps<NodeBlockData>): React.R
 
       <div className="flex items-center gap-2 text-xs text-text-muted">
         <span className="px-1.5 py-0.5 rounded bg-surface-overlay">{data.nodeType}</span>
+        {data.transport === "remote" && (
+          <span
+            title={`hosted on remote agent${data.targetAgentId ? ` "${data.targetAgentId}"` : ""}`}
+            className="px-1.5 py-0.5 rounded bg-accent/15 text-accent flex items-center gap-1"
+          >
+            <span className="w-1.5 h-1.5 rounded-full bg-accent" />remote
+          </span>
+        )}
+        {data.transport === "web" && (
+          <span
+            title="external service over WebSocket"
+            className="px-1.5 py-0.5 rounded bg-node-sleeping/15 text-node-sleeping"
+          >
+            web
+          </span>
+        )}
         {data.hasUi && (
           <button
             onClick={(e) => { e.stopPropagation(); (data.onOpenUi as (() => void) | undefined)?.(); }}
