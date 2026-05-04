@@ -62,9 +62,8 @@ export function AgentsPanel(): React.ReactElement {
         )}
 
         {!loading && agents.length === 0 && !error && (
-          <div className="text-text-muted text-xs py-6 px-5 text-center max-w-md mx-auto">
-            No remote nodes yet. Run the snippet above on the target
-            machine to join this bus.
+          <div className="text-text-muted text-[11px] py-4 px-5 text-center">
+            Waiting for remote nodes…
           </div>
         )}
 
@@ -105,25 +104,22 @@ export function AgentsPanel(): React.ReactElement {
 
 function TransportInfoView({ transport }: { transport: TransportInfo }): React.ReactElement {
   const [copied, setCopied] = useState<string | null>(null);
-  // When the broker is on localhost, default the snippet's IP to the
-  // first LAN address so what the user copies is actually reachable
-  // from the target host. They can swap to another via the chips.
   const [pickedIp, setPickedIp] = useState<string | null>(null);
 
   const localOnly = transport.mode === "embedded"
     && !!(transport.url?.includes("127.0.0.1") || transport.url?.includes("localhost"));
 
-  const effectiveUrl = (() => {
-    if (!transport.url) return null;
-    if (!localOnly) return transport.url;
-    const ip = pickedIp ?? transport.lan_ips[0];
-    if (!ip) return transport.url;
-    return transport.url.replace(/(127\.0\.0\.1|localhost)/, ip);
-  })();
-
-  const snippet = effectiveUrl
-    ? `BRAIN_NATS_URL=${effectiveUrl} \\\nBRAIN_NODES_DIR=./nodes \\\nnpx brain-agent`
-    : "";
+  const port = transport.url ? new URL(transport.url).port : "";
+  const ip = pickedIp ?? transport.lan_ips[0] as string | undefined ?? "";
+  // In local-only mode the broker won't accept the IP-based URL, so
+  // we surface the *rebind* command instead of a snippet that wouldn't
+  // work. In routable mode (external or 0.0.0.0 bind) the snippet is
+  // the agent-launch command.
+  const snippet = localOnly
+    ? (port ? `BRAIN_NATS_URL=nats://0.0.0.0:${port} pnpm start` : "")
+    : (transport.url
+        ? `BRAIN_NATS_URL=${transport.url.replace(/(127\.0\.0\.1|localhost|0\.0\.0\.0)/, ip || "0.0.0.0")} \\\nBRAIN_NODES_DIR=./nodes \\\nnpx brain-agent`
+        : "");
 
   const copy = (key: string, text: string): void => {
     void navigator.clipboard.writeText(text).then(() => {
@@ -134,70 +130,49 @@ function TransportInfoView({ transport }: { transport: TransportInfo }): React.R
 
   return (
     <div className="px-5 py-3 border-b border-border bg-surface-raised/40 space-y-2">
-      <div className="flex items-center gap-2 text-xs text-text-muted">
-        <span>Broker</span>
+      <div className="flex items-center gap-2 text-xs">
+        <span className="text-text-muted">Broker</span>
         <code className="text-text font-mono">{transport.url ?? "—"}</code>
         <span className={`px-1.5 py-0.5 rounded text-[10px] ${
-          transport.mode === "embedded" ? "bg-accent/15 text-accent" : "bg-node-active/10 text-node-active"
+          localOnly ? "bg-node-stopped/15 text-node-stopped"
+            : transport.mode === "embedded" ? "bg-accent/15 text-accent"
+            : "bg-node-active/10 text-node-active"
         }`}>
-          {transport.mode}
+          {localOnly ? "local-only" : transport.mode}
         </span>
+        {transport.lan_ips.map((addr) => (
+          <button
+            key={addr}
+            onClick={() => { setPickedIp(addr); copy(`ip-${addr}`, addr); }}
+            title="Copy this IP"
+            className={`px-1.5 py-0.5 rounded font-mono text-[11px] transition-colors ${
+              addr === ip && !localOnly
+                ? "bg-accent/15 text-accent"
+                : "bg-surface-overlay text-text hover:bg-surface-overlay/70"
+            }`}
+          >
+            {addr}{copied === `ip-${addr}` ? " ✓" : ""}
+          </button>
+        ))}
       </div>
-
-      {transport.lan_ips.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-          <span className="text-text-muted">This machine:</span>
-          {transport.lan_ips.map((ip) => {
-            const isPicked = (pickedIp ?? transport.lan_ips[0]) === ip;
-            return (
-              <button
-                key={ip}
-                onClick={() => {
-                  setPickedIp(ip);
-                  copy(`ip-${ip}`, ip);
-                }}
-                title="Click to copy + use this IP in the snippet below"
-                className={`px-2 py-0.5 rounded font-mono transition-colors ${
-                  isPicked && localOnly
-                    ? "bg-accent/15 text-accent"
-                    : "bg-surface-overlay text-text hover:bg-surface-overlay/70"
-                }`}
-              >
-                {ip}{copied === `ip-${ip}` ? " ✓" : ""}
-              </button>
-            );
-          })}
-        </div>
-      )}
-
-      {localOnly && transport.lan_ips.length === 0 && (
-        <p className="text-[11px] text-text-muted">
-          Embedded broker on 127.0.0.1 and no LAN address detected on this
-          machine. Remote agents won't reach the bus until you bind the
-          broker to a routable address (set <code className="text-text">BRAIN_NATS_URL</code>).
-        </p>
-      )}
 
       {snippet && (
         <div className="flex items-start gap-2">
           <pre className="flex-1 text-[11px] font-mono bg-surface-overlay px-2 py-1.5 rounded text-text overflow-x-auto whitespace-pre">{snippet}</pre>
           <button
             onClick={() => copy("snippet", snippet)}
-            className="text-xs text-text-muted hover:text-text whitespace-nowrap"
+            className="text-xs text-text-muted hover:text-text whitespace-nowrap pt-1.5"
           >
             {copied === "snippet" ? "copied" : "copy"}
           </button>
         </div>
       )}
 
-      {localOnly && (
-        <p className="text-[11px] text-text-muted">
-          The broker only listens on 127.0.0.1 — clicking an IP above just
-          rewrites the snippet. For real cross-host traffic, restart the API
-          with <code className="text-text">BRAIN_NATS_URL=nats://0.0.0.0:4222</code> (or
-          point at an external broker).
-        </p>
-      )}
+      <p className="text-[11px] text-text-muted">
+        {localOnly
+          ? "Restart with this to accept remote nodes."
+          : "Run this on the target machine to join."}
+      </p>
     </div>
   );
 }
