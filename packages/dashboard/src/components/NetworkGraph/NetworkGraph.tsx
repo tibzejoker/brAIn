@@ -58,8 +58,13 @@ function snapshotToFlowNode(
   // Resolve all publish topics (instance overrides + type defaults)
   const publishes = inferPublishTopics(n, typeMap);
 
-  // Subscriptions from the node
-  const subscribes = n.subscriptions.map((s) => s.pattern);
+  // Subscriptions — fall back to `topic` if `pattern` is absent (some
+  // event payloads ship the raw SubscriptionConfig before the API gets
+  // a chance to reshape). Filter out anything still falsy so
+  // topicColor() never receives undefined.
+  const subscribes = (n.subscriptions as Array<{ pattern?: string; topic?: string }>)
+    .map((s) => s.pattern ?? s.topic ?? "")
+    .filter((t) => t.length > 0);
 
   return {
     id: n.id,

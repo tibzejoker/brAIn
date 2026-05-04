@@ -18,7 +18,16 @@ export class DashboardGateway implements OnGatewayInit {
 
   afterInit(): void {
     this.brain.on("node:spawned", (node) => {
-      this.server.emit("node:spawned", node);
+      // Reshape subscriptions to match what /network returns. The dashboard
+      // uses `s.pattern` to colour-code topic handles; emitting the raw
+      // NodeInfo (which has `s.topic`) crashed NodeBlock with
+      // "Cannot read properties of undefined (reading 'length')" right
+      // after a remote spawn.
+      this.server.emit("node:spawned", {
+        ...node,
+        subscriptions: this.brain.bus.getSubscriptions(node.id),
+        unread_count: this.brain.bus.getUnreadCount(node.id),
+      });
     });
 
     this.brain.on("node:killed", (data) => {
