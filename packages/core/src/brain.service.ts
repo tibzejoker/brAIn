@@ -22,7 +22,7 @@ import {
   getDb, clearAll, updateNodePosition, recordHistory, getHistory,
   type HistoryEntry, type HistoryAction,
 } from "./db";
-import { loadSeedFile, scanSeedsDirectory, type SeedInfo } from "./seed";
+import { applySeed, scanSeedsDirectory, type SeedInfo, type SeedResult } from "./seed";
 import { restoreNodes } from "./brain-restore";
 import {
   spawnNode as doSpawn, killNode as doKill, stopNode as doStop,
@@ -220,17 +220,23 @@ export class BrainService extends EventEmitter {
 
   // === Seed ===
 
-  async seed(filePath: string): Promise<number> {
-    this.killAll();
-    clearAll(this.db);
-    const configs = loadSeedFile(filePath);
-    let spawned = 0;
-    for (const config of configs) {
-      try { await this.spawnNode(config); spawned++; }
-      catch (err) { logger.error({ err, node: config.name }, "Failed to seed"); }
-    }
-    recordHistory(this.db, { action: "network.seeded", details: { file: filePath, count: spawned } });
-    return spawned;
+  /**
+   * Apply a seed file. **Non-destructive** by design: existing nodes
+   * stay running, only what's missing is added. Implementation lives
+   * in `seed/orchestrator.ts`. For a wipe use `killAll()` + `resetDb()`
+   * (exposed as `POST /network/reset`).
+   */
+  async seed(filePath: string): Promise<SeedResult> {
+    return applySeed(
+      {
+        db: this.db,
+        typeRegistry: this.typeRegistry,
+        instanceRegistry: this.instanceRegistry,
+        store: this.store,
+        spawnNode: (c, caller) => this.spawnNode(c, caller),
+      },
+      filePath,
+    );
   }
 
   killAll(): number {

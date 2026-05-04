@@ -1,0 +1,14 @@
+# Demo seed that requires a type NOT registered locally — should
+# trigger StoreService.install from the marketplace registry.
+# This will fail today because the marketplace only lists perception
+# nodes (voice/gaze/intent), not "fake-type". The expected behavior:
+# the seed apply returns a 400 with a clear error message naming the
+# missing package.
+
+needs:
+  - type: fake-type
+    package_name: "@brain/node-fake-type"
+
+nodes:
+  - type: fake-type
+    name: should-not-spawn

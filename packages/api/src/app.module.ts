@@ -108,8 +108,12 @@ export class AppModule implements OnModuleInit {
       const seeds = this.brain.getSeeds();
       const defaultSeed = seeds.find((s) => s.name === "default" && s.valid);
       if (defaultSeed) {
-        const seeded = await this.brain.seed(defaultSeed.path);
-        this.log.log(`Seeded ${seeded} nodes from ${defaultSeed.filename}`);
+        const r = await this.brain.seed(defaultSeed.path);
+        this.log.log(
+          `Seeded ${r.spawned} nodes from ${defaultSeed.filename}`
+          + (r.installed.length > 0 ? ` (installed: ${r.installed.join(", ")})` : "")
+          + (r.skipped > 0 ? ` (skipped ${r.skipped} pre-existing)` : ""),
+        );
       }
     }
   }

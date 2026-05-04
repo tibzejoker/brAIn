@@ -1,0 +1,24 @@
+# Demo seed showcasing the `needs[]` ensure-installed flow.
+#
+# When applied, the framework first checks each entry in `needs:`:
+#   - if the type is already registered → skip
+#   - else → ask StoreService to install `package_name` (defaults to
+#     `@brain/node-<type>`) from the marketplace, fail if it doesn't
+#     resolve.
+#
+# Then it spawns the entries in `nodes:` *idempotently*: any name
+# that already exists in the network is skipped (this whole flow is
+# non-destructive — use POST /network/reset to wipe).
+
+needs:
+  - type: echo
+
+nodes:
+  - type: echo
+    name: ping-pong
+    description: "Echoes whatever you send to demo.ping back on demo.pong."
+    subscriptions:
+      - topic: demo.ping
+        description: "Send anything here, get it echoed back."
+    config_overrides:
+      response_topic: demo.pong

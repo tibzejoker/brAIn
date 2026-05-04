@@ -26,8 +26,26 @@ interface SeedNode {
   config_overrides?: Record<string, unknown>;
 }
 
+/**
+ * A type the seed depends on. The framework checks the type registry
+ * before spawning; if missing, it asks the StoreService to install
+ * `package_name` from the marketplace. `package_name` defaults to
+ * `@brain/node-<type>` so most seeds can omit it.
+ */
+export interface SeedNeed {
+  type: string;
+  package_name?: string;
+}
+
 interface SeedConfig {
+  needs?: SeedNeed[];
   nodes: SeedNode[];
+}
+
+/** Result shape returned by loadSeedFile — needs surface alongside the node configs. */
+export interface LoadedSeed {
+  needs: SeedNeed[];
+  nodes: NodeInstanceConfig[];
 }
 
 export interface ValidationError {
@@ -81,7 +99,34 @@ function validateSeedContent(raw: string, knownTypes?: Set<string>): {
   }
 
   const config = parsed as SeedConfig;
+
+  // Optional `needs[]` block — types this seed requires to be
+  // installed before it can spawn anything. Each entry needs a `type`
+  // string; `package_name` defaults to `@brain/node-<type>` at install
+  // time, so seeds can omit it for the standard naming convention.
+  if (config.needs !== undefined) {
+    if (!Array.isArray(config.needs)) {
+      errors.push({ message: "'needs' must be an array" });
+    } else {
+      for (let i = 0; i < config.needs.length; i++) {
+        const n = config.needs[i];
+        if (!n.type || typeof n.type !== "string") {
+          errors.push({ message: `needs[${i}]: missing or invalid 'type'` });
+        }
+        if (n.package_name !== undefined && typeof n.package_name !== "string") {
+          errors.push({ message: `needs[${i}]: 'package_name' must be a string` });
+        }
+      }
+    }
+  }
+
   const names = new Set<string>();
+
+  // Types that the seed promises to install via `needs[]` are
+  // valid even if not currently in `knownTypes` — the orchestrator
+  // will pull them from the marketplace before spawning. This makes
+  // the validator agree with the runtime contract.
+  const promisedTypes = new Set((config.needs ?? []).map((n) => n.type));
 
   for (let i = 0; i < config.nodes.length; i++) {
     const node = config.nodes[i];
@@ -89,8 +134,8 @@ function validateSeedContent(raw: string, knownTypes?: Set<string>): {
 
     if (!node.type || typeof node.type !== "string") {
       errors.push({ message: `${prefix}: missing or invalid 'type'` });
-    } else if (knownTypes && !knownTypes.has(node.type)) {
-      errors.push({ message: `${prefix}: unknown type '${node.type}'` });
+    } else if (knownTypes && !knownTypes.has(node.type) && !promisedTypes.has(node.type)) {
+      errors.push({ message: `${prefix}: unknown type '${node.type}' (not registered locally and not declared in needs[])` });
     }
 
     if (!node.name || typeof node.name !== "string") {
@@ -130,7 +175,7 @@ function validateSeedContent(raw: string, knownTypes?: Set<string>): {
   return { valid: errors.length === 0, errors, config };
 }
 
-export function loadSeedFile(filePath: string): NodeInstanceConfig[] {
+export function loadSeedFile(filePath: string): LoadedSeed {
   if (!fs.existsSync(filePath)) {
     throw new Error(`Seed file not found: ${filePath}`);
   }
@@ -142,9 +187,12 @@ export function loadSeedFile(filePath: string): NodeInstanceConfig[] {
     throw new Error(`Invalid seed file: ${errors.map((e) => e.message).join("; ")}`);
   }
 
-  logger.info({ file: filePath, count: config.nodes.length }, "Loaded seed file");
+  logger.info(
+    { file: filePath, needs_count: config.needs?.length ?? 0, nodes_count: config.nodes.length },
+    "Loaded seed file",
+  );
 
-  return config.nodes.map((node): NodeInstanceConfig => ({
+  const nodes = config.nodes.map((node): NodeInstanceConfig => ({
     type: node.type,
     name: node.name,
     description: node.description,
@@ -166,6 +214,8 @@ export function loadSeedFile(filePath: string): NodeInstanceConfig[] {
     position: node.position,
     config_overrides: node.config_overrides,
   }));
+
+  return { needs: config.needs ?? [], nodes };
 }
 
 export function scanSeedsDirectory(seedsDir: string, knownTypes?: Set<string>): SeedInfo[] {

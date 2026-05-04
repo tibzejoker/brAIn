@@ -28,7 +28,9 @@ export class SeedsController {
   }
 
   @Post(":name/apply")
-  async apply(@Param("name") name: string): Promise<{ seeded: number; seed: string }> {
+  async apply(
+    @Param("name") name: string,
+  ): Promise<{ seed: string; spawned: number; skipped: number; installed: string[] }> {
     const seeds = this.brain.getSeeds();
     const seed = seeds.find((s) => s.name === name);
 
@@ -44,8 +46,8 @@ export class SeedsController {
     }
 
     try {
-      const seeded = await this.brain.seed(seed.path);
-      return { seeded, seed: name };
+      const result = await this.brain.seed(seed.path);
+      return { seed: name, ...result };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       throw new HttpException(message, HttpStatus.BAD_REQUEST);
