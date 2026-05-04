@@ -12,32 +12,16 @@
  *
  * Skipped if `nats-server` isn't on PATH.
  */
-import { afterAll, beforeAll, describe, it, expect } from "vitest";
-import { spawn, type ChildProcess, spawnSync } from "node:child_process";
+import { describe, it, expect } from "vitest";
 import { setTimeout as wait } from "node:timers/promises";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { BrainService, NatsBusService } from "@brain/core";
 
-const HAS_NATS = spawnSync("which", ["nats-server"]).status === 0;
-const PORT = 34222 + Math.floor(Math.random() * 500);
-
-let server: ChildProcess | null = null;
-
-beforeAll(async () => {
-  if (!HAS_NATS) return;
-  server = spawn("nats-server", ["-p", String(PORT)], { stdio: "ignore" });
-  await wait(400);
-});
-
-afterAll(async () => {
-  if (server) {
-    server.kill("SIGTERM");
-    await wait(150);
-    if (!server.killed) server.kill("SIGKILL");
-  }
-});
+// Shared broker from tests/_setup/nats-broker.ts.
+const URL = process.env.BRAIN_TEST_NATS_URL;
+const HAS_NATS = !!URL;
 
 describe.skipIf(!HAS_NATS)("Remote spawn (transport: remote)", () => {
   it("API dispatches a spawn-request; agent hosts the runner; bus traffic flows end-to-end", async () => {
@@ -45,8 +29,8 @@ describe.skipIf(!HAS_NATS)("Remote spawn (transport: remote)", () => {
     const nodesDir = resolve(__dirname, "..", "nodes");
 
     // Two NATS-backed buses on the same broker.
-    const apiBus = new NatsBusService({ url: `nats://127.0.0.1:${PORT}`, prefix: "rs" });
-    const agentBus = new NatsBusService({ url: `nats://127.0.0.1:${PORT}`, prefix: "rs" });
+    const apiBus = new NatsBusService({ url: URL!, prefix: "rs" });
+    const agentBus = new NatsBusService({ url: URL!, prefix: "rs" });
     await apiBus.connect();
     await agentBus.connect();
 
@@ -131,8 +115,8 @@ describe.skipIf(!HAS_NATS)("Remote spawn (transport: remote)", () => {
     const scratch = mkdtempSync(join(tmpdir(), "remote-control-"));
     const nodesDir = resolve(__dirname, "..", "nodes");
 
-    const apiBus = new NatsBusService({ url: `nats://127.0.0.1:${PORT}`, prefix: "rc" });
-    const agentBus = new NatsBusService({ url: `nats://127.0.0.1:${PORT}`, prefix: "rc" });
+    const apiBus = new NatsBusService({ url: URL!, prefix: "rc" });
+    const agentBus = new NatsBusService({ url: URL!, prefix: "rc" });
     await apiBus.connect();
     await agentBus.connect();
 
@@ -209,8 +193,8 @@ describe.skipIf(!HAS_NATS)("Remote spawn (transport: remote)", () => {
     const scratch = mkdtempSync(join(tmpdir(), "remote-readback-"));
     const nodesDir = resolve(__dirname, "..", "nodes");
 
-    const apiBus = new NatsBusService({ url: `nats://127.0.0.1:${PORT}`, prefix: "rb" });
-    const agentBus = new NatsBusService({ url: `nats://127.0.0.1:${PORT}`, prefix: "rb" });
+    const apiBus = new NatsBusService({ url: URL!, prefix: "rb" });
+    const agentBus = new NatsBusService({ url: URL!, prefix: "rb" });
     await apiBus.connect();
     await agentBus.connect();
 
@@ -275,8 +259,8 @@ describe.skipIf(!HAS_NATS)("Remote spawn (transport: remote)", () => {
     const scratch = mkdtempSync(join(tmpdir(), "remote-dlq-"));
     const nodesDir = resolve(__dirname, "..", "nodes");
 
-    const apiBus = new NatsBusService({ url: `nats://127.0.0.1:${PORT}`, prefix: "rdlq" });
-    const agentBus = new NatsBusService({ url: `nats://127.0.0.1:${PORT}`, prefix: "rdlq" });
+    const apiBus = new NatsBusService({ url: URL!, prefix: "rdlq" });
+    const agentBus = new NatsBusService({ url: URL!, prefix: "rdlq" });
     await apiBus.connect();
     await agentBus.connect();
 

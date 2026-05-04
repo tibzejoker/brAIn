@@ -9,6 +9,7 @@ export default defineConfig({
     include: ["tests/**/*.test.ts"],
     testTimeout: 30000,
     fileParallelism: false,
+    globalSetup: ["./tests/_setup/nats-broker.ts"],
   },
   resolve: {
     alias: {

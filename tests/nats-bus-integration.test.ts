@@ -7,34 +7,20 @@
  * Skips automatically if `nats-server` isn't on PATH (CI without
  * the binary still passes).
  */
-import { afterAll, beforeAll, describe, it, expect } from "vitest";
-import { spawn, type ChildProcess, spawnSync } from "node:child_process";
+import { describe, it, expect } from "vitest";
 import { NatsBusService } from "@brain/core";
 import { setTimeout as wait } from "node:timers/promises";
 
-const HAS_NATS = spawnSync("which", ["nats-server"]).status === 0;
-const PORT = 14222 + Math.floor(Math.random() * 1000);
-
-let server: ChildProcess | null = null;
-
-beforeAll(async () => {
-  if (!HAS_NATS) return;
-  server = spawn("nats-server", ["-p", String(PORT)], { stdio: "ignore" });
-  await wait(400);  // give nats-server time to bind the port
-});
-
-afterAll(async () => {
-  if (server) {
-    server.kill("SIGTERM");
-    await wait(150);
-    if (!server.killed) server.kill("SIGKILL");
-  }
-});
+// Shared broker provided by tests/_setup/nats-broker.ts (vitest
+// globalSetup). Skips silently if it didn't come up — typically a
+// fresh CI run before postinstall has fetched the binary.
+const URL = process.env.BRAIN_TEST_NATS_URL;
+const HAS_NATS = !!URL;
 
 describe.skipIf(!HAS_NATS)("NatsBusService — cross-instance routing", () => {
   it("delivers a publish from instance A to a subscriber on instance B", async () => {
-    const a = new NatsBusService({ url: `nats://127.0.0.1:${PORT}`, prefix: "test1" });
-    const b = new NatsBusService({ url: `nats://127.0.0.1:${PORT}`, prefix: "test1" });
+    const a = new NatsBusService({ url: URL!, prefix: "test1" });
+    const b = new NatsBusService({ url: URL!, prefix: "test1" });
     await a.connect(); await b.connect();
     try {
       b.subscribe("recv", "ping");
@@ -56,7 +42,7 @@ describe.skipIf(!HAS_NATS)("NatsBusService — cross-instance routing", () => {
   });
 
   it("does NOT deliver back to the publishing instance (anti-loop on origin)", async () => {
-    const a = new NatsBusService({ url: `nats://127.0.0.1:${PORT}`, prefix: "test2" });
+    const a = new NatsBusService({ url: URL!, prefix: "test2" });
     await a.connect();
     try {
       a.subscribe("self", "echo");
@@ -79,8 +65,8 @@ describe.skipIf(!HAS_NATS)("NatsBusService — cross-instance routing", () => {
   });
 
   it("preserves trace_id across instances", async () => {
-    const a = new NatsBusService({ url: `nats://127.0.0.1:${PORT}`, prefix: "test3" });
-    const b = new NatsBusService({ url: `nats://127.0.0.1:${PORT}`, prefix: "test3" });
+    const a = new NatsBusService({ url: URL!, prefix: "test3" });
+    const b = new NatsBusService({ url: URL!, prefix: "test3" });
     await a.connect(); await b.connect();
     try {
       b.subscribe("recv", "step.*");

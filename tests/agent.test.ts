@@ -6,8 +6,7 @@
  *
  * Skipped when `nats-server` isn't on PATH.
  */
-import { afterAll, beforeAll, describe, it, expect } from "vitest";
-import { spawn, type ChildProcess, spawnSync } from "node:child_process";
+import { describe, it, expect } from "vitest";
 import { setTimeout as wait } from "node:timers/promises";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -16,29 +15,14 @@ import { Agent, AgentDirectory } from "../packages/agent/src/agent";
 import { BrainService, NatsBusService } from "@brain/core";
 import { resolve } from "node:path";
 
-const HAS_NATS = spawnSync("which", ["nats-server"]).status === 0;
-const PORT = 24222 + Math.floor(Math.random() * 500);
-
-let server: ChildProcess | null = null;
-
-beforeAll(async () => {
-  if (!HAS_NATS) return;
-  server = spawn("nats-server", ["-p", String(PORT)], { stdio: "ignore" });
-  await wait(400);
-});
-
-afterAll(async () => {
-  if (server) {
-    server.kill("SIGTERM");
-    await wait(150);
-    if (!server.killed) server.kill("SIGKILL");
-  }
-});
+// Shared broker from tests/_setup/nats-broker.ts.
+const URL = process.env.BRAIN_TEST_NATS_URL;
+const HAS_NATS = !!URL;
 
 describe.skipIf(!HAS_NATS)("brAIn-agent + AgentDirectory", () => {
   it("an agent's announcement is received by the API directory", async () => {
     const scratch = mkdtempSync(join(tmpdir(), "agent-test-"));
-    const apiBus = new NatsBusService({ url: `nats://127.0.0.1:${PORT}`, prefix: "agt1" });
+    const apiBus = new NatsBusService({ url: URL!, prefix: "agt1" });
     await apiBus.connect();
     const dir = new AgentDirectory(apiBus, { ttlMs: 5000 });
     dir.attach();
@@ -46,7 +30,7 @@ describe.skipIf(!HAS_NATS)("brAIn-agent + AgentDirectory", () => {
     const agent = new Agent({
       agentId: "test-agent-1",
       host: "test-host",
-      natsUrl: `nats://127.0.0.1:${PORT}`,
+      natsUrl: URL!,
       natsPrefix: "agt1",
       nodesDir: join(scratch, "nodes"),  // missing dir is OK
       dbPath: join(scratch, "agent.db"),
@@ -57,7 +41,7 @@ describe.skipIf(!HAS_NATS)("brAIn-agent + AgentDirectory", () => {
     // directly: connect a private bus + announce manually.
     // We just verify announce → directory shape from a separate
     // NatsBusService instance, mirroring the real flow.
-    const agentBus = new NatsBusService({ url: `nats://127.0.0.1:${PORT}`, prefix: "agt1" });
+    const agentBus = new NatsBusService({ url: URL!, prefix: "agt1" });
     await agentBus.connect();
     agentBus.publish({
       from: "agent:test-agent-1",
@@ -89,8 +73,8 @@ describe.skipIf(!HAS_NATS)("brAIn-agent + AgentDirectory", () => {
   });
 
   it("messages published on the API bus reach a node hosted by the agent (via NATS)", async () => {
-    const apiBus = new NatsBusService({ url: `nats://127.0.0.1:${PORT}`, prefix: "agt2" });
-    const agentBus = new NatsBusService({ url: `nats://127.0.0.1:${PORT}`, prefix: "agt2" });
+    const apiBus = new NatsBusService({ url: URL!, prefix: "agt2" });
+    const agentBus = new NatsBusService({ url: URL!, prefix: "agt2" });
     await apiBus.connect(); await agentBus.connect();
 
     // Pretend a node lives on the agent: subscribe on agentBus.
@@ -117,7 +101,7 @@ describe.skipIf(!HAS_NATS)("brAIn-agent + AgentDirectory", () => {
 
   it("API drops a remote node's local stub when its agent stops announcing", async () => {
     const scratch = mkdtempSync(join(tmpdir(), "agent-expire-"));
-    const apiBus = new NatsBusService({ url: `nats://127.0.0.1:${PORT}`, prefix: "agt3" });
+    const apiBus = new NatsBusService({ url: URL!, prefix: "agt3" });
     await apiBus.connect();
     // Aggressive TTL so the test runs in a couple of seconds.
     const api = new BrainService(
