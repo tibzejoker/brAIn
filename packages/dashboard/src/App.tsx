@@ -7,8 +7,7 @@ import { EdgePanel } from "./components/EdgePanel";
 import { MessageLog } from "./components/MessageLog";
 import { NodeCreator } from "./components/NodeCreator";
 import { HistoryPanel } from "./components/HistoryPanel";
-import { SeedManager } from "./components/SeedManager";
-import { StorePanel } from "./components/StorePanel";
+import { MarketplacePanel } from "./components/MarketplacePanel";
 import { AgentsPanel } from "./components/AgentsPanel";
 import { NodeUiModal } from "./components/NodeUiModal";
 import { useNetwork } from "./hooks/useNetwork";
@@ -162,9 +161,7 @@ export function App(): React.ReactElement {
 
         {activeView === "history" && <HistoryPanel />}
 
-        {activeView === "seeds" && <SeedManager onApplied={handleSeedApplied} />}
-
-        {activeView === "store" && <StorePanel onInstalled={refreshNetwork} />}
+        {activeView === "marketplace" && <MarketplacePanel onChanged={handleSeedApplied} />}
 
         {activeView === "agents" && <AgentsPanel />}
       </div>
