@@ -21,6 +21,7 @@
     "clean": "pnpm -r exec rm -rf dist",
     "kill-orphans": "node scripts/kill-orphans.mjs",
     "kill-ports": "node scripts/kill-ports.mjs",
+    "brain": "node scripts/brain.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "vitest run",

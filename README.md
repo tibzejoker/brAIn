@@ -292,8 +292,15 @@ pnpm start
 ```
 
 The framework boots empty (zero nodes) and spawns an embedded
-`nats-server` on a free localhost port. Open the dashboard's
-**Marketplace** tab to install seed bundles or individual nodes
+`nats-server` on a free localhost port.
+
+```bash
+pnpm brain list             # marketplace registry — installed + available
+pnpm brain pull memory      # install one by name
+```
+
+Or open the dashboard's **Marketplace** tab to install seed bundles
+or individual nodes
 from the sister repos, or apply a YAML seed from `seeds/` (`default`,
 `chat`, `vocal-chat`, `demo-memory`, `demo-needs`).
 
