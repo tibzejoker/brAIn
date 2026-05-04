@@ -1,9 +1,6 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import {
-  getStoreNodes, installFromStore, getStoreCandidates,
-  refreshStore, getStoreUpstreamStatus, getInstalledUpdates,
-  type StoreNodeStatus, type StoreCandidate, type InstalledNodeUpdate,
-} from "../../api/store";
+import { useCallback, useMemo, useState } from "react";
+import { installFromStore, type StoreNodeStatus, type InstalledNodeUpdate } from "../../api/store";
+import { useMarketplace } from "../../hooks/useMarketplace";
 
 interface RepoGroup {
   repo: string;
@@ -40,49 +37,25 @@ function groupByRepo(
 }
 
 export function LibrariesView({ onChanged }: { onChanged: () => void }): React.ReactElement {
-  const [nodes, setNodes] = useState<StoreNodeStatus[]>([]);
-  const [candidates, setCandidates] = useState<StoreCandidate[]>([]);
-  const [updates, setUpdates] = useState<Map<string, InstalledNodeUpdate>>(new Map());
-  const [marketplaceAhead, setMarketplaceAhead] = useState(false);
-  const [repoDescriptions, setRepoDescriptions] = useState<Map<string, string>>(new Map());
-  const [loading, setLoading] = useState(true);
+  const { data, loading, refetch, pullMarketplace } = useMarketplace();
   const [installing, setInstalling] = useState<string | null>(null);
   const [pulling, setPulling] = useState(false);
   const [query, setQuery] = useState("");
   const [banner, setBanner] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null);
 
-  const refresh = useCallback((): void => {
-    setLoading(true);
-    void Promise.all([
-      getStoreNodes().catch(() => [] as StoreNodeStatus[]),
-      getStoreCandidates().catch(() => [] as StoreCandidate[]),
-      getInstalledUpdates().catch(() => [] as InstalledNodeUpdate[]),
-      getStoreUpstreamStatus().catch(() => ({ updateAvailable: false, localSha: null, remoteSha: null })),
-      fetch("/store/index").then((r) => r.json() as Promise<{ repos: Record<string, { description?: string }> }>)
-        .catch(() => ({ repos: {} as Record<string, { description?: string }> })),
-    ]).then(([n, c, u, ups, idx]) => {
-      setNodes(n); setCandidates(c);
-      setUpdates(new Map(u.map((x) => [x.repo, x])));
-      setMarketplaceAhead(ups.updateAvailable);
-      setRepoDescriptions(new Map(Object.entries(idx.repos).map(([k, v]) => [k, v.description ?? ""])));
-    }).finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => { refresh(); }, [refresh]);
-
-  const pullMarketplace = useCallback((): void => {
+  const handlePull = useCallback((): void => {
     setPulling(true);
-    refreshStore()
-      .then((r) => {
-        setBanner({ type: r.updated ? "success" : "info", message: `marketplace: ${r.message}` });
-        refresh();
-      })
+    pullMarketplace()
+      .then((r) => setBanner({
+        type: r.updated ? "success" : "info",
+        message: `marketplace: ${r.message}`,
+      }))
       .catch((err: unknown) => setBanner({
         type: "error",
         message: `pull failed — ${err instanceof Error ? err.message : String(err)}`,
       }))
       .finally(() => setPulling(false));
-  }, [refresh]);
+  }, [pullMarketplace]);
 
   const installLib = useCallback((repo: string, packageNames: string[]): void => {
     const target = packageNames[0];
@@ -90,18 +63,25 @@ export function LibrariesView({ onChanged }: { onChanged: () => void }): React.R
     setInstalling(repo); setBanner(null);
     installFromStore(target)
       .then((res) => {
-        setBanner({ type: res.status === "installed" ? "success" : "info", message: `${repo}: ${res.message}` });
+        setBanner({
+          type: res.status === "installed" ? "success" : "info",
+          message: `${repo}: ${res.message}`,
+        });
         onChanged();
-        refresh();
+        void refetch();
       })
       .catch((err: unknown) => setBanner({
         type: "error",
         message: err instanceof Error ? err.message : String(err),
       }))
       .finally(() => setInstalling(null));
-  }, [onChanged, refresh]);
+  }, [onChanged, refetch]);
 
-  const groups = useMemo(() => groupByRepo(nodes, updates, repoDescriptions), [nodes, updates, repoDescriptions]);
+  const groups = useMemo(() => {
+    if (!data) return [];
+    return groupByRepo(data.nodes, data.updates, data.repoDescriptions);
+  }, [data]);
+
   const filtered = useMemo(() => groups.filter((g) => {
     if (!query) return true;
     const q = query.toLowerCase();
@@ -117,9 +97,9 @@ export function LibrariesView({ onChanged }: { onChanged: () => void }): React.R
     <>
       <div className="flex items-center gap-3 px-5 py-2 border-b border-border bg-surface-raised/50">
         <span className="text-xs text-text-muted">
-          {groups.length} libraries · {nodes.length} nodes
+          {groups.length} libraries · {data?.nodes.length ?? 0} nodes
         </span>
-        {marketplaceAhead && (
+        {data?.upstreamAhead && (
           <span className="text-[10px] px-2 py-0.5 rounded bg-accent/20 text-accent font-semibold">
             marketplace update available
           </span>
@@ -132,13 +112,14 @@ export function LibrariesView({ onChanged }: { onChanged: () => void }): React.R
           className="flex-1 max-w-md ml-auto px-2 py-1 text-xs rounded bg-surface-overlay border border-border focus:border-accent focus:outline-none text-text"
         />
         <button
-          onClick={pullMarketplace}
+          onClick={handlePull}
           disabled={pulling}
+          title="git pull the local marketplace clone (network call)"
           className={`text-xs px-2 py-1 rounded ${
-            marketplaceAhead ? "bg-accent/20 text-accent hover:bg-accent/30" : "text-text-muted hover:text-text"
+            data?.upstreamAhead ? "bg-accent/20 text-accent hover:bg-accent/30" : "text-text-muted hover:text-text"
           }`}
         >
-          {pulling ? "pulling…" : marketplaceAhead ? "Pull update" : "Pull marketplace"}
+          {pulling ? "pulling…" : data?.upstreamAhead ? "Pull update" : "Pull marketplace"}
         </button>
       </div>
 
@@ -151,11 +132,11 @@ export function LibrariesView({ onChanged }: { onChanged: () => void }): React.R
       )}
 
       <div className="flex-1 overflow-y-auto">
-        {loading && <div className="text-text-muted text-xs py-8 text-center">Loading registry…</div>}
+        {loading && !data && <div className="text-text-muted text-xs py-8 text-center">Loading registry…</div>}
 
-        {candidates.length > 0 && (
+        {data && data.candidates.length > 0 && (
           <div className="px-5 py-3 border-b border-border bg-accent/5 text-[11px] text-accent">
-            <strong>{candidates.length} local candidate(s)</strong> ready to publish to the marketplace.
+            <strong>{data.candidates.length} local candidate(s)</strong> ready to publish to the marketplace.
           </div>
         )}
 
@@ -168,7 +149,7 @@ export function LibrariesView({ onChanged }: { onChanged: () => void }): React.R
           />
         ))}
 
-        {!loading && filtered.length === 0 && (
+        {!loading && data && filtered.length === 0 && (
           <div className="text-text-muted text-xs py-8 text-center">
             {query ? `No libraries match "${query}"` : "Empty registry."}
           </div>

@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { getSeeds, applySeed, type SeedInfo } from "../../api/client";
-import { getMarketplaceSeeds, installMarketplaceSeed, type MarketplaceSeed } from "../../api/store";
+import { useCallback, useMemo, useState } from "react";
+import { applySeed, type SeedInfo } from "../../api/client";
+import { installMarketplaceSeed, type MarketplaceSeed } from "../../api/store";
+import { useMarketplace } from "../../hooks/useMarketplace";
 
 interface UnifiedSeed {
   source: "local" | "marketplace";
@@ -39,23 +40,11 @@ function unifySeeds(local: SeedInfo[], market: MarketplaceSeed[]): UnifiedSeed[]
 }
 
 export function SeedsView({ onChanged }: { onChanged: () => void }): React.ReactElement {
-  const [local, setLocal] = useState<SeedInfo[]>([]);
-  const [market, setMarket] = useState<MarketplaceSeed[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { data, loading, refetch } = useMarketplace();
   const [applying, setApplying] = useState<string | null>(null);
   const [installing, setInstalling] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [banner, setBanner] = useState<{ type: "success" | "error"; message: string } | null>(null);
-
-  const refresh = useCallback((): void => {
-    setLoading(true);
-    void Promise.all([
-      getSeeds().catch(() => [] as SeedInfo[]),
-      getMarketplaceSeeds().catch(() => [] as MarketplaceSeed[]),
-    ]).then(([l, m]) => { setLocal(l); setMarket(m); }).finally(() => setLoading(false));
-  }, []);
-
-  useEffect(() => { refresh(); }, [refresh]);
 
   const handleApply = useCallback((name: string, merge: boolean): void => {
     setApplying(name); setBanner(null);
@@ -71,8 +60,7 @@ export function SeedsView({ onChanged }: { onChanged: () => void }): React.React
         onChanged();
       })
       .catch((err: unknown) => setBanner({
-        type: "error",
-        message: err instanceof Error ? err.message : String(err),
+        type: "error", message: err instanceof Error ? err.message : String(err),
       }))
       .finally(() => setApplying(null));
   }, [onChanged]);
@@ -80,15 +68,18 @@ export function SeedsView({ onChanged }: { onChanged: () => void }): React.React
   const handleInstall = useCallback((name: string): void => {
     setInstalling(name); setBanner(null);
     installMarketplaceSeed(name)
-      .then((res) => { setBanner({ type: "success", message: `Pulled "${name}" — ${res.message}` }); refresh(); })
+      .then((res) => { setBanner({ type: "success", message: `Pulled "${name}" — ${res.message}` }); void refetch(); })
       .catch((err: unknown) => setBanner({
-        type: "error",
-        message: err instanceof Error ? err.message : String(err),
+        type: "error", message: err instanceof Error ? err.message : String(err),
       }))
       .finally(() => setInstalling(null));
-  }, [refresh]);
+  }, [refetch]);
 
-  const all = useMemo(() => unifySeeds(local, market), [local, market]);
+  const all = useMemo(() => {
+    if (!data) return [];
+    return unifySeeds(data.localSeeds, data.marketplaceSeeds);
+  }, [data]);
+
   const filtered = useMemo(() => all.filter((s) => {
     if (!query) return true;
     const q = query.toLowerCase();
@@ -114,7 +105,7 @@ export function SeedsView({ onChanged }: { onChanged: () => void }): React.React
           onChange={(e) => setQuery(e.target.value)}
           className="flex-1 max-w-md ml-auto px-2 py-1 text-xs rounded bg-surface-overlay border border-border focus:border-accent focus:outline-none text-text"
         />
-        <button onClick={refresh} className="text-xs text-text-muted hover:text-text">Refresh</button>
+        <button onClick={() => void refetch()} className="text-xs text-text-muted hover:text-text">Refresh view</button>
       </div>
 
       {banner && (
@@ -124,7 +115,7 @@ export function SeedsView({ onChanged }: { onChanged: () => void }): React.React
       )}
 
       <div className="flex-1 overflow-y-auto">
-        {loading && <div className="text-text-muted text-xs py-8 text-center">Loading…</div>}
+        {loading && !data && <div className="text-text-muted text-xs py-8 text-center">Loading…</div>}
         {filtered.map((s) => (
           <SeedCard
             key={`${s.source}-${s.name}`} seed={s}
@@ -132,7 +123,7 @@ export function SeedsView({ onChanged }: { onChanged: () => void }): React.React
             onApply={(merge) => handleApply(s.name, merge)} onInstall={() => handleInstall(s.name)}
           />
         ))}
-        {!loading && filtered.length === 0 && (
+        {!loading && data && filtered.length === 0 && (
           <div className="text-text-muted text-xs py-8 text-center">
             {query ? `No seeds match "${query}"` : "No seeds anywhere."}
           </div>

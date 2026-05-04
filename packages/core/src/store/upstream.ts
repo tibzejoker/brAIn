@@ -41,11 +41,18 @@ export interface UpstreamStatus {
   remoteSha: string | null;
 }
 
+/**
+ * Cheap "marketplace ahead?" check — does NOT contact origin. Reads
+ * the last-known `origin/main` ref on disk (set by the most recent
+ * `git fetch` or `git pull`). The dashboard's "Pull marketplace"
+ * button is what actually goes to the network; everything else is
+ * read-only against local git state so opening the Marketplace tab
+ * is instant.
+ */
 export function marketplaceHasUpdate(localStoreDir: string): UpstreamStatus {
   if (!fs.existsSync(localStoreDir)) {
     return { updateAvailable: false, localSha: null, remoteSha: null };
   }
-  spawnSync("git", ["fetch", "origin", "main", "--quiet"], { cwd: localStoreDir, timeout: 15_000 });
   const localSha = rev(localStoreDir);
   const remoteSha = rev(localStoreDir, "origin/main");
   return { updateAvailable: !!localSha && !!remoteSha && localSha !== remoteSha, localSha, remoteSha };
