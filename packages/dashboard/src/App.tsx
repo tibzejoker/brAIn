@@ -142,6 +142,8 @@ export function App(): React.ReactElement {
               <NodePanel
                 node={selectedNode}
                 devMode={devMode}
+                hasUi={types.find((t) => t.name === selectedNode.type)?.has_ui ?? false}
+                onOpenUi={() => { handleOpenNodeUi(selectedNode.id); }}
                 onClose={handleNodeClose}
                 onAction={handleNodeAction}
               />

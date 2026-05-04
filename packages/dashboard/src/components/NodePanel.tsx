@@ -10,6 +10,8 @@ type PanelTab = "info" | "logs" | "mailbox" | "dlq";
 interface NodePanelProps {
   node: NodeSnapshot;
   devMode: boolean;
+  hasUi?: boolean;
+  onOpenUi?: () => void;
   onClose: () => void;
   onAction: () => void;
 }
@@ -32,6 +34,8 @@ function formatLogTime(ts: number): string {
 export function NodePanel({
   node,
   devMode,
+  hasUi,
+  onOpenUi,
   onClose,
   onAction,
 }: NodePanelProps): React.ReactElement {
@@ -111,9 +115,20 @@ export function NodePanel({
             </span>
           )}
         </div>
-        <button onClick={onClose} className="text-text-muted hover:text-text text-lg leading-none">
-          &times;
-        </button>
+        <div className="flex items-center gap-2 shrink-0">
+          {hasUi && onOpenUi && (
+            <button
+              onClick={onOpenUi}
+              title="Open this node's web UI"
+              className="px-2 py-0.5 text-[11px] rounded bg-accent/20 text-accent hover:bg-accent/30 transition-colors font-medium"
+            >
+              Open UI
+            </button>
+          )}
+          <button onClick={onClose} className="text-text-muted hover:text-text text-lg leading-none">
+            &times;
+          </button>
+        </div>
       </div>
 
       {/* Tabs */}
