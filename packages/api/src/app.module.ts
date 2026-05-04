@@ -54,7 +54,13 @@ const brokerProvider = {
     // External mode skips auth — caller manages the broker, so the
     // token is theirs to set via BRAIN_NATS_TOKEN if they want one.
     const authToken = externalUrl ? process.env.BRAIN_NATS_TOKEN : ensureBrokerToken(dbPath);
-    const broker = new BrokerService({ externalUrl, host: prefs.bindAddress, authToken });
+    // Pin the broker port via BRAIN_BROKER_PORT — useful when remote
+    // agents need a stable URL across API restarts (token rotation,
+    // bind toggle, etc.). Defaults to a free port picked by the OS.
+    const port = process.env.BRAIN_BROKER_PORT
+      ? Number(process.env.BRAIN_BROKER_PORT)
+      : undefined;
+    const broker = new BrokerService({ externalUrl, host: prefs.bindAddress, port, authToken });
     const r = await broker.start();
     log.log(`NATS bus on ${r.url} (${r.mode}, bound to ${prefs.bindAddress}${authToken ? ", auth: on" : ""})`);
     return broker;

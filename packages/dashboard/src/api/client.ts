@@ -20,6 +20,8 @@ export interface TransportInfo {
   mode: "embedded" | "external";
   bind_address: string;
   lan_ips: string[];
+  /** NATS auth token enforced by the embedded broker (null in external mode). */
+  token: string | null;
 }
 export function getTransport(): Promise<TransportInfo> {
   return request("/network/transport");

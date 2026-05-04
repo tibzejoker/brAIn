@@ -118,7 +118,7 @@ function TransportInfoView({ transport, onChanged }: {
   // Only meaningful when bus is open AND we know an IP — otherwise no
   // snippet to copy.
   const snippet = open && transport.url && ip
-    ? `BRAIN_NATS_URL=${transport.url.replace("0.0.0.0", ip)} npx brain-agent`
+    ? `BRAIN_NATS_URL=${transport.url.replace("0.0.0.0", ip)}${transport.token ? ` BRAIN_NATS_TOKEN=${transport.token}` : ""} npx brain-agent`
     : "";
 
   const copy = (key: string, text: string): void => {

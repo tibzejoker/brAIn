@@ -122,12 +122,26 @@ export class NatsBusService extends EventEmitter implements IBusService {
     if (!nc) return;
     void (async (): Promise<void> => {
       for await (const s of nc.status()) {
-        const data = String((s as { data?: unknown }).data ?? "");
-        if (data.toLowerCase().includes("authorization violation")) {
-          this.emit("auth:rejected", { reason: data });
+        const evt = s as { type?: string; data?: unknown };
+        logger.debug({ type: evt.type, data: evt.data }, "nats status event");
+        const blob = `${String(evt.type ?? "")} ${String(evt.data ?? "")}`.toLowerCase();
+        if (blob.includes("authorization violation") || blob.includes("auth violation")) {
+          this.emit("auth:rejected", { reason: String(evt.data ?? evt.type) });
         }
       }
-    })().catch(() => { /* connection closed — fine */ });
+    })().catch((err) => {
+      logger.debug({ err }, "nats status iterator ended");
+    });
+    // Some NATS rejections close the connection before any status event
+    // fires. Watch `nc.closed()` too: if it resolves with an auth-flagged
+    // error, surface it as the same auth:rejected event.
+    void nc.closed().then((err) => {
+      if (!err) return;
+      const msg = err instanceof Error ? err.message : String(err);
+      if (msg.toLowerCase().includes("authorization")) {
+        this.emit("auth:rejected", { reason: msg });
+      }
+    });
   }
 
   // === Routing ===
