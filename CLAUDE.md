@@ -4,7 +4,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## What is brAIn
 
-**Bridged Reactive Artificial Intelligence Network** — A framework of autonomous interconnected nodes (LLM, code, MCP services) that communicate via a pub/sub message bus. Inspired by brain architecture: each node runs in a loop, can be preempted by higher-priority messages, and the network topology can be rewired at runtime.
+**Bus-Reactive Ambient Intelligent Nodes** — A framework of autonomous interconnected nodes (LLM, code, MCP services) that communicate via a pub/sub message bus. Inspired by brain architecture: each node runs in a loop, can be preempted by higher-priority messages, and the network topology can be rewired at runtime.
 
 ## Commands
 

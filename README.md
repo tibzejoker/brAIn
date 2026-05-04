@@ -65,9 +65,10 @@ The framework's primitives:
   a remote `brain-agent`. Lifecycle (stop / start / wake) and
   read-back (logs / mailbox / DLQ) work transparently across
   machines over NATS.
-- **MCP-native** — an `mcp-host` node bridges any MCP server's
-  tools onto the bus, so the agent reaches into filesystem, git,
-  Slack, Linear, Notion, Sentry … as it would call any other node.
+- **MCP-native** — `mcp-config` (manager) + `mcp-server` (one per
+  upstream) bridge any MCP server's tools onto the bus, so the
+  agent reaches into filesystem, git, Slack, Linear, Notion,
+  Sentry … as it would call any other node.
 
 ---
 
@@ -139,25 +140,19 @@ and the Node Creator's **Target** dropdown lets you pick "Local" or
 any agent for a new spawn. When an agent stops announcing past
 ~30 s, its remote-node stubs are automatically pruned from the API.
 
-### MCP — `mcp-host` node
+### MCP — `mcp-config` + `mcp-server`
 
-`nodes/mcp-host` connects to N MCP servers (official
-`@modelcontextprotocol/sdk`), discovers their tools, and exposes
-them on the bus. Four transports supported per server:
-
-- `transport: "stdio"` — local subprocess (filesystem, git, …)
-- `transport: "http"` — modern Streamable HTTP, current standard
-  for cloud-hosted MCP (Linear, Notion, Exa, …)
-- `transport: "sse"` — legacy HTTP/SSE servers
-- `transport: "ws"` — WebSocket
-
-Bus topics:
-
-- `mcp.call` → payload `{server?, tool, arguments?}` → answers on
-  `mcp.result`. `ctx.signal` propagates → preemption kills MCP
-  calls in flight.
-- `mcp.tools.list` → republishes the aggregated toolset on
-  `mcp.tools.available` for discovery.
+Lives in [brAIn-essentials](https://github.com/tibzejoker/brAIn-essentials).
+`mcp-config` owns a single Claude-Desktop-shaped JSON
+(`{mcpServers: {...}}`) and reconciles it by spawning / killing
+`mcp-server` children — one per upstream. Each `mcp-server` connects
+via the official `@modelcontextprotocol/sdk` and exposes each tool
+as its own bus topic `mcp.<alias>.<tool>`, so callers wire to
+capabilities directly. Status, OAuth state and tool catalog are on
+`mcp.<alias>.{status,tools,oauth.required}`. Four transports
+supported per upstream: `stdio`, `http` (Streamable HTTP), `sse`,
+`ws`. `ctx.signal` propagates → preemption kills MCP calls in
+flight.
 
 ### Observability
 
@@ -228,53 +223,44 @@ the dynamic scanner if dropped under `nodes/_dynamic/`.
 
 ---
 
-## Showcase: ambient perception
+## Nodes
 
-[brAIn-perception](https://github.com/tibzejoker/brAIn-perception)
-(sibling repo, auto-detected) runs three nodes that demonstrate the
-many-to-many model concretely:
+This repo ships zero nodes — `nodes/` only contains a `_dynamic/`
+slot for the runtime scanner. Every capability comes from a sister
+repo, installed via the in-app Marketplace tab (backed by
+[brAIn-store](https://github.com/tibzejoker/brAIn-store)).
 
-- **`voice`** — server-side mic capture + Silero VAD + faster-whisper
-  STT + WeSpeaker speaker diarization. Publishes `voice.transcript`
-  (criticality bumped on finalised segments so the brain wakes) and
-  `voice.speaker.detected`.
-- **`gaze`** — server-side webcam + InsightFace recognition + Gazelle
-  (DINOv2) gaze direction + MediaPipe iris + Moondream labelling
-  what the gaze lands on. Publishes `gaze.target.resolved`.
-- **`intent`** — correlator that subscribes to `voice.transcript` +
-  `gaze.target.resolved`, matches them on a sliding time window, and
-  publishes `intent.detected` when the same person is seen looking
-  at the camera while talking.
+- [**brAIn-essentials**](https://github.com/tibzejoker/brAIn-essentials)
+  — `brain` (LLM orchestrator with a tolerant tool-call parser),
+  `developer` (writes new node types at runtime via Claude / Codex
+  / Gemini CLIs), `attention`, `clock`, `cron`, `echo`, `mcp-config`
+  + `mcp-server`.
+- [**brAIn-memory**](https://github.com/tibzejoker/brAIn-memory) —
+  `memory` (KV + tags), `memory-vector` (LanceDB + Ollama
+  embeddings), `memory-proxy` (LLM-mediated gateway — the brain
+  talks here, never to the underlying stores),
+  `memory-consolidator`, `reminder`.
+- [**brAIn-tools**](https://github.com/tibzejoker/brAIn-tools) —
+  `terminal`, `http-bridge`, `calc-py` (Python node behind a
+  WebSocket, demonstrates `transport: "web"`).
+- [**brAIn-llm**](https://github.com/tibzejoker/brAIn-llm) —
+  `llm-basic` (Vercel AI SDK wrapper), `llm-cli` (Claude Code /
+  Codex / Gemini wrapper).
+- [**brAIn-ui**](https://github.com/tibzejoker/brAIn-ui) — `chat`
+  (browser interface for human ↔ network).
+- [**brAIn-perception**](https://github.com/tibzejoker/brAIn-perception)
+  — `voice` (faster-whisper + WeSpeaker), `gaze` (InsightFace +
+  Gazelle + Moondream), `intent` (voice × gaze correlator).
 
-Combined with `brain` and `chat`, the room agent responds when
-someone looks at the camera while talking — no wake word, no
-chat-box input.
+### Showcase: ambient perception
 
-The `voice` and `gaze` servers auto-install their virtualenv and
-download the ML weights (faster-whisper, Gazelle, Moondream, …) on
-first spawn, so the first run boots end-to-end from a fresh
-`pnpm start` and a node spawn from the dashboard.
-
----
-
-## In-tree nodes
-
-- **Reasoning**: `brain` (central LLM agent with a tolerant
-  tool-call parser that handles the loose JSON small models often
-  produce), `developer` (writes new node types at runtime via the
-  Claude / Codex / Gemini CLIs and registers them live),
-  `attention` (bridges intents to the topics the brain listens to).
-- **Memory**: `memory` (KV + tags), `memory-vector` (LanceDB +
-  Ollama embeddings), `memory-proxy` (LLM-mediated gateway —
-  brain talks here, never to the underlying stores),
-  `memory-consolidator` (autonomous merger / cleaner).
-- **Tools**: `terminal`, `http-bridge`, `cron`, `clock`, `reminder`,
-  `echo`, `chat`, `mcp-host`.
-- **LLM**: `llm-basic` (Vercel AI SDK wrapper), `llm-cli` (Claude
-  Code / Codex / Gemini wrapper).
-- **Web demo**: `calc-py` — Python node behind a WebSocket
-  (`transport: "web"`), answers arithmetic expressions. Exists to
-  show the cross-language transport in action.
+`voice` publishes `voice.transcript`, `gaze` publishes
+`gaze.target.resolved`, `intent` matches them on a sliding window
+and emits `intent.detected` when the same person is seen looking at
+the camera while talking. Combined with `brain` and `chat`, the
+room agent responds without a wake word or a chat-box input. The
+voice and gaze servers auto-install their virtualenv and download
+the ML weights on first spawn.
 
 ---
 
@@ -292,21 +278,27 @@ first spawn, so the first run boots end-to-end from a fresh
 ### Run the framework alone
 
 ```bash
-pnpm install
-pnpm build
+pnpm install            # postinstall builds sdk + core, clones brAIn-store
 pnpm start
 # API       → http://localhost:3000
 # Dashboard → http://localhost:5173
 ```
 
-### Pre-wired stacks (require brAIn-perception sibling)
+The framework boots empty (zero nodes). Open the dashboard's
+**Marketplace** tab to install seed bundles or individual nodes
+from the sister repos, or apply a YAML seed from `seeds/` (`default`,
+`chat`, `vocal-chat`, `demo-memory`, `demo-needs`).
+
+### Pre-wired stacks (require sibling clones)
+
+When the relevant sister repo is cloned alongside `brAIn/`,
+`pnpm-workspace.yaml` picks it up automatically:
 
 ```bash
 pnpm dev:voice          # voice + seed
 pnpm dev:gaze           # gaze + seed
 pnpm dev:intent         # voice + gaze + intent
-pnpm dev:vocal-chat     # the full ambient stack (voice + gaze +
-                        # intent + chat + brain)
+pnpm dev:vocal-chat     # the full ambient stack
 ```
 
 ### Distributed runtime
@@ -318,9 +310,10 @@ nats-server -p 4222
 # API host
 BRAIN_NATS_URL=nats://<broker>:4222 pnpm start
 
-# Each worker (Pi, GPU box, …)
+# Each worker (Pi, GPU box, …) — point at any directory that
+# contains the node packages this agent should be able to host.
 BRAIN_NATS_URL=nats://<broker>:4222 \
-  BRAIN_AGENT_NODES_DIR=$(pwd)/nodes \
+  BRAIN_AGENT_NODES_DIR=/path/to/nodes \
   node packages/agent/dist/cli.js
 ```
 
@@ -348,6 +341,7 @@ POST   /nodes                  Spawn  { type, name, transport?,
 DELETE /nodes/:id              Kill
 POST   /nodes/:id/{stop,start,wake,tick}
 PATCH  /nodes/:id/config       Update config_overrides
+PATCH  /nodes/:id/position     Persist dashboard layout
 GET    /nodes/:id/{logs,mailboxes,dead-letters}
 
 # Types
@@ -358,19 +352,30 @@ DELETE /types/:name
 # Network + traces
 GET    /network                          Full snapshot
 GET    /network/messages                 History
+GET    /network/history                  Lifecycle audit log
+GET    /network/transport                { nats, url? }
+GET    /network/{providers,devmode}
+POST   /network/{devmode,tick,reset}
 GET    /network/traces/:trace_id         Walk a causal chain
 POST   /network/traces/:trace_id/replay  Re-publish as fresh emissions
-POST   /network/seeds/:name/apply        Apply a YAML seed
+GET    /network/seeds                    List available YAML seeds
+POST   /network/seeds/:name/apply        Apply a seed (?merge=true to add)
 
-# Store + agents
-GET    /store/{index,nodes,candidates}
+# Store (marketplace)
+GET    /store/{index,nodes,candidates,upstream-status,installed-updates}
 POST   /store/install            { package_name }
+POST   /store/refresh            Pull brAIn-store
+
+# Agents (distributed)
 GET    /agents
 
 # Node UI
 GET    /nodes/:id/ui/            Static node UI
 POST   /nodes/:id/ui/send        Publish into the node
 GET    /nodes/:id/ui/messages    Conversation log
+
+# MCP OAuth callback
+GET    /mcp/oauth/callback
 ```
 
 WebSocket events on `/socket.io`: `node:spawned`, `node:killed`,
@@ -444,8 +449,12 @@ have, for context:
 - **Bus** — in-memory by default; NATS when `BRAIN_NATS_URL` is set.
 - **Persistence** — SQLite via better-sqlite3.
 - **Monorepo** — pnpm workspaces, with cross-repo sibling
-  resolution to `../brAIn-perception/nodes/*` when that companion
-  repo is checked out.
+  resolution to `../brAIn-{essentials,memory,tools,llm,ui,perception}/nodes/*`
+  when those companion repos are checked out. Missing paths are
+  silently ignored.
+- **Marketplace** — `../brAIn-store` is auto-cloned by the
+  postinstall hook; the dashboard's Marketplace tab installs nodes
+  and seeds from it (SHA-pinned, per-file checksums).
 - **Cross-language nodes** — `packages/python-sdk` (`brain-web`)
   helper for nodes that speak the bus from Python over WebSocket
   (`transport: "web"`).
