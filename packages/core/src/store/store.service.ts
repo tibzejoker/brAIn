@@ -104,13 +104,24 @@ export interface StoreCandidate {
 
 export class StoreService {
   private cache: { fetched_at: number; data: StoreRegistry } | null = null;
+  private readonly frameworkRoot: string;
 
   constructor(
     private readonly typeRegistry: TypeRegistry,
     /** Where to clone parent repos. Conventionally the brAIn workspace's parent. */
     private readonly siblingsRoot: string,
     private readonly storeUrl: string = process.env.BRAIN_STORE_URL ?? DEFAULT_STORE_URL,
-  ) {}
+    /**
+     * Root of the framework repo itself — used as the cwd for the
+     * post-clone `pnpm install`, so workspace:* refs in the freshly
+     * cloned sister repo resolve through brAIn's pnpm-workspace.yaml
+     * (which lists `../brAIn-<X>/nodes/*` siblings). Defaults to
+     * `<siblingsRoot>/brAIn` per convention.
+     */
+    frameworkRoot?: string,
+  ) {
+    this.frameworkRoot = frameworkRoot ?? path.resolve(siblingsRoot, "brAIn");
+  }
 
   /** Fetch the registry, with a 60-second cache. */
   async fetchRegistry(force = false): Promise<StoreRegistry> {
@@ -189,6 +200,20 @@ export class StoreService {
         };
       }
     }
+    // Sister repos do not commit dist/. Build them in-place so the
+    // type registry can find dist/handler.js when spawning. Skip if
+    // the dist already exists (e.g. user pre-built before install).
+    if (!fs.existsSync(path.join(repoDir, node.subpath, "dist", "handler.js"))) {
+      const buildErr = this.installAndBuild(repoDir);
+      if (buildErr) {
+        fs.rmSync(repoDir, { recursive: true, force: true });
+        return {
+          status: "failed",
+          message: `post-install build failed: ${buildErr}`,
+          cloned_to: null, re_scanned_types: 0,
+        };
+      }
+    }
     const scanned = this.rescan(repoDir);
     return {
       status: "installed",
@@ -238,6 +263,41 @@ export class StoreService {
       }
     }
     return {};
+  }
+
+  /**
+   * Build the freshly-cloned sister so every node has its dist/ by
+   * the time spawn() tries to import handler.js.
+   *
+   * `pnpm install` runs in the FRAMEWORK root, not in the cloned
+   * repo — that way the cloned sister gets picked up via brAIn's
+   * pnpm-workspace.yaml glob and `@brain/sdk: workspace:*` resolves
+   * through the framework's own packages. Then `pnpm --dir <repo>
+   * build` builds every sister-repo node.
+   *
+   * 5-minute hard timeout per command.
+   */
+  private installAndBuild(repoDir: string): string | null {
+    logger.info({ repoDir, frameworkRoot: this.frameworkRoot }, "store: pnpm install + build (post-clone)");
+    const inst = spawnSync("pnpm", ["install"], {
+      cwd: this.frameworkRoot, stdio: ["ignore", "pipe", "pipe"], timeout: 5 * 60_000,
+    });
+    if (inst.status !== 0) {
+      const err = ((inst.stderr as Buffer | undefined)?.toString() ?? "")
+        || ((inst.stdout as Buffer | undefined)?.toString() ?? "")
+        || `exit ${inst.status ?? "?"}`;
+      return `pnpm install (in ${this.frameworkRoot}): ${err.split("\n").slice(-3).join(" | ")}`;
+    }
+    const build = spawnSync("pnpm", ["--dir", repoDir, "-r", "build"], {
+      cwd: this.frameworkRoot, stdio: ["ignore", "pipe", "pipe"], timeout: 5 * 60_000,
+    });
+    if (build.status !== 0) {
+      const err = ((build.stderr as Buffer | undefined)?.toString() ?? "")
+        || ((build.stdout as Buffer | undefined)?.toString() ?? "")
+        || `exit ${build.status ?? "?"}`;
+      return `pnpm -r build (in ${repoDir}): ${err.split("\n").slice(-5).join(" | ")}`;
+    }
+    return null;
   }
 
   /**

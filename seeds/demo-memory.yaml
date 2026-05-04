@@ -1,0 +1,11 @@
+# Demo: framework starts without memory; this seed pulls it from
+# the marketplace at the SHA pinned in tibzejoker/brAIn-store.
+# Verifies the install + checksum + register + spawn pipeline.
+
+needs:
+  - type: memory
+
+nodes:
+  - type: memory
+    name: demo-kv
+    description: "KV store spawned to validate the marketplace install path."
