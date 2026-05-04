@@ -19,10 +19,39 @@
  * notice and restart the API as a whole.
  */
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
 import { connect as netConnect, createServer, type AddressInfo } from "node:net";
 import { resolve as resolvePath, dirname } from "node:path";
 import { logger } from "../logger";
+
+/**
+ * Tiny on-disk pref for the broker bind address. Sits alongside the
+ * SQLite DB so it travels with the data dir. The dashboard's
+ * "Open to network" toggle writes here; BrokerService reads it on
+ * boot. BRAIN_NATS_URL still wins — env beats config.
+ */
+export interface BrokerPrefs {
+  /** "127.0.0.1" (loopback, default) or "0.0.0.0" (LAN-routable). */
+  bindAddress: string;
+}
+
+export function readBrokerPrefs(prefsPath: string): BrokerPrefs {
+  try {
+    if (!existsSync(prefsPath)) return { bindAddress: "127.0.0.1" };
+    const raw = JSON.parse(readFileSync(prefsPath, "utf-8")) as Partial<BrokerPrefs>;
+    const bind = raw.bindAddress;
+    if (bind !== "127.0.0.1" && bind !== "0.0.0.0") return { bindAddress: "127.0.0.1" };
+    return { bindAddress: bind };
+  } catch (err) {
+    logger.warn({ err, prefsPath }, "broker prefs unreadable, falling back to loopback");
+    return { bindAddress: "127.0.0.1" };
+  }
+}
+
+export function writeBrokerPrefs(prefsPath: string, prefs: BrokerPrefs): void {
+  mkdirSync(dirname(prefsPath), { recursive: true });
+  writeFileSync(prefsPath, JSON.stringify(prefs, null, 2), "utf-8");
+}
 
 export interface BrokerOptions {
   /**

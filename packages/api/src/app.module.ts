@@ -1,5 +1,5 @@
 import { Module, Logger, type OnModuleInit, type OnModuleDestroy } from "@nestjs/common";
-import { BrainService, BrokerService, NatsBusService } from "@brain/core";
+import { BrainService, BrokerService, NatsBusService, readBrokerPrefs } from "@brain/core";
 import { NodesController } from "./rest/nodes.controller";
 import { TypesController } from "./rest/types.controller";
 import { NetworkController } from "./rest/network.controller";
@@ -21,6 +21,9 @@ function resolveFromRoot(envVar: string | undefined, fallback: string): string {
   return path.resolve(MONOREPO_ROOT, raw);
 }
 
+/** data/broker.json — persisted bind preference, dashboard-toggleable. */
+export const BROKER_PREFS_PATH = resolveFromRoot(process.env.BRAIN_BROKER_PREFS_PATH, "data/broker.json");
+
 // One BrokerService per API process. Started before BrainService so
 // the bus has a NATS URL to connect to. Held on AppModule so we can
 // stop it cleanly on shutdown.
@@ -29,9 +32,10 @@ const brokerProvider = {
   useFactory: async (): Promise<BrokerService> => {
     const log = new Logger("BrokerService");
     const externalUrl = process.env.BRAIN_NATS_URL;
-    const broker = new BrokerService({ externalUrl });
+    const prefs = readBrokerPrefs(BROKER_PREFS_PATH);
+    const broker = new BrokerService({ externalUrl, host: prefs.bindAddress });
     const r = await broker.start();
-    log.log(`NATS bus on ${r.url} (${r.mode})`);
+    log.log(`NATS bus on ${r.url} (${r.mode}, bound to ${prefs.bindAddress})`);
     return broker;
   },
 };

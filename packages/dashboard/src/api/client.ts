@@ -11,18 +11,31 @@ import { request } from "./request";
  * Surface the bus broker info. The framework always runs on NATS;
  * `mode` says whether the API spawned an embedded broker for this
  * single-host setup or joined an external one (BRAIN_NATS_URL set
- * by the user). The URL is what a remote `brain-agent` would point
- * at to join the same network. `lan_ips` is this host's non-loopback
- * IPv4 addresses, so the user can build a routable URL when the
- * embedded broker is on 127.0.0.1.
+ * by the user). `bind_address` is the persisted preference flipped
+ * by `setTransportBind`. `lan_ips` is this host's non-loopback
+ * IPv4 addresses for building a routable URL.
  */
 export interface TransportInfo {
   url: string | null;
   mode: "embedded" | "external";
+  bind_address: string;
   lan_ips: string[];
 }
 export function getTransport(): Promise<TransportInfo> {
   return request("/network/transport");
+}
+
+/**
+ * Flip the persisted broker bind preference and trigger an API
+ * restart so the new bind takes effect. Caller should poll
+ * `getTransport()` until the new `bind_address` shows up.
+ * `open: true` → bind 0.0.0.0 (LAN), `open: false` → bind 127.0.0.1.
+ */
+export function setTransportBind(open: boolean): Promise<{ bind_address: string; restart_scheduled: boolean }> {
+  return request("/network/transport/bind", {
+    method: "POST",
+    body: JSON.stringify({ open }),
+  });
 }
 
 // Store / marketplace endpoints — re-exported for back-compat with

@@ -1,7 +1,8 @@
-import { Controller, Get, Post, Body, Query, Param, HttpException, HttpStatus } from "@nestjs/common";
-import { BrainService, BrokerService, type HistoryEntry, type ProviderStatus, type CLIStatus } from "@brain/core";
+import { Controller, Get, Post, Body, Query, Param, HttpException, HttpStatus, Logger } from "@nestjs/common";
+import { BrainService, BrokerService, readBrokerPrefs, writeBrokerPrefs, type HistoryEntry, type ProviderStatus, type CLIStatus } from "@brain/core";
 import { type Message, type NodeInfo, type NodeState } from "@brain/sdk";
 import { networkInterfaces } from "node:os";
+import { BROKER_PREFS_PATH } from "../app.module";
 
 /**
  * Discover the IPv4 addresses of this host's external interfaces.
@@ -157,21 +158,50 @@ export class NetworkController {
   }
 
   /**
-   * Surface the bus broker info for the dashboard. The framework
-   * always runs on NATS now (embedded by default), so the
-   * Distributed tab can show the URL a remote `brain-agent` would
-   * point at and tell whether the broker is local (auto-spawned)
-   * or external (BRAIN_NATS_URL provided). `lan_ips` lists this
-   * machine's IPv4 addresses (non-loopback) so the user can build
-   * a URL reachable from another host without reaching for `ifconfig`.
+   * Surface the bus broker info for the dashboard. `lan_ips` lists
+   * this machine's IPv4 addresses (non-loopback) so the user can
+   * build a URL reachable from another host without `ifconfig`.
+   * `bind_address` is the persisted preference — the dashboard's
+   * "Open to network" toggle flips it via POST /transport/bind.
    */
   @Get("transport")
-  transport(): { url: string | null; mode: "embedded" | "external"; lan_ips: string[] } {
+  transport(): {
+    url: string | null;
+    mode: "embedded" | "external";
+    bind_address: string;
+    lan_ips: string[];
+  } {
+    const prefs = readBrokerPrefs(BROKER_PREFS_PATH);
     return {
       url: this.broker.getUrl(),
       mode: this.broker.getMode(),
+      bind_address: prefs.bindAddress,
       lan_ips: getLanIps(),
     };
+  }
+
+  /**
+   * Persist a new bind address ("127.0.0.1" or "0.0.0.0") and
+   * exit(0) — relying on `nest start --watch` (dev) or pm2/systemd
+   * (prod) to bring the API back with the new bind. The dashboard
+   * sees the connection drop and polls until the new transport
+   * info comes back.
+   *
+   * No-op when the request matches the existing preference.
+   */
+  @Post("transport/bind")
+  bind(@Body("open") open: boolean): { bind_address: string; restart_scheduled: boolean } {
+    const log = new Logger("NetworkController");
+    const next = open ? "0.0.0.0" : "127.0.0.1";
+    const current = readBrokerPrefs(BROKER_PREFS_PATH);
+    if (current.bindAddress === next) {
+      return { bind_address: next, restart_scheduled: false };
+    }
+    writeBrokerPrefs(BROKER_PREFS_PATH, { bindAddress: next });
+    log.log(`broker bind preference changed → ${next}; exiting in 200ms for restart`);
+    // Defer so the HTTP response can flush before we tear down.
+    setTimeout(() => { process.exit(0); }, 200);
+    return { bind_address: next, restart_scheduled: true };
   }
 
   @Post("devmode")

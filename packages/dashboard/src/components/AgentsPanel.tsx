@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { getAgents, getTransport, type AgentSnapshot, type TransportInfo } from "../api/client";
+import { getAgents, getTransport, setTransportBind, type AgentSnapshot, type TransportInfo } from "../api/client";
 
 /**
  * Distributed runtime panel. The bus is always NATS — embedded by
@@ -54,7 +54,7 @@ export function AgentsPanel(): React.ReactElement {
         </div>
       )}
 
-      {transport && <TransportInfoView transport={transport} />}
+      {transport && <TransportInfoView transport={transport} onChanged={refresh} />}
 
       <div className="flex-1 overflow-y-auto">
         {loading && (
@@ -102,24 +102,24 @@ export function AgentsPanel(): React.ReactElement {
   );
 }
 
-function TransportInfoView({ transport }: { transport: TransportInfo }): React.ReactElement {
+function TransportInfoView({ transport, onChanged }: {
+  transport: TransportInfo;
+  onChanged: () => void;
+}): React.ReactElement {
   const [copied, setCopied] = useState<string | null>(null);
   const [pickedIp, setPickedIp] = useState<string | null>(null);
+  const [restarting, setRestarting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const localOnly = transport.mode === "embedded"
-    && !!(transport.url?.includes("127.0.0.1") || transport.url?.includes("localhost"));
+  const open = transport.bind_address === "0.0.0.0";
+  const isExternal = transport.mode === "external";
+  const ip = pickedIp ?? (transport.lan_ips[0] as string | undefined) ?? "";
 
-  const port = transport.url ? new URL(transport.url).port : "";
-  const ip = pickedIp ?? transport.lan_ips[0] as string | undefined ?? "";
-  // In local-only mode the broker won't accept the IP-based URL, so
-  // we surface the *rebind* command instead of a snippet that wouldn't
-  // work. In routable mode (external or 0.0.0.0 bind) the snippet is
-  // the agent-launch command.
-  const snippet = localOnly
-    ? (port ? `BRAIN_NATS_URL=nats://0.0.0.0:${port} pnpm start` : "")
-    : (transport.url
-        ? `BRAIN_NATS_URL=${transport.url.replace(/(127\.0\.0\.1|localhost|0\.0\.0\.0)/, ip || "0.0.0.0")} \\\nBRAIN_NODES_DIR=./nodes \\\nnpx brain-agent`
-        : "");
+  // Only meaningful when bus is open AND we know an IP — otherwise no
+  // snippet to copy.
+  const snippet = open && transport.url && ip
+    ? `BRAIN_NATS_URL=${transport.url.replace("0.0.0.0", ip)} \\\nBRAIN_NODES_DIR=./nodes \\\nnpx brain-agent`
+    : "";
 
   const copy = (key: string, text: string): void => {
     void navigator.clipboard.writeText(text).then(() => {
@@ -128,33 +128,89 @@ function TransportInfoView({ transport }: { transport: TransportInfo }): React.R
     });
   };
 
+  const toggleBind = useCallback((): void => {
+    setError(null);
+    setRestarting(true);
+    setTransportBind(!open)
+      .then(() => {
+        // Poll until the API returns the new bind_address.
+        const target = !open ? "0.0.0.0" : "127.0.0.1";
+        const deadline = Date.now() + 20000;
+        const poll = (): void => {
+          getTransport()
+            .then((t) => {
+              if (t.bind_address === target) {
+                setRestarting(false);
+                onChanged();
+              } else if (Date.now() < deadline) {
+                setTimeout(poll, 500);
+              } else {
+                setError("API didn't restart in time — check the server logs.");
+                setRestarting(false);
+              }
+            })
+            .catch(() => {
+              if (Date.now() < deadline) setTimeout(poll, 500);
+              else { setError("API still down after 20s."); setRestarting(false); }
+            });
+        };
+        setTimeout(poll, 1000);
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : String(err));
+        setRestarting(false);
+      });
+  }, [open, onChanged]);
+
   return (
     <div className="px-5 py-3 border-b border-border bg-surface-raised/40 space-y-2">
-      <div className="flex items-center gap-2 text-xs">
+      <div className="flex flex-wrap items-center gap-2 text-xs">
         <span className="text-text-muted">Broker</span>
         <code className="text-text font-mono">{transport.url ?? "—"}</code>
         <span className={`px-1.5 py-0.5 rounded text-[10px] ${
-          localOnly ? "bg-node-stopped/15 text-node-stopped"
-            : transport.mode === "embedded" ? "bg-accent/15 text-accent"
-            : "bg-node-active/10 text-node-active"
+          isExternal ? "bg-node-active/10 text-node-active"
+            : open ? "bg-accent/15 text-accent"
+            : "bg-node-stopped/15 text-node-stopped"
         }`}>
-          {localOnly ? "local-only" : transport.mode}
+          {isExternal ? "external" : open ? "open" : "loopback"}
         </span>
-        {transport.lan_ips.map((addr) => (
+        {!isExternal && (
           <button
-            key={addr}
-            onClick={() => { setPickedIp(addr); copy(`ip-${addr}`, addr); }}
-            title="Copy this IP"
-            className={`px-1.5 py-0.5 rounded font-mono text-[11px] transition-colors ${
-              addr === ip && !localOnly
-                ? "bg-accent/15 text-accent"
-                : "bg-surface-overlay text-text hover:bg-surface-overlay/70"
+            onClick={toggleBind}
+            disabled={restarting}
+            className={`ml-auto px-2 py-0.5 text-[11px] rounded transition-colors ${
+              restarting
+                ? "bg-surface-overlay text-text-muted cursor-wait"
+                : "bg-accent text-bg hover:bg-accent/90"
             }`}
+            title={open
+              ? "Close the broker to LAN — only this host can connect."
+              : "Open the broker to LAN — remote brain-agents can connect. Triggers an API restart."}
           >
-            {addr}{copied === `ip-${addr}` ? " ✓" : ""}
+            {restarting ? "restarting…" : open ? "Close to LAN" : "Open to LAN"}
           </button>
-        ))}
+        )}
       </div>
+
+      {transport.lan_ips.length > 0 && (
+        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+          <span className="text-text-muted">This machine:</span>
+          {transport.lan_ips.map((addr) => (
+            <button
+              key={addr}
+              onClick={() => { setPickedIp(addr); copy(`ip-${addr}`, addr); }}
+              title="Copy this IP"
+              className={`px-1.5 py-0.5 rounded font-mono text-[11px] transition-colors ${
+                addr === ip && open
+                  ? "bg-accent/15 text-accent"
+                  : "bg-surface-overlay text-text hover:bg-surface-overlay/70"
+              }`}
+            >
+              {addr}{copied === `ip-${addr}` ? " ✓" : ""}
+            </button>
+          ))}
+        </div>
+      )}
 
       {snippet && (
         <div className="flex items-start gap-2">
@@ -168,11 +224,9 @@ function TransportInfoView({ transport }: { transport: TransportInfo }): React.R
         </div>
       )}
 
-      <p className="text-[11px] text-text-muted">
-        {localOnly
-          ? "Restart with this to accept remote nodes."
-          : "Run this on the target machine to join."}
-      </p>
+      {error && (
+        <p className="text-[11px] text-node-stopped">{error}</p>
+      )}
     </div>
   );
 }

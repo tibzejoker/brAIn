@@ -5,7 +5,7 @@
   "main": "dist/main.js",
   "scripts": {
     "build": "nest build",
-    "dev": "nest start --watch",
+    "dev": "node scripts/dev-supervisor.mjs",
     "start": "node dist/main.js"
   },
   "dependencies": {
