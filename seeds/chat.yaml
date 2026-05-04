@@ -1,3 +1,7 @@
+needs:
+  - type: brain
+  - type: chat
+
 nodes:
   # === Human chat interface ===
   - type: chat

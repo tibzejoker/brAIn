@@ -1,3 +1,8 @@
+needs:
+  - type: gaze
+  - type: intent
+  - type: voice
+
 # Full perception stack: voice + gaze + intent.
 # Each node spawns its own backing Python server (voice/gaze) or runs pure
 # TS (intent). Intent subscribes to voice.transcript + gaze.target.resolved

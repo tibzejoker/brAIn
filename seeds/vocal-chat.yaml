@@ -1,3 +1,10 @@
+needs:
+  - type: brain
+  - type: chat
+  - type: gaze
+  - type: intent
+  - type: voice
+
 # Vocal-chat: parler au LLM par la voix, voir/répondre dans le chat.
 #
 # Topology (no attention bridge — brain consumes intent directly):

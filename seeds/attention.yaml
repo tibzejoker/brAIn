@@ -1,3 +1,8 @@
+needs:
+  - type: attention
+  - type: brain
+  - type: chat
+
 nodes:
   # === Attention — LLM-driven ears of the network ===
   # Spawns voice/gaze/intent as child processes on first run, polls the

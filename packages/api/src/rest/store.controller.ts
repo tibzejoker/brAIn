@@ -1,8 +1,9 @@
-import { Body, Controller, Get, HttpException, HttpStatus, Post } from "@nestjs/common";
+import { Body, Controller, Get, HttpException, HttpStatus, Param, Post } from "@nestjs/common";
+import * as path from "node:path";
 import {
   BrainService,
   type StoreCandidate,
-  type StoreInstallResult, type StoreNodeStatus, type StoreRegistry,
+  type StoreInstallResult, type StoreNodeStatus, type StoreRegistry, type StoreSeed,
 } from "@brain/core";
 
 interface InstallBody { package_name: string }
@@ -85,5 +86,30 @@ export class StoreController {
   @Get("installed-updates")
   async installedUpdates(): Promise<Array<{ name: string; repo: string; localSha: string | null; pinnedSha: string; updateAvailable: boolean }>> {
     return await this.brain.store.installedNodeUpdates();
+  }
+
+  /**
+   * Marketplace seeds with installed-locally status. The dashboard
+   * merges these with the local-only seeds returned by /network/seeds.
+   */
+  @Get("seeds")
+  async seeds(): Promise<Array<StoreSeed & { installed: boolean }>> {
+    const seedsDir = path.resolve(process.cwd(), "..", "..", "seeds");
+    return await this.brain.store.listSeeds(seedsDir);
+  }
+
+  /**
+   * Pull a marketplace seed YAML (verified against its checksum)
+   * and write it to the local seeds/ directory. Idempotent —
+   * overwrites on re-install when the registry bumps the ref.
+   */
+  @Post("seeds/:name/install")
+  async installSeed(@Param("name") name: string): Promise<{ status: string; message: string; path?: string }> {
+    const seedsDir = path.resolve(process.cwd(), "..", "..", "seeds");
+    const r = await this.brain.store.installSeed(name, seedsDir);
+    if (r.status === "failed") {
+      throw new HttpException(r.message, HttpStatus.UNPROCESSABLE_ENTITY);
+    }
+    return r;
   }
 }

@@ -11,8 +11,6 @@
  * overridden via `BRAIN_STORE_URL`. A 60s in-memory cache avoids
  * hammering GitHub on dashboard refreshes.
  */
-import { spawnSync } from "node:child_process";
-import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { logger } from "../logger";
@@ -21,6 +19,8 @@ import {
   type NodeUpdate, type RefreshResult, type UpstreamStatus,
   installedNodeUpdates, marketplaceHasUpdate, refreshLocalStore,
 } from "./upstream";
+import { type InstallSeedResult, installSeedYaml } from "./seeds";
+import { cloneAndCheckout, installAndBuild, verifyChecksums } from "./install";
 
 const DEFAULT_STORE_URL =
   "https://raw.githubusercontent.com/tibzejoker/brAIn-store/main/registry.json";
@@ -62,11 +62,28 @@ export interface StoreNode {
   checksums?: Record<string, string>;
 }
 
+export interface StoreSeed {
+  name: string;
+  description: string;
+  /** Repo from `repos` whose subpath holds the YAML. */
+  repo: string;
+  subpath: string;
+  /** Pinned commit SHA of the seed file. Required. */
+  ref: string;
+  /** SHA-256 of the seed YAML — verified before writing locally. */
+  checksum: string;
+  tags?: string[];
+  /** Hint for dashboard filtering — types the seed asks for in its needs[]. */
+  needs?: string[];
+}
+
 export interface StoreRegistry {
   version: number;
   updated_at?: string;
   repos: Record<string, StoreRepo>;
   nodes: StoreNode[];
+  /** Optional — older registries may omit this. */
+  seeds?: StoreSeed[];
 }
 
 export interface StoreNodeStatus extends StoreNode {
@@ -191,6 +208,21 @@ export class StoreService {
     return installedNodeUpdates(reg, this.siblingsRoot);
   }
 
+  /** All marketplace seeds with installed-locally status. */
+  async listSeeds(seedsDir: string): Promise<Array<StoreSeed & { installed: boolean }>> {
+    const reg = await this.fetchRegistry();
+    return (reg.seeds ?? []).map((s) => ({
+      ...s,
+      installed: fs.existsSync(path.join(seedsDir, `${s.name}.yaml`)),
+    }));
+  }
+
+  /** Install a marketplace seed (YAML pulled + checksum-verified). */
+  async installSeed(name: string, seedsDir: string): Promise<InstallSeedResult> {
+    const reg = await this.fetchRegistry(true);
+    return installSeedYaml(reg, name, seedsDir);
+  }
+
   /** Registry decorated with installation status for the dashboard. */
   async listWithStatus(): Promise<StoreNodeStatus[]> {
     const registry = await this.fetchRegistry();
@@ -235,7 +267,7 @@ export class StoreService {
     }
     logger.info({ clone: repoMeta.clone, target: repoDir }, "store: cloning repo");
     const ref = node.ref ?? repoMeta.default_branch ?? "main";
-    const cloneCheckout = this.cloneAndCheckout(repoMeta.clone, repoDir, ref);
+    const cloneCheckout = cloneAndCheckout(repoMeta.clone, repoDir, ref);
     if (cloneCheckout.error) {
       // Roll back partial clones so a retry starts clean.
       if (fs.existsSync(repoDir)) fs.rmSync(repoDir, { recursive: true, force: true });
@@ -244,7 +276,7 @@ export class StoreService {
       };
     }
     if (node.checksums) {
-      const mismatch = this.verifyChecksums(path.join(repoDir, node.subpath), node.checksums);
+      const mismatch = verifyChecksums(path.join(repoDir, node.subpath), node.checksums);
       if (mismatch) {
         fs.rmSync(repoDir, { recursive: true, force: true });
         return {
@@ -258,7 +290,7 @@ export class StoreService {
     // type registry can find dist/handler.js when spawning. Skip if
     // the dist already exists (e.g. user pre-built before install).
     if (!fs.existsSync(path.join(repoDir, node.subpath, "dist", "handler.js"))) {
-      const buildErr = this.installAndBuild(repoDir);
+      const buildErr = installAndBuild(repoDir, this.frameworkRoot);
       if (buildErr) {
         fs.rmSync(repoDir, { recursive: true, force: true });
         return {
@@ -275,103 +307,6 @@ export class StoreService {
       cloned_to: repoDir,
       re_scanned_types: scanned,
     };
-  }
-
-  /**
-   * Clone the repo and check out exactly `ref`. `ref` may be a
-   * branch, tag, or commit SHA. We first do a shallow clone of the
-   * default branch (cheap), then `fetch + checkout` the requested
-   * ref — works whether ref is a tag, branch, or any reachable SHA
-   * the upstream allows fetching. Post-checkout we verify
-   * `git rev-parse HEAD` matches the requested ref when ref is a
-   * full SHA (40 hex chars), refusing any drift.
-   */
-  private cloneAndCheckout(cloneUrl: string, repoDir: string, ref: string): { error?: string } {
-    const isFullSha = /^[0-9a-f]{40}$/.test(ref);
-    const r1 = spawnSync("git", ["clone", "--filter=blob:none", "--no-checkout", cloneUrl, repoDir], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    if (r1.status !== 0) {
-      const stderr = r1.stderr as Buffer | undefined;
-      return { error: `git clone failed (${r1.status}): ${stderr ? stderr.toString() : ""}` };
-    }
-    const r2 = spawnSync("git", ["fetch", "--depth", "1", "origin", ref], {
-      cwd: repoDir, stdio: ["ignore", "pipe", "pipe"],
-    });
-    if (r2.status !== 0) {
-      const stderr = r2.stderr as Buffer | undefined;
-      return { error: `git fetch ${ref} failed (${r2.status}): ${stderr ? stderr.toString() : ""}` };
-    }
-    const r3 = spawnSync("git", ["checkout", "FETCH_HEAD"], {
-      cwd: repoDir, stdio: ["ignore", "pipe", "pipe"],
-    });
-    if (r3.status !== 0) {
-      const stderr = r3.stderr as Buffer | undefined;
-      return { error: `git checkout FETCH_HEAD failed (${r3.status}): ${stderr ? stderr.toString() : ""}` };
-    }
-    if (isFullSha) {
-      const r4 = spawnSync("git", ["rev-parse", "HEAD"], { cwd: repoDir, stdio: ["ignore", "pipe", "pipe"] });
-      const head = (r4.stdout as Buffer | undefined)?.toString().trim();
-      if (head !== ref) {
-        return { error: `post-checkout HEAD (${head ?? "?"}) does not match registry ref (${ref})` };
-      }
-    }
-    return {};
-  }
-
-  /**
-   * Build the freshly-cloned sister so every node has its dist/ by
-   * the time spawn() tries to import handler.js.
-   *
-   * `pnpm install` runs in the FRAMEWORK root, not in the cloned
-   * repo — that way the cloned sister gets picked up via brAIn's
-   * pnpm-workspace.yaml glob and `@brain/sdk: workspace:*` resolves
-   * through the framework's own packages. Then `pnpm --dir <repo>
-   * build` builds every sister-repo node.
-   *
-   * 5-minute hard timeout per command.
-   */
-  private installAndBuild(repoDir: string): string | null {
-    logger.info({ repoDir, frameworkRoot: this.frameworkRoot }, "store: pnpm install + build (post-clone)");
-    const inst = spawnSync("pnpm", ["install"], {
-      cwd: this.frameworkRoot, stdio: ["ignore", "pipe", "pipe"], timeout: 5 * 60_000,
-    });
-    if (inst.status !== 0) {
-      const err = ((inst.stderr as Buffer | undefined)?.toString() ?? "")
-        || ((inst.stdout as Buffer | undefined)?.toString() ?? "")
-        || `exit ${inst.status ?? "?"}`;
-      return `pnpm install (in ${this.frameworkRoot}): ${err.split("\n").slice(-3).join(" | ")}`;
-    }
-    const build = spawnSync("pnpm", ["--dir", repoDir, "-r", "build"], {
-      cwd: this.frameworkRoot, stdio: ["ignore", "pipe", "pipe"], timeout: 5 * 60_000,
-    });
-    if (build.status !== 0) {
-      const err = ((build.stderr as Buffer | undefined)?.toString() ?? "")
-        || ((build.stdout as Buffer | undefined)?.toString() ?? "")
-        || `exit ${build.status ?? "?"}`;
-      return `pnpm -r build (in ${repoDir}): ${err.split("\n").slice(-5).join(" | ")}`;
-    }
-    return null;
-  }
-
-  /**
-   * Walk the checksum manifest and return the first path that
-   * doesn't match (or null if all clean). Missing files count as
-   * mismatches — the manifest is the source of truth for what must
-   * exist after a clean install.
-   */
-  private verifyChecksums(rootDir: string, checksums: Record<string, string>): string | null {
-    for (const [rel, expected] of Object.entries(checksums)) {
-      const abs = path.resolve(rootDir, rel);
-      if (!abs.startsWith(path.resolve(rootDir) + path.sep) && abs !== path.resolve(rootDir)) {
-        return `${rel} (escapes subpath)`;
-      }
-      if (!fs.existsSync(abs)) return `${rel} (missing)`;
-      const buf = fs.readFileSync(abs);
-      const got = createHash("sha256").update(buf).digest("hex");
-      if (got !== expected) return `${rel} (got ${got.slice(0, 12)}…, expected ${expected.slice(0, 12)}…)`;
-    }
-    return null;
   }
 
   /**

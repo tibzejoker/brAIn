@@ -81,3 +81,25 @@ export function getStoreUpstreamStatus(): Promise<{ updateAvailable: boolean; lo
 export function getInstalledUpdates(): Promise<InstalledNodeUpdate[]> {
   return request("/store/installed-updates");
 }
+
+// === Marketplace seeds ===
+
+export interface MarketplaceSeed {
+  name: string;
+  description: string;
+  repo: string;
+  subpath: string;
+  ref: string;
+  checksum: string;
+  tags?: string[];
+  needs?: string[];
+  installed: boolean;
+}
+
+export function getMarketplaceSeeds(): Promise<MarketplaceSeed[]> {
+  return request("/store/seeds");
+}
+
+export function installMarketplaceSeed(name: string): Promise<{ status: string; message: string; path?: string }> {
+  return request(`/store/seeds/${encodeURIComponent(name)}/install`, { method: "POST" });
+}

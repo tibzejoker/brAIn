@@ -29,7 +29,7 @@ export type { AgentAnnouncement, AgentDirectoryOptions } from "./agents";
 export { StoreService } from "./store";
 export type {
   StoreRegistry, StoreRepo, StoreNode, StoreNodeStatus, StoreInstallResult,
-  StoreCandidate,
+  StoreCandidate, StoreSeed,
 } from "./store";
 export {
   MCPBridge, toolsForNode, federatedTools, resolveNode,
