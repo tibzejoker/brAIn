@@ -97,7 +97,18 @@ export async function applySeed(
       spawned++;
       existingNames.add(config.name);
     } catch (err) {
-      logger.error({ err, node: config.name }, "seed: failed to spawn");
+      // Strict: every node in the seed MUST spawn. A partial network
+      // is worse than no network at all — the user has no way to
+      // tell which nodes silently dropped. Surface the failure and
+      // let the caller decide what to do (hit /network/reset, fix
+      // the seed, etc).
+      const errMsg = err instanceof Error ? err.message : String(err);
+      logger.error({ err, node: config.name, type: config.type }, "seed: failed to spawn");
+      throw new Error(
+        `seed: failed to spawn '${config.name}' (type: ${config.type}): ${errMsg}. `
+        + `Network is now in a partial state (${spawned}/${nodes.length} spawned, ${killed} killed). `
+        + `Hit /network/reset to wipe and try again.`,
+      );
     }
   }
 
