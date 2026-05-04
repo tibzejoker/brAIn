@@ -156,19 +156,55 @@ function cmdPull(name) {
   if (node.needs_ollama) process.stdout.write(`  needs ollama running locally\n`);
 }
 
+function cmdRemove(name, yes) {
+  if (!name) die("usage: brain remove <node-or-seed-name> [--yes]");
+  const reg = readRegistry();
+  // Try seed first — they're files, the cleanup is harmless.
+  const seedPath = resolve(FRAMEWORK_ROOT, "seeds", `${name}.yaml`);
+  if (fs.existsSync(seedPath)) {
+    fs.unlinkSync(seedPath);
+    process.stdout.write(`brain: removed seed "${name}" (${seedPath})\n`);
+    return;
+  }
+  const node = (reg.nodes ?? []).find((n) => n.name === name);
+  if (!node) die(`unknown node or seed "${name}".`);
+  if (!isInstalled(node)) {
+    process.stdout.write(`brain: "${name}" is not installed — nothing to remove.\n`);
+    return;
+  }
+  // Removal is repo-level: nodes share their parent repo, so nuking
+  // one means nuking the others. List the casualties up front and
+  // require --yes when there's more than one.
+  const repoDir = resolve(SIBLINGS_ROOT, node.repo);
+  const siblings = (reg.nodes ?? []).filter((n) => n.repo === node.repo);
+  if (siblings.length > 1 && !yes) {
+    process.stderr.write(`brain: "${name}" lives in ${node.repo}, which also contains:\n`);
+    for (const s of siblings) {
+      if (s.name === name) continue;
+      process.stderr.write(`  - ${s.name}\n`);
+    }
+    process.stderr.write(`\nRemoving deletes the whole repo. Re-run with --yes to confirm.\n`);
+    process.exit(1);
+  }
+  fs.rmSync(repoDir, { recursive: true, force: true });
+  process.stdout.write(`brain: removed ${node.repo} (${siblings.length} node${siblings.length === 1 ? "" : "s"})\n`);
+}
+
 function usage() {
   process.stdout.write(
     "usage:\n"
-    + "  pnpm brain list                — list marketplace nodes (installed + available)\n"
-    + "  pnpm brain pull <node-name>    — install a node by short name\n"
+    + "  pnpm brain list                       — list marketplace nodes (installed + available)\n"
+    + "  pnpm brain pull <node-name>           — install a node by short name\n"
+    + "  pnpm brain remove <name> [--yes]      — uninstall a node or delete a local seed\n"
     + "\n"
-    + "Both commands work offline against the local brAIn-store clone.\n",
+    + "All commands work offline against the local brAIn-store clone.\n",
   );
 }
 
 switch (cmd) {
   case "list": cmdList(); break;
   case "pull": cmdPull(argv[1]); break;
+  case "remove": cmdRemove(argv[1], argv.includes("--yes")); break;
   case "-h":
   case "--help":
   case undefined: usage(); break;
