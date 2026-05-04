@@ -307,6 +307,19 @@ export interface NodeContext {
   // Persistent local state between iterations
   state: Record<string, unknown>;
 
+  /**
+   * Absolute path to a directory the framework reserved for this
+   * node's persistent files (DBs, blobs, logs, anything you want to
+   * survive a respawn). The directory is created on first read of
+   * this property — so just opening a SQLite file at
+   * `path.join(ctx.dataDir, "store.db")` Just Works.
+   *
+   * Each node owns its dataDir exclusively. Don't read or write
+   * inside another node's dataDir; cross-node data must flow over
+   * the bus.
+   */
+  dataDir: string;
+
   // Logging — writes to per-node log buffer (visible in dashboard)
   log(level: "info" | "warn" | "error" | "debug", message: string, data?: Record<string, unknown>): void;
 

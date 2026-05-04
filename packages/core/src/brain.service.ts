@@ -16,7 +16,7 @@ import { BusService, type IBusService, type NatsBusService } from "./bus";
 import { replayTrace } from "./brain-replay";
 import { TypeRegistry, InstanceRegistry, DynamicTypeScanner, type DynamicScannerOptions } from "./registry";
 import { AuthorityService } from "./authority";
-import { type BaseRunner, SleepService } from "./runner";
+import { type BaseRunner, SleepService, setNodeDataRoot } from "./runner";
 import { logger } from "./logger";
 import {
   getDb, clearAll, updateNodePosition, recordHistory, getHistory,
@@ -144,7 +144,7 @@ export class BrainService extends EventEmitter {
 
   bootstrap(
     nodesDir: string | string[],
-    opts?: { nodeModulesDir?: string; siblingsRoot?: string },
+    opts?: { nodeModulesDir?: string; siblingsRoot?: string; nodeDataRoot?: string },
   ): void {
     // Accept either a single path (legacy) or a list. Multiple paths support
     // the cross-repo workspace setup: brAIn ships its catalog under `nodes/`,
@@ -162,6 +162,13 @@ export class BrainService extends EventEmitter {
     const siblingsRoot = opts?.siblingsRoot
       ?? path.resolve(dirs[0], "..", "..");
     this.store = new StoreService(this.typeRegistry, siblingsRoot);
+
+    // Wire the per-node data root. Defaults to <siblingsRoot>/data/nodes
+    // so it sits next to the framework DB rather than inside the API
+    // package. Each node's ctx.dataDir resolves to <root>/<nodeId>/.
+    const nodeDataRoot = opts?.nodeDataRoot
+      ?? path.resolve(siblingsRoot, "data", "nodes");
+    setNodeDataRoot(nodeDataRoot);
 
     // Discover nodes installed as npm packages under @brain/node-*. Once
     // the perception/memory/etc. domains ship via `pnpm add @brain/node-foo`,

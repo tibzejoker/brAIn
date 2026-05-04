@@ -22,19 +22,6 @@ interface IndexRequest {
 const OLLAMA_HOST = process.env.OLLAMA_HOST ?? "http://localhost:11434";
 const OLLAMA_EMBED_MODEL = process.env.OLLAMA_EMBED_MODEL ?? "qwen3-embedding:0.6b";
 
-function resolveDbPath(): string {
-  let dir = __dirname;
-  for (let i = 0; i < 10; i++) {
-    if (fs.existsSync(path.join(dir, "pnpm-workspace.yaml"))) {
-      const dataDir = path.join(dir, "data", "vector_db");
-      if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-      return dataDir;
-    }
-    dir = path.dirname(dir);
-  }
-  return path.join(process.cwd(), "data", "vector_db");
-}
-
 async function embed(text: string): Promise<number[]> {
   const res = await fetch(`${OLLAMA_HOST}/api/embed`, {
     method: "POST",
@@ -61,7 +48,10 @@ async function getOrCreateTable(
 export const handler: NodeHandler = async (ctx) => {
   if (ctx.messages.length === 0) return;
 
-  const dbPath = resolveDbPath();
+  // LanceDB store lives inside this node's reserved dataDir. Each
+  // mcp-vector instance therefore owns an independent vector store —
+  // multiple instances can coexist without crosstalk.
+  const dbPath = path.join(ctx.dataDir, "lance");
 
   for (const msg of ctx.messages) {
     const action = msg.topic.split(".").pop() ?? "";

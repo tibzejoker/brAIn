@@ -5,6 +5,7 @@ export { createRunner, RunnerType, resolveRunnerType } from "./runner-factory";
 export { SleepService } from "./sleep.service";
 export { IdleThrottle } from "./idle-throttle";
 export { NodeLog, type LogEntry } from "./node-log";
+export { setNodeDataRoot, getNodeDataRoot } from "./context-builder";
 
 // Backwards compat alias
 export { BaseRunner as NodeRunner } from "./base-runner";

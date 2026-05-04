@@ -8,6 +8,8 @@
  * lifecycle (spawn/kill — auth-gated), state, and a few stubs that
  * concrete runners override (LLM, tools, files).
  */
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type {
   NodeContext, NodeInfo, NodeInstanceConfig, Message, WakeCondition,
   ReadMessagesOptions, MailboxConfig, LLMRequest, LLMResponse,
@@ -15,6 +17,21 @@ import type {
 } from "@brain/sdk";
 import type { IBusService } from "../bus/bus.interface";
 import type { NodeLog } from "./node-log";
+
+/**
+ * Root under which every node's per-instance dataDir lives. Set at
+ * boot (see `BrainService.bootstrap`); falls back to `<cwd>/data/nodes`
+ * so unit tests and quick scripts work without explicit wiring.
+ */
+let DATA_ROOT = path.resolve(process.cwd(), "data", "nodes");
+
+export function setNodeDataRoot(absPath: string): void {
+  DATA_ROOT = path.resolve(absPath);
+}
+
+export function getNodeDataRoot(): string {
+  return DATA_ROOT;
+}
 
 export interface BuildContextDeps {
   bus: IBusService;
@@ -119,6 +136,14 @@ export function buildNodeContext(
     writeFile: (_n: string, _c: string, _o?: FileOpts): Promise<FileRef> => Promise.reject(new Error("not implemented")),
     listFiles: (_f?: FileFilter): Promise<FileInfo[]> => Promise.reject(new Error("not implemented")),
     state: rt.state,
+    // Lazy: create the dir on first read so we don't pay the fs hit
+    // for every node / every iteration. Path is stable across
+    // restarts because it's keyed by node id, not name.
+    get dataDir(): string {
+      const d = path.join(DATA_ROOT, nodeId);
+      if (!fs.existsSync(d)) fs.mkdirSync(d, { recursive: true, mode: 0o700 });
+      return d;
+    },
     log: (level, message, data) => { log.add(level, message, data); },
     node: { ...rt.nodeInfo },
     iteration: rt.iteration,

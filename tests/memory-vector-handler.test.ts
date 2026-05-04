@@ -66,6 +66,7 @@ function mockCtx(messages: Message[]): NodeContext & {
     writeFile: vi.fn(),
     listFiles: vi.fn(),
     state: {},
+    dataDir: (globalThis as Record<string, unknown>).__tmpDbDir as string,
     log(level, message) { logs.push({ level, message }); },
     node: {
       id: "test-vec-node",

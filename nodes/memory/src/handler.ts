@@ -15,19 +15,6 @@ interface MemoryEntry {
 
 type MemoryStore = Record<string, MemoryEntry>;
 
-function resolveStorePath(): string {
-  let dir = __dirname;
-  for (let i = 0; i < 10; i++) {
-    if (fs.existsSync(path.join(dir, "pnpm-workspace.yaml"))) {
-      const dataDir = path.join(dir, "data");
-      if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-      return path.join(dataDir, "memory.json");
-    }
-    dir = path.dirname(dir);
-  }
-  return path.join(process.cwd(), "data", "memory.json");
-}
-
 function loadStore(filePath: string): MemoryStore {
   if (!fs.existsSync(filePath)) return {};
   try {
@@ -38,8 +25,6 @@ function loadStore(filePath: string): MemoryStore {
 }
 
 function saveStore(filePath: string, store: MemoryStore): void {
-  const dir = path.dirname(filePath);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(store, null, 2), "utf-8");
 }
 
@@ -62,7 +47,7 @@ function parseRequest(content: string): Request | null {
 export const handler: NodeHandler = (ctx) => {
   if (ctx.messages.length === 0) return Promise.resolve();
 
-  const storePath = resolveStorePath();
+  const storePath = path.join(ctx.dataDir, "memory.json");
   const store = loadStore(storePath);
   let changed = false;
 

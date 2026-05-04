@@ -38,6 +38,7 @@ function mockCtx(messages: Message[]): NodeContext & {
     writeFile: vi.fn(),
     listFiles: vi.fn(),
     state: {},
+    dataDir: TMP_DIR,
     log(level, message) { logs.push({ level, message }); },
     node: {
       id: "test-node",
@@ -82,57 +83,27 @@ describe("memory handler", () => {
   let handler: (ctx: NodeContext) => Promise<void>;
 
   beforeEach(async () => {
-    // Create temp dir and empty store
+    // Each test gets an isolated dataDir under TMP_DIR. The handler
+    // now reads/writes via ctx.dataDir, so we just pre-seed the
+    // store inside that dir.
     fs.mkdirSync(TMP_DIR, { recursive: true });
-    fs.writeFileSync(STORE_PATH, "{}");
-
-    // Clear module cache to reload handler fresh
-    // The handler resolves store path from __dirname walking up to pnpm-workspace.yaml
-    // For tests, we pre-seed the store at the real data path
-    const realStorePath = path.resolve(__dirname, "..", "data", "memory.json");
-    // Save original if exists
-    const backup = fs.existsSync(realStorePath) ? fs.readFileSync(realStorePath, "utf-8") : null;
-
-    // Write test store with known data
-    fs.writeFileSync(realStorePath, JSON.stringify({
+    fs.writeFileSync(STORE_PATH, JSON.stringify({
       user_name: {
-        key: "user_name",
-        value: "Thibaut",
-        tags: ["user"],
-        created_at: 1000,
-        updated_at: 1000,
-        created_by: "test",
+        key: "user_name", value: "Thibaut", tags: ["user"],
+        created_at: 1000, updated_at: 1000, created_by: "test",
       },
       favorite_color: {
-        key: "favorite_color",
-        value: "blue",
-        tags: ["user", "preference"],
-        created_at: 2000,
-        updated_at: 2000,
-        created_by: "test",
+        key: "favorite_color", value: "blue", tags: ["user", "preference"],
+        created_at: 2000, updated_at: 2000, created_by: "test",
       },
     }));
 
-    // Dynamically import handler (source via vitest alias)
     const mod = await import("../nodes/memory/src/handler");
     handler = mod.handler;
-
-    // Store backup for cleanup
-    (globalThis as Record<string, unknown>).__memBackup = backup;
-    (globalThis as Record<string, unknown>).__memPath = realStorePath;
   });
 
   afterEach(() => {
-    // Restore original memory.json
-    const backup = (globalThis as Record<string, unknown>).__memBackup as string | null;
-    const realStorePath = (globalThis as Record<string, unknown>).__memPath as string;
-    if (backup !== null) {
-      fs.writeFileSync(realStorePath, backup);
-    }
-    // Clean temp
-    if (fs.existsSync(TMP_DIR)) {
-      fs.rmSync(TMP_DIR, { recursive: true });
-    }
+    if (fs.existsSync(TMP_DIR)) fs.rmSync(TMP_DIR, { recursive: true });
   });
 
   // === SLEEP ===

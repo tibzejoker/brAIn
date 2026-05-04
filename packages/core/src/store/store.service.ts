@@ -12,6 +12,7 @@
  * hammering GitHub on dashboard refreshes.
  */
 import { spawnSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { logger } from "../logger";
@@ -34,12 +35,27 @@ export interface StoreNode {
   repo: string;
   subpath: string;
   version: string;
+  /**
+   * Pinned commit SHA (or tag / branch). When the registry ships a
+   * full 40-char SHA, the installer enforces an exact post-checkout
+   * match — any drift in the upstream repo (force-push, hijack, etc.)
+   * aborts the install. Tags / branch names get the same treatment
+   * but are obviously mutable upstream; SHAs are the recommended form.
+   */
   ref?: string;
   tags?: string[];
   description: string;
   has_ui?: boolean;
   needs_python?: boolean;
   needs_ollama?: boolean;
+  /**
+   * Optional per-file SHA-256 manifest for the node's `subpath`.
+   * Keys are paths relative to subpath; values are lowercase
+   * hex digests. When present, the installer hashes every listed
+   * file post-checkout and aborts on any mismatch — this is the
+   * second supply-chain seatbelt on top of `ref` pinning.
+   */
+  checksums?: Record<string, string>;
 }
 
 export interface StoreRegistry {
@@ -154,25 +170,94 @@ export class StoreService {
     }
     logger.info({ clone: repoMeta.clone, target: repoDir }, "store: cloning repo");
     const ref = node.ref ?? repoMeta.default_branch ?? "main";
-    const r = spawnSync("git", ["clone", "--depth", "1", "--branch", ref, repoMeta.clone, repoDir], {
-      stdio: ["ignore", "pipe", "pipe"],
-    });
-    if (r.status !== 0) {
-      const stderrBuf = r.stderr as Buffer | undefined;
+    const cloneCheckout = this.cloneAndCheckout(repoMeta.clone, repoDir, ref);
+    if (cloneCheckout.error) {
+      // Roll back partial clones so a retry starts clean.
+      if (fs.existsSync(repoDir)) fs.rmSync(repoDir, { recursive: true, force: true });
       return {
-        status: "failed",
-        message: `git clone failed (${r.status}): ${stderrBuf ? stderrBuf.toString() : ""}`,
-        cloned_to: null,
-        re_scanned_types: 0,
+        status: "failed", message: cloneCheckout.error, cloned_to: null, re_scanned_types: 0,
       };
+    }
+    if (node.checksums) {
+      const mismatch = this.verifyChecksums(path.join(repoDir, node.subpath), node.checksums);
+      if (mismatch) {
+        fs.rmSync(repoDir, { recursive: true, force: true });
+        return {
+          status: "failed",
+          message: `checksum mismatch in ${node.subpath}: ${mismatch}`,
+          cloned_to: null, re_scanned_types: 0,
+        };
+      }
     }
     const scanned = this.rescan(repoDir);
     return {
       status: "installed",
-      message: `cloned ${node.repo} to ${repoDir}`,
+      message: `cloned ${node.repo}@${ref}${node.checksums ? " (checksums OK)" : ""} to ${repoDir}`,
       cloned_to: repoDir,
       re_scanned_types: scanned,
     };
+  }
+
+  /**
+   * Clone the repo and check out exactly `ref`. `ref` may be a
+   * branch, tag, or commit SHA. We first do a shallow clone of the
+   * default branch (cheap), then `fetch + checkout` the requested
+   * ref — works whether ref is a tag, branch, or any reachable SHA
+   * the upstream allows fetching. Post-checkout we verify
+   * `git rev-parse HEAD` matches the requested ref when ref is a
+   * full SHA (40 hex chars), refusing any drift.
+   */
+  private cloneAndCheckout(cloneUrl: string, repoDir: string, ref: string): { error?: string } {
+    const isFullSha = /^[0-9a-f]{40}$/.test(ref);
+    const r1 = spawnSync("git", ["clone", "--filter=blob:none", "--no-checkout", cloneUrl, repoDir], {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    if (r1.status !== 0) {
+      const stderr = r1.stderr as Buffer | undefined;
+      return { error: `git clone failed (${r1.status}): ${stderr ? stderr.toString() : ""}` };
+    }
+    const r2 = spawnSync("git", ["fetch", "--depth", "1", "origin", ref], {
+      cwd: repoDir, stdio: ["ignore", "pipe", "pipe"],
+    });
+    if (r2.status !== 0) {
+      const stderr = r2.stderr as Buffer | undefined;
+      return { error: `git fetch ${ref} failed (${r2.status}): ${stderr ? stderr.toString() : ""}` };
+    }
+    const r3 = spawnSync("git", ["checkout", "FETCH_HEAD"], {
+      cwd: repoDir, stdio: ["ignore", "pipe", "pipe"],
+    });
+    if (r3.status !== 0) {
+      const stderr = r3.stderr as Buffer | undefined;
+      return { error: `git checkout FETCH_HEAD failed (${r3.status}): ${stderr ? stderr.toString() : ""}` };
+    }
+    if (isFullSha) {
+      const r4 = spawnSync("git", ["rev-parse", "HEAD"], { cwd: repoDir, stdio: ["ignore", "pipe", "pipe"] });
+      const head = (r4.stdout as Buffer | undefined)?.toString().trim();
+      if (head !== ref) {
+        return { error: `post-checkout HEAD (${head ?? "?"}) does not match registry ref (${ref})` };
+      }
+    }
+    return {};
+  }
+
+  /**
+   * Walk the checksum manifest and return the first path that
+   * doesn't match (or null if all clean). Missing files count as
+   * mismatches — the manifest is the source of truth for what must
+   * exist after a clean install.
+   */
+  private verifyChecksums(rootDir: string, checksums: Record<string, string>): string | null {
+    for (const [rel, expected] of Object.entries(checksums)) {
+      const abs = path.resolve(rootDir, rel);
+      if (!abs.startsWith(path.resolve(rootDir) + path.sep) && abs !== path.resolve(rootDir)) {
+        return `${rel} (escapes subpath)`;
+      }
+      if (!fs.existsSync(abs)) return `${rel} (missing)`;
+      const buf = fs.readFileSync(abs);
+      const got = createHash("sha256").update(buf).digest("hex");
+      if (got !== expected) return `${rel} (got ${got.slice(0, 12)}…, expected ${expected.slice(0, 12)}…)`;
+    }
+    return null;
   }
 
   /**
