@@ -325,16 +325,15 @@ BRAIN_NATS_URL=nats://<broker>:4222 pnpm start
 ```
 
 ```bash
-# Each worker (Pi, GPU box, …) — same URL + a directory of node
-# packages this agent can host locally.
-BRAIN_NATS_URL=nats://<broker>:4222 \
-  BRAIN_NODES_DIR=/path/to/nodes \
-  node packages/agent/dist/cli.js
+# Each worker (Pi, GPU box, …)
+BRAIN_NATS_URL=nats://<broker>:4222 node packages/agent/dist/cli.js
 ```
 
 The agent appears in the dashboard's **Distributed** tab (which
 also shows the broker URL + a copy-paste snippet). Pick it as
 target in the Node Creator to spawn there. Optional env:
+`BRAIN_NODES_DIR` (default `./nodes` — point at a directory of
+compiled node packages the agent should host),
 `BRAIN_NATS_PREFIX` (default `brain`), `BRAIN_NATS_TOKEN`.
 
 ### Cleanup
