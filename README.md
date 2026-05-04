@@ -316,32 +316,28 @@ pnpm dev:intent         # voice + gaze + intent
 pnpm dev:vocal-chat     # the full ambient stack
 ```
 
-### Distributed runtime
+### Hosting nodes on another machine
 
-For a single host the embedded broker is enough. To bring nodes
-from another machine, point both sides at the same broker — either
-the embedded one (bind it to a routable address) or a standalone
-one you run yourself:
+On the API host, open the Distributed tab and click **Open to LAN**
+once. That binds the embedded broker on `0.0.0.0` and pins an auth
+token. The panel shows a one-liner snippet — copy it.
 
-```bash
-# API host — bind the embedded broker so other hosts can reach it.
-BRAIN_NATS_URL=nats://0.0.0.0:4222 pnpm start
-# Or run your own broker and share the URL.
-nats-server -p 4222
-BRAIN_NATS_URL=nats://<broker>:4222 pnpm start
-```
+On the target machine:
 
 ```bash
-# Each worker (Pi, GPU box, …)
-BRAIN_NATS_URL=nats://<broker>:4222 node packages/agent/dist/cli.js
+git clone https://github.com/tibzejoker/brAIn && cd brAIn
+pnpm install
+pnpm brain pull memory          # (or whichever nodes the agent should host)
+# paste the snippet from the Distributed tab:
+BRAIN_NATS_URL=nats://<api-lan-ip>:<port> BRAIN_NATS_TOKEN=<token> npx brain-agent
 ```
 
-The agent appears in the dashboard's **Distributed** tab (which
-also shows the broker URL + a copy-paste snippet). Pick it as
-target in the Node Creator to spawn there. Optional env:
-`BRAIN_NODES_DIR` (default `./nodes` — point at a directory of
-compiled node packages the agent should host),
-`BRAIN_NATS_PREFIX` (default `brain`), `BRAIN_NATS_TOKEN`.
+The agent shows up in the Distributed tab. From the Node Creator,
+pick it as **Target** to spawn nodes on it.
+
+Pin the broker port across restarts with `BRAIN_BROKER_PORT=4222`.
+Run an external broker with `BRAIN_NATS_URL=nats://<host>:<port>` —
+the API skips the embedded one and joins yours.
 
 ### Cleanup
 
