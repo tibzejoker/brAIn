@@ -18,6 +18,7 @@ __pycache__/
 *.pyc
 *.pyo
 /.test-fresh-install/
+/.testinstall/
 
 # Vite emits compiled .js next to vite.config.ts when its tsconfig
 # accidentally includes the file — and vite then prefers the stale
