@@ -105,10 +105,13 @@ export class NetworkController {
   }
 
   @Post("seed")
-  async seed(@Body("file") file?: string): Promise<{ spawned: number; skipped: number; installed: string[] }> {
+  async seed(
+    @Body("file") file?: string,
+    @Body("merge") merge?: boolean,
+  ): Promise<{ spawned: number; skipped: number; killed: number; installed: string[] }> {
     const seedPath = file ?? process.env.BRAIN_SEED_FILE ?? "./seed.yaml";
     try {
-      return await this.brain.seed(seedPath);
+      return await this.brain.seed(seedPath, { merge });
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);
       throw new HttpException(message, HttpStatus.BAD_REQUEST);

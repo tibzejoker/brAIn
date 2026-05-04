@@ -15,3 +15,10 @@ __pycache__/
 *.pyc
 *.pyo
 /.test-fresh-install/
+
+# Vite emits compiled .js next to vite.config.ts when its tsconfig
+# accidentally includes the file — and vite then prefers the stale
+# compiled artefact over the live .ts. Never commit them.
+packages/dashboard/vite.config.js
+packages/dashboard/vite.config.js.map
+packages/dashboard/vite.config.d.ts

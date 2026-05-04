@@ -1,15 +1,19 @@
 /**
- * Non-destructive seed orchestrator. Two phases:
+ * Seed orchestrator. Two phases:
  *
  *   1. needs[] — install missing types from the marketplace via
  *                StoreService (default package_name = `@brain/node-<type>`).
  *                Failure aborts the seed.
- *   2. nodes[] — spawn each entry whose `name` doesn't already exist.
- *                Existing names are skipped with a log so a reseed is
- *                idempotent and never silently clobbers state.
+ *   2. nodes[] — kill the running network, then spawn the seed's nodes.
  *
- * Lives next to the seed parser to keep all seed-related logic in one
- * folder; called from BrainService.seed.
+ * The DB is **never** wiped — history, mcp-oauth tokens, agent
+ * directory, etc. all survive. Only running node *instances* are
+ * replaced. To wipe DB schema use /network/reset which calls
+ * killAll() + resetDb() explicitly.
+ *
+ * Use `merge: true` to keep the existing network alongside the seed
+ * (idempotent reseed — names that already exist are skipped). The
+ * dashboard exposes both modes.
  */
 import type Database from "better-sqlite3";
 import type { NodeInfo, NodeInstanceConfig } from "@brain/sdk";
@@ -22,6 +26,7 @@ import { loadSeedFile } from "./seed";
 export interface SeedResult {
   spawned: number;
   skipped: number;
+  killed: number;
   installed: string[];
 }
 
@@ -31,9 +36,23 @@ export interface SeedDeps {
   instanceRegistry: InstanceRegistry;
   store: StoreService;
   spawnNode: (config: NodeInstanceConfig, caller?: string) => Promise<NodeInfo>;
+  killAll: () => number;
 }
 
-export async function applySeed(deps: SeedDeps, filePath: string): Promise<SeedResult> {
+export interface SeedOpts {
+  /**
+   * When true, leave the running network alone and only spawn names
+   * that aren't already present (idempotent additive mode). Default
+   * false: apply replaces the network.
+   */
+  merge?: boolean;
+}
+
+export async function applySeed(
+  deps: SeedDeps,
+  filePath: string,
+  opts: SeedOpts = {},
+): Promise<SeedResult> {
   const { needs, nodes } = loadSeedFile(filePath);
   const installed: string[] = [];
 
@@ -55,15 +74,21 @@ export async function applySeed(deps: SeedDeps, filePath: string): Promise<SeedR
     installed.push(need.type);
   }
 
-  // Phase 2 — spawn idempotently. Names already in the network are
-  // skipped, never overwritten; the user must call /network/reset
-  // to wipe before reseeding from scratch.
+  // Phase 2 — replace OR merge with the running network.
+  let killed = 0;
+  if (!opts.merge) {
+    killed = deps.killAll();
+    logger.info({ killed }, "seed: killed running nodes (apply replaces — pass merge=true to keep them)");
+  }
+
   const existingNames = new Set(deps.instanceRegistry.list().map((n) => n.name));
   let spawned = 0;
   let skipped = 0;
   for (const config of nodes) {
     if (existingNames.has(config.name)) {
-      logger.info({ name: config.name }, "seed: name already exists, skipping (use /network/reset to wipe)");
+      // Only possible in merge mode now; in replace mode killed
+      // would have cleared the registry first.
+      logger.info({ name: config.name }, "seed: name already exists, skipping (merge mode)");
       skipped++;
       continue;
     }
@@ -78,7 +103,7 @@ export async function applySeed(deps: SeedDeps, filePath: string): Promise<SeedR
 
   recordHistory(deps.db, {
     action: "network.seeded",
-    details: { file: filePath, spawned, skipped, installed },
+    details: { file: filePath, spawned, skipped, killed, installed, mode: opts.merge ? "merge" : "replace" },
   });
-  return { spawned, skipped, installed };
+  return { spawned, skipped, killed, installed };
 }

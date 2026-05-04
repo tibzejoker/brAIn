@@ -3,6 +3,7 @@ import {
   Get,
   Post,
   Param,
+  Query,
   HttpException,
   HttpStatus,
 } from "@nestjs/common";
@@ -30,7 +31,8 @@ export class SeedsController {
   @Post(":name/apply")
   async apply(
     @Param("name") name: string,
-  ): Promise<{ seed: string; spawned: number; skipped: number; installed: string[] }> {
+    @Query("merge") mergeQuery?: string,
+  ): Promise<{ seed: string; spawned: number; skipped: number; killed: number; installed: string[] }> {
     const seeds = this.brain.getSeeds();
     const seed = seeds.find((s) => s.name === name);
 
@@ -46,7 +48,8 @@ export class SeedsController {
     }
 
     try {
-      const result = await this.brain.seed(seed.path);
+      const merge = mergeQuery === "true" || mergeQuery === "1";
+      const result = await this.brain.seed(seed.path, { merge });
       return { seed: name, ...result };
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : String(err);

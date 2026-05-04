@@ -57,11 +57,12 @@ export function SeedsView({ onChanged }: { onChanged: () => void }): React.React
 
   useEffect(() => { refresh(); }, [refresh]);
 
-  const handleApply = useCallback((name: string): void => {
+  const handleApply = useCallback((name: string, merge: boolean): void => {
     setApplying(name); setBanner(null);
-    applySeed(name)
+    applySeed(name, { merge })
       .then((res) => {
         const parts = [
+          res.killed > 0 ? `${res.killed} replaced` : null,
           `${res.spawned} spawned`,
           res.skipped > 0 ? `${res.skipped} skipped` : null,
           res.installed.length > 0 ? `installed: ${res.installed.join(", ")}` : null,
@@ -128,7 +129,7 @@ export function SeedsView({ onChanged }: { onChanged: () => void }): React.React
           <SeedCard
             key={`${s.source}-${s.name}`} seed={s}
             applying={applying === s.name} installing={installing === s.name}
-            onApply={() => handleApply(s.name)} onInstall={() => handleInstall(s.name)}
+            onApply={(merge) => handleApply(s.name, merge)} onInstall={() => handleInstall(s.name)}
           />
         ))}
         {!loading && filtered.length === 0 && (
@@ -143,7 +144,7 @@ export function SeedsView({ onChanged }: { onChanged: () => void }): React.React
 
 function SeedCard({ seed, applying, installing, onApply, onInstall }: {
   seed: UnifiedSeed; applying: boolean; installing: boolean;
-  onApply: () => void; onInstall: () => void;
+  onApply: (merge: boolean) => void; onInstall: () => void;
 }): React.ReactElement {
   const valid = seed.local?.valid ?? true;
   return (
@@ -164,15 +165,26 @@ function SeedCard({ seed, applying, installing, onApply, onInstall }: {
         ))}
         <div className="ml-auto flex items-center gap-2">
           {seed.onDisk ? (
-            <button
-              onClick={onApply}
-              disabled={!valid || applying}
-              className={`px-3 py-1 text-xs rounded ${
-                valid ? "bg-accent/20 text-accent hover:bg-accent/30" : "bg-surface-overlay text-text-muted cursor-not-allowed"
-              } disabled:opacity-50`}
-            >
-              {applying ? "Applying…" : "Apply"}
-            </button>
+            <>
+              <button
+                onClick={() => onApply(true)}
+                disabled={!valid || applying}
+                title="Spawn this seed's nodes alongside the running network — names that already exist are skipped."
+                className="px-2 py-1 text-xs rounded text-text-muted hover:text-text disabled:opacity-50"
+              >
+                Add only
+              </button>
+              <button
+                onClick={() => onApply(false)}
+                disabled={!valid || applying}
+                title="Replace the running network with this seed's nodes (DB tables survive)."
+                className={`px-3 py-1 text-xs rounded ${
+                  valid ? "bg-accent text-bg hover:bg-accent/90" : "bg-surface-overlay text-text-muted cursor-not-allowed"
+                } disabled:opacity-50`}
+              >
+                {applying ? "Applying…" : "Apply (replace)"}
+              </button>
+            </>
           ) : (
             <button
               onClick={onInstall}

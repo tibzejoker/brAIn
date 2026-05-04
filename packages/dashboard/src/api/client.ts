@@ -170,11 +170,19 @@ export interface SeedApplyResult {
   seed: string;
   spawned: number;
   skipped: number;
+  killed: number;
   installed: string[];
 }
 
-export function applySeed(name: string): Promise<SeedApplyResult> {
-  return request(`/network/seeds/${name}/apply`, { method: "POST" });
+/**
+ * Apply a seed. Default mode replaces the running network: every
+ * current node is killed before the seed's nodes spawn (DB tables
+ * survive — history, mcp tokens, etc. are kept). Pass `merge: true`
+ * to leave the running network alone and only spawn missing names.
+ */
+export function applySeed(name: string, opts?: { merge?: boolean }): Promise<SeedApplyResult> {
+  const qs = opts?.merge ? "?merge=true" : "";
+  return request(`/network/seeds/${name}/apply${qs}`, { method: "POST" });
 }
 
 // === Agents (distributed runtime) ===

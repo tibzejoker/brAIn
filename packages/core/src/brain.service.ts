@@ -233,7 +233,7 @@ export class BrainService extends EventEmitter {
    * in `seed/orchestrator.ts`. For a wipe use `killAll()` + `resetDb()`
    * (exposed as `POST /network/reset`).
    */
-  async seed(filePath: string): Promise<SeedResult> {
+  async seed(filePath: string, opts?: { merge?: boolean }): Promise<SeedResult> {
     return applySeed(
       {
         db: this.db,
@@ -241,8 +241,10 @@ export class BrainService extends EventEmitter {
         instanceRegistry: this.instanceRegistry,
         store: this.store,
         spawnNode: (c, caller) => this.spawnNode(c, caller),
+        killAll: () => this.killAll(),
       },
       filePath,
+      opts,
     );
   }
 
