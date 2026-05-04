@@ -4,7 +4,7 @@
   "license": "MIT",
   "scripts": {
     "preinstall": "echo '⚙ brAIn — installing deps. After this, run: pnpm start' >&2",
-    "postinstall": "pnpm --filter @brain/sdk build && pnpm --filter @brain/core build && node scripts/clone-store.mjs",
+    "postinstall": "pnpm --filter @brain/sdk build && pnpm --filter @brain/core build && node scripts/clone-store.mjs && node scripts/install-nats.mjs",
     "start": "concurrently -n api,dashboard -c blue,magenta \"pnpm --filter @brain/api dev\" \"wait-on http-get://localhost:3000/network -t 30000 && pnpm --filter @brain/dashboard dev\"",
     "start:attention": "concurrently -n api,dashboard,seed -c blue,magenta,green \"pnpm --filter @brain/api dev\" \"wait-on http-get://localhost:3000/network -t 30000 && pnpm --filter @brain/dashboard dev\" \"wait-on http-get://localhost:3000/network -t 30000 && node scripts/seed-attention.mjs\"",
     "dev:api": "pnpm --filter @brain/api dev",

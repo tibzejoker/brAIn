@@ -59,10 +59,13 @@ export class BrainService extends EventEmitter {
 
   /**
    * @param dbPath SQLite path; falls back to the default in-memory db.
-   * @param bus    Optional `IBusService` to wire up — pass a
-   *               `NatsBusService` to join a distributed bus instead of
-   *               the default in-process `BusService`. The agent uses
-   *               this hook.
+   * @param bus    `IBusService` to wire up. Production callers (the
+   *               API + brain-agent) always pass a `NatsBusService`
+   *               connected to the broker `BrokerService` started.
+   *               Tests may pass a `BusService` (the in-memory test
+   *               fixture) when they don't need real routing — if no
+   *               bus is provided we fall back to one for that
+   *               reason, but production must NOT rely on this.
    * @param opts   Tunables (mostly for tests). `agentDirectory` lets
    *               you shrink the TTL to verify expiry-driven cleanup.
    */

@@ -1,6 +1,9 @@
 node_modules/
 dist/
 data/
+
+# nats-server binary downloaded by scripts/install-nats.mjs
+packages/core/bin/
 .env
 *.log
 .DS_Store

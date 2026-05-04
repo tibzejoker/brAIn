@@ -17,6 +17,9 @@ const CMD_PATTERNS = [
   "nest start.*api",
   "packages/api/dist/main",
   "uvicorn app\\.main",
+  // Embedded NATS broker the API spawns at boot. Survives if the
+  // parent gets SIGKILLed instead of going through onModuleDestroy.
+  "packages/core/bin/nats-server",
 ];
 
 function pidsOnPort(port) {

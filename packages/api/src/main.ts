@@ -11,7 +11,7 @@ const BANNER = `
   ██╔══██╗██╔══██╗██╔══██║██║██║╚██╗██║
   ██████╔╝██║  ██║██║  ██║██║██║ ╚████║
   ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝
-  Bridged Reactive Artificial Intelligence Network
+  Bus-Reactive Ambient Intelligent Nodes
 `;
 
 async function bootstrap(): Promise<void> {
@@ -19,6 +19,9 @@ async function bootstrap(): Promise<void> {
 
   const app = await NestFactory.create(AppModule);
   app.enableCors();
+  // Required for OnModuleDestroy to fire on SIGINT/SIGTERM — without
+  // this, the embedded NATS broker leaks as an orphan process.
+  app.enableShutdownHooks();
 
   const port = process.env.API_PORT ?? 3000;
   await app.listen(port);

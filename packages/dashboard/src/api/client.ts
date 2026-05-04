@@ -8,11 +8,13 @@ import type {
 import { request } from "./request";
 
 /**
- * Whether the API is wired to a NATS bus. Returns false in the
- * default in-memory single-host mode — the dashboard hides the
- * Agents tab in that case (it'd be perpetually empty).
+ * Surface the bus broker info. The framework always runs on NATS;
+ * `mode` says whether the API spawned an embedded broker for this
+ * single-host setup or joined an external one (BRAIN_NATS_URL set
+ * by the user). The URL is what a remote `brain-agent` would point
+ * at to join the same network.
  */
-export function getTransport(): Promise<{ nats: boolean; url?: string }> {
+export function getTransport(): Promise<{ url: string | null; mode: "embedded" | "external" }> {
   return request("/network/transport");
 }
 

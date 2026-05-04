@@ -1,5 +1,5 @@
-import { Module, Logger, type OnModuleInit } from "@nestjs/common";
-import { BrainService, NatsBusService } from "@brain/core";
+import { Module, Logger, type OnModuleInit, type OnModuleDestroy } from "@nestjs/common";
+import { BrainService, BrokerService, NatsBusService } from "@brain/core";
 import { NodesController } from "./rest/nodes.controller";
 import { TypesController } from "./rest/types.controller";
 import { NetworkController } from "./rest/network.controller";
@@ -21,26 +21,36 @@ function resolveFromRoot(envVar: string | undefined, fallback: string): string {
   return path.resolve(MONOREPO_ROOT, raw);
 }
 
+// One BrokerService per API process. Started before BrainService so
+// the bus has a NATS URL to connect to. Held on AppModule so we can
+// stop it cleanly on shutdown.
+const brokerProvider = {
+  provide: BrokerService,
+  useFactory: async (): Promise<BrokerService> => {
+    const log = new Logger("BrokerService");
+    const externalUrl = process.env.BRAIN_NATS_URL;
+    const broker = new BrokerService({ externalUrl });
+    const r = await broker.start();
+    log.log(`NATS bus on ${r.url} (${r.mode})`);
+    return broker;
+  },
+};
+
 const brainServiceProvider = {
   provide: BrainService,
-  useFactory: async (): Promise<BrainService> => {
+  inject: [BrokerService],
+  useFactory: async (broker: BrokerService): Promise<BrainService> => {
     const dbPath = resolveFromRoot(process.env.BRAIN_DB_PATH, "data/brain.db");
 
-    // Optional NATS wiring: when BRAIN_NATS_URL is set, the API joins the
-    // distributed bus so brain-agents on other hosts share its topics.
-    // Without it, BrainService falls back to its in-process BusService.
-    let natsBus: NatsBusService | undefined;
-    const natsUrl = process.env.BRAIN_NATS_URL;
-    if (natsUrl) {
-      const log = new Logger("AppModule");
-      natsBus = new NatsBusService({
-        url: natsUrl,
-        prefix: process.env.BRAIN_NATS_PREFIX ?? "brain",
-        token: process.env.BRAIN_NATS_TOKEN,
-      });
-      await natsBus.connect();
-      log.log(`Joined NATS bus at ${natsUrl}`);
-    }
+    const url = broker.getUrl();
+    if (!url) throw new Error("broker has no URL — start() was not awaited");
+
+    const natsBus = new NatsBusService({
+      url,
+      prefix: process.env.BRAIN_NATS_PREFIX ?? "brain",
+      token: process.env.BRAIN_NATS_TOKEN,
+    });
+    await natsBus.connect();
 
     const brain = new BrainService(dbPath, natsBus);
 
@@ -81,12 +91,23 @@ const brainServiceProvider = {
 
 @Module({
   controllers: [NodesController, TypesController, NetworkController, SeedsController, NodeUiController, StoreController, AgentsController, MCPOAuthController, MCPController],
-  providers: [brainServiceProvider, DashboardGateway],
+  providers: [brokerProvider, brainServiceProvider, DashboardGateway],
 })
-export class AppModule implements OnModuleInit {
+export class AppModule implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger("AppModule");
 
-  constructor(private readonly brain: BrainService) {}
+  constructor(
+    private readonly brain: BrainService,
+    private readonly broker: BrokerService,
+  ) {}
+
+  async onModuleDestroy(): Promise<void> {
+    // Tear down in reverse: bus first (drain in-flight), then broker.
+    try { await (this.brain.bus as { close?: () => Promise<void> }).close?.(); }
+    catch (err) { this.log.warn(`bus close failed: ${String(err)}`); }
+    try { await this.broker.stop(); }
+    catch (err) { this.log.warn(`broker stop failed: ${String(err)}`); }
+  }
 
   async onModuleInit(): Promise<void> {
     // Initialize LLM + CLI providers (non-blocking checks)

@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Body, Query, Param, HttpException, HttpStatus } from "@nestjs/common";
-import { BrainService, type HistoryEntry, type ProviderStatus, type CLIStatus } from "@brain/core";
+import { BrainService, BrokerService, type HistoryEntry, type ProviderStatus, type CLIStatus } from "@brain/core";
 import { type Message, type NodeInfo, type NodeState } from "@brain/sdk";
 
 interface NodeSnapshot extends Omit<NodeInfo, "subscriptions"> {
@@ -13,7 +13,10 @@ interface NetworkSnapshot {
 
 @Controller("network")
 export class NetworkController {
-  constructor(private readonly brain: BrainService) {}
+  constructor(
+    private readonly brain: BrainService,
+    private readonly broker: BrokerService,
+  ) {}
 
   @Get()
   snapshot(
@@ -136,14 +139,15 @@ export class NetworkController {
   }
 
   /**
-   * Lets the dashboard know whether to surface multi-host features
-   * (the Agents tab in particular). When NATS isn't wired the tab
-   * is just dead UI — empty list forever.
+   * Surface the bus broker info for the dashboard. The framework
+   * always runs on NATS now (embedded by default), so the
+   * Distributed tab can show the URL the user would point a remote
+   * `brain-agent` at and tell whether the broker is local
+   * (auto-spawned) or external (BRAIN_NATS_URL provided).
    */
   @Get("transport")
-  transport(): { nats: boolean; url?: string } {
-    const url = process.env.BRAIN_NATS_URL;
-    return { nats: !!url, url: url ?? undefined };
+  transport(): { url: string | null; mode: "embedded" | "external" } {
+    return { url: this.broker.getUrl(), mode: this.broker.getMode() };
   }
 
   @Post("devmode")

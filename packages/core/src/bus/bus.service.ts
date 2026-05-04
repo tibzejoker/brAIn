@@ -17,10 +17,16 @@ interface Subscription {
 }
 
 /**
- * In-memory bus — the default for single-process deployments.
- * Implements `IBusService`; the upcoming `NatsBusService` (Phase 4.2)
- * will implement the same interface so consumers can swap transports
- * without touching their call sites.
+ * **In-memory bus — test fixture only.** Production code always uses
+ * `NatsBusService` against the broker started by `BrokerService` —
+ * see `packages/api/src/app.module.ts` for the wiring. This class
+ * stays exported because dozens of unit tests rely on a synchronous,
+ * network-less `IBusService` impl, and instantiating it in tests is
+ * cheaper + clearer than spinning up NATS for every test that
+ * doesn't actually exercise routing.
+ *
+ * If you reach for this in a non-test context, you're skipping the
+ * bus the rest of the framework runs on — don't.
  */
 export class BusService extends EventEmitter implements IBusService {
   // nodeId -> subscriptionId -> Subscription

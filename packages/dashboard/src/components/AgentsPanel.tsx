@@ -1,20 +1,21 @@
 import { useCallback, useEffect, useState } from "react";
-import { getAgents, type AgentSnapshot } from "../api/client";
+import { getAgents, getTransport, type AgentSnapshot } from "../api/client";
 
 /**
- * Live list of brain-agents currently announcing on the shared bus.
- * Empty when the API runs in single-process mode (no NATS) or no
- * agent is connected yet. Each row shows the agent id / host / pid,
- * uptime, and the node types it has registered locally.
+ * Distributed runtime panel. The bus is always NATS — embedded by
+ * default, or external when `BRAIN_NATS_URL` is set on the API.
+ * This pane shows the broker URL (so remote `brain-agent` instances
+ * know what to connect to) and the agents currently announcing on it.
  */
 export function AgentsPanel(): React.ReactElement {
   const [agents, setAgents] = useState<AgentSnapshot[]>([]);
+  const [transport, setTransport] = useState<{ url: string | null; mode: "embedded" | "external" } | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback((): void => {
-    getAgents()
-      .then((data) => { setAgents(data); setError(null); })
+    Promise.all([getAgents(), getTransport()])
+      .then(([data, t]) => { setAgents(data); setTransport(t); setError(null); })
       .catch((err: unknown) => {
         const msg = err instanceof Error ? err.message : String(err);
         setError(msg);
@@ -24,8 +25,6 @@ export function AgentsPanel(): React.ReactElement {
 
   useEffect(() => {
     refresh();
-    // Announcements arrive every ~10 s upstream, so a 3 s poll keeps
-    // the pane responsive without hammering the API.
     const interval = setInterval(refresh, 3000);
     return () => clearInterval(interval);
   }, [refresh]);
@@ -33,9 +32,9 @@ export function AgentsPanel(): React.ReactElement {
   return (
     <div className="flex-1 flex flex-col overflow-hidden">
       <div className="flex items-center gap-3 px-5 py-3 border-b border-border">
-        <h2 className="text-sm font-semibold text-text">Agents</h2>
+        <h2 className="text-sm font-semibold text-text">Distributed</h2>
         <span className="text-xs text-text-muted">
-          {agents.length} connected
+          {agents.length} agent{agents.length === 1 ? "" : "s"} connected
         </span>
         <button
           onClick={refresh}
@@ -51,17 +50,17 @@ export function AgentsPanel(): React.ReactElement {
         </div>
       )}
 
+      {transport && <TransportInfo transport={transport} />}
+
       <div className="flex-1 overflow-y-auto">
         {loading && (
           <div className="text-text-muted text-xs py-8 text-center">Loading…</div>
         )}
 
         {!loading && agents.length === 0 && !error && (
-          <div className="text-text-muted text-xs py-8 px-5 text-center max-w-md mx-auto">
-            No agents announcing. Either the API runs with the in-memory bus
-            (no NATS) or no <code className="text-text">brain-agent</code>
-            is connected. Set <code className="text-text">BRAIN_NATS_URL</code> on
-            both sides to bring them onto the same bus.
+          <div className="text-text-muted text-xs py-6 px-5 text-center max-w-md mx-auto">
+            No remote agents yet. Run the snippet above on the target
+            host to join this bus.
           </div>
         )}
 
@@ -96,6 +95,60 @@ export function AgentsPanel(): React.ReactElement {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function TransportInfo({ transport }: { transport: { url: string | null; mode: "embedded" | "external" } }): React.ReactElement {
+  const [copied, setCopied] = useState(false);
+
+  // Embedded brokers bind to 127.0.0.1 — only reachable from the same
+  // host. Remote agents need a network-routable URL, so we surface the
+  // localhost snippet but flag the constraint.
+  const localOnly = transport.mode === "embedded"
+    && (transport.url?.includes("127.0.0.1") || transport.url?.includes("localhost"));
+
+  const snippet = transport.url
+    ? `BRAIN_NATS_URL=${transport.url} \\\nBRAIN_NODES_DIR=./nodes \\\nnpx brain-agent`
+    : "";
+
+  const onCopy = (): void => {
+    if (!snippet) return;
+    void navigator.clipboard.writeText(snippet).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+
+  return (
+    <div className="px-5 py-3 border-b border-border bg-surface-raised/40">
+      <div className="flex items-center gap-2 mb-2 text-xs text-text-muted">
+        <span>Broker</span>
+        <code className="text-text font-mono">{transport.url ?? "—"}</code>
+        <span className={`px-1.5 py-0.5 rounded text-[10px] ${
+          transport.mode === "embedded" ? "bg-accent/15 text-accent" : "bg-node-active/10 text-node-active"
+        }`}>
+          {transport.mode}
+        </span>
+      </div>
+      {localOnly && (
+        <p className="text-[11px] text-text-muted mb-2">
+          Embedded broker on 127.0.0.1 — only reachable from this host. To bring
+          agents from another machine, set <code className="text-text">BRAIN_NATS_URL</code> on
+          the API to a network-routable broker.
+        </p>
+      )}
+      {snippet && !localOnly && (
+        <div className="flex items-start gap-2">
+          <pre className="flex-1 text-[11px] font-mono bg-surface-overlay px-2 py-1.5 rounded text-text overflow-x-auto whitespace-pre">{snippet}</pre>
+          <button
+            onClick={onCopy}
+            className="text-xs text-text-muted hover:text-text whitespace-nowrap"
+          >
+            {copied ? "copied" : "copy"}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
