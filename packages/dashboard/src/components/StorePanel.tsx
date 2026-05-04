@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import {
   getStoreNodes, installFromStore, getStoreCandidates,
-  type StoreNodeStatus, type StoreCandidate,
+  refreshStore, getStoreUpstreamStatus, getInstalledUpdates,
+  type StoreNodeStatus, type StoreCandidate, type InstalledNodeUpdate,
 } from "../api/client";
 
 /**
@@ -14,8 +15,11 @@ import {
 export function StorePanel({ onInstalled }: { onInstalled: () => void }): React.ReactElement {
   const [nodes, setNodes] = useState<StoreNodeStatus[]>([]);
   const [candidates, setCandidates] = useState<StoreCandidate[]>([]);
+  const [installedUpdates, setInstalledUpdates] = useState<Map<string, InstalledNodeUpdate>>(new Map());
+  const [marketplaceAhead, setMarketplaceAhead] = useState(false);
   const [loading, setLoading] = useState(true);
   const [installing, setInstalling] = useState<string | null>(null);
+  const [pulling, setPulling] = useState(false);
   const [banner, setBanner] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null);
 
   const refresh = useCallback((): void => {
@@ -27,10 +31,30 @@ export function StorePanel({ onInstalled }: { onInstalled: () => void }): React.
         return [] as StoreNodeStatus[];
       }),
       getStoreCandidates().catch(() => [] as StoreCandidate[]),
+      getInstalledUpdates().catch(() => [] as InstalledNodeUpdate[]),
+      getStoreUpstreamStatus().catch(() => ({ updateAvailable: false, localSha: null, remoteSha: null })),
     ])
-      .then(([n, c]) => { setNodes(n); setCandidates(c); })
+      .then(([n, c, u, ups]) => {
+        setNodes(n); setCandidates(c);
+        setInstalledUpdates(new Map(u.map((x) => [x.repo, x])));
+        setMarketplaceAhead(ups.updateAvailable);
+      })
       .finally(() => setLoading(false));
   }, []);
+
+  const pullMarketplace = useCallback((): void => {
+    setPulling(true);
+    refreshStore()
+      .then((r) => {
+        setBanner({ type: r.updated ? "success" : "info", message: `marketplace: ${r.message}` });
+        refresh();
+      })
+      .catch((err: unknown) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        setBanner({ type: "error", message: `pull failed — ${msg}` });
+      })
+      .finally(() => setPulling(false));
+  }, [refresh]);
 
   useEffect(() => { refresh(); }, [refresh]);
 
@@ -56,12 +80,31 @@ export function StorePanel({ onInstalled }: { onInstalled: () => void }): React.
       <div className="flex items-center gap-3 px-5 py-3 border-b border-border">
         <h2 className="text-sm font-semibold text-text">Store</h2>
         <span className="text-xs text-text-muted">{nodes.length} node(s) listed</span>
-        <button
-          onClick={refresh}
-          className="ml-auto text-xs text-text-muted hover:text-text transition-colors"
-        >
-          Refresh
-        </button>
+        {marketplaceAhead && (
+          <span className="text-[10px] px-2 py-0.5 rounded bg-accent/20 text-accent font-semibold">
+            marketplace update available
+          </span>
+        )}
+        <div className="ml-auto flex items-center gap-2">
+          <button
+            onClick={pullMarketplace}
+            disabled={pulling}
+            className={`text-xs px-2 py-1 rounded transition-colors ${
+              marketplaceAhead
+                ? "bg-accent/20 text-accent hover:bg-accent/30"
+                : "text-text-muted hover:text-text"
+            }`}
+            title="git pull the local brAIn-store clone"
+          >
+            {pulling ? "pulling…" : marketplaceAhead ? "Pull update" : "Pull marketplace"}
+          </button>
+          <button
+            onClick={refresh}
+            className="text-xs text-text-muted hover:text-text transition-colors"
+          >
+            Refresh view
+          </button>
+        </div>
       </div>
 
       {banner && (
@@ -139,7 +182,22 @@ export function StorePanel({ onInstalled }: { onInstalled: () => void }): React.
                   <span className="px-1.5 py-0.5 text-[10px] rounded bg-surface-overlay text-text-muted">ui</span>
                 )}
                 {n.installed ? (
-                  <span className="text-xs text-node-active">installed</span>
+                  ((): React.ReactElement => {
+                    const upd = installedUpdates.get(n.repo);
+                    if (upd?.updateAvailable) {
+                      return (
+                        <button
+                          disabled={installing !== null}
+                          onClick={() => handleInstall(n.package_name)}
+                          className="px-3 py-1 text-xs rounded bg-accent/20 text-accent font-semibold hover:bg-accent/30 disabled:opacity-40"
+                          title={`local ${(upd.localSha ?? "?").slice(0, 8)} → pinned ${n.version} @ ${upd.pinnedSha.slice(0, 8)}`}
+                        >
+                          {installing === n.package_name ? "updating…" : "Update available"}
+                        </button>
+                      );
+                    }
+                    return <span className="text-xs text-node-active">installed</span>;
+                  })()
                 ) : (
                   <button
                     disabled={installing !== null}

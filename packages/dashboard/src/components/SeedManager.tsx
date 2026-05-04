@@ -29,7 +29,12 @@ export function SeedManager({ onApplied }: { onApplied: () => void }): React.Rea
 
     applySeed(name)
       .then((res) => {
-        setResult({ type: "success", message: `Applied "${name}": ${res.seeded} nodes spawned` });
+        const parts = [
+          `${res.spawned} spawned`,
+          res.skipped > 0 ? `${res.skipped} skipped (already exist)` : null,
+          res.installed.length > 0 ? `installed: ${res.installed.join(", ")}` : null,
+        ].filter(Boolean).join(" · ");
+        setResult({ type: "success", message: `Applied "${name}" — ${parts}` });
         onApplied();
       })
       .catch((err: unknown) => {

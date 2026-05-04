@@ -5,20 +5,17 @@ import type {
   NodeInstanceConfig,
   Message,
 } from "./types";
+import { request } from "./request";
 
-const BASE = "";
-
-async function request<T>(path: string, opts?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, {
-    headers: { "Content-Type": "application/json" },
-    ...opts,
-  });
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(`${res.status}: ${text}`);
-  }
-  return res.json() as Promise<T>;
-}
+// Store / marketplace endpoints — re-exported for back-compat with
+// callers that already imported from ./client.
+export {
+  getStoreNodes, installFromStore, getStoreCandidates,
+  refreshStore, getStoreUpstreamStatus, getInstalledUpdates,
+} from "./store";
+export type {
+  StoreNodeStatus, StoreInstallResult, StoreCandidate, InstalledNodeUpdate,
+} from "./store";
 
 export function getNetwork(): Promise<NetworkSnapshot> {
   return request("/network");
@@ -169,67 +166,15 @@ export function getSeeds(): Promise<SeedInfo[]> {
   return request("/network/seeds");
 }
 
-export function applySeed(name: string): Promise<{ seeded: number; seed: string }> {
+export interface SeedApplyResult {
+  seed: string;
+  spawned: number;
+  skipped: number;
+  installed: string[];
+}
+
+export function applySeed(name: string): Promise<SeedApplyResult> {
   return request(`/network/seeds/${name}/apply`, { method: "POST" });
-}
-
-// === Store ===
-
-export interface StoreNodeStatus {
-  name: string;
-  package_name: string;
-  repo: string;
-  subpath: string;
-  version: string;
-  description: string;
-  tags?: string[];
-  has_ui?: boolean;
-  needs_python?: boolean;
-  needs_ollama?: boolean;
-  installed: boolean;
-  install_path: string | null;
-}
-
-export interface StoreInstallResult {
-  status: "installed" | "already_present" | "failed";
-  message: string;
-  cloned_to: string | null;
-  re_scanned_types: number;
-}
-
-export function getStoreNodes(): Promise<StoreNodeStatus[]> {
-  return request("/store/nodes");
-}
-
-export function installFromStore(packageName: string): Promise<StoreInstallResult> {
-  return request("/store/install", {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ package_name: packageName }),
-  });
-}
-
-export interface StoreCandidate {
-  type_name: string;
-  package_name: string;
-  workspace: string;
-  description: string;
-  tags: string[];
-  has_ui: boolean;
-  created_by?: string;
-  created_at?: string;
-  registry_entry: {
-    name: string;
-    package_name: string;
-    version: string;
-    tags?: string[];
-    description: string;
-    has_ui?: boolean;
-  };
-}
-
-export function getStoreCandidates(): Promise<StoreCandidate[]> {
-  return request("/store/candidates");
 }
 
 // === Agents (distributed runtime) ===

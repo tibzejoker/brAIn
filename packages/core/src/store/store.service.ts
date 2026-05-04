@@ -17,6 +17,10 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { logger } from "../logger";
 import type { TypeRegistry } from "../registry";
+import {
+  type NodeUpdate, type RefreshResult, type UpstreamStatus,
+  installedNodeUpdates, marketplaceHasUpdate, refreshLocalStore,
+} from "./upstream";
 
 const DEFAULT_STORE_URL =
   "https://raw.githubusercontent.com/tibzejoker/brAIn-store/main/registry.json";
@@ -123,18 +127,68 @@ export class StoreService {
     this.frameworkRoot = frameworkRoot ?? path.resolve(siblingsRoot, "brAIn");
   }
 
-  /** Fetch the registry, with a 60-second cache. */
+  /**
+   * Path to the locally-cloned `brAIn-store` repo, by convention a
+   * sibling of brAIn. Cloned automatically by the framework's
+   * postinstall (scripts/clone-store.mjs) so the registry is
+   * available offline.
+   */
+  private get localStoreDir(): string {
+    return path.resolve(this.siblingsRoot, "brAIn-store");
+  }
+
+  /**
+   * Fetch the registry. Source of truth (in order):
+   *   1. local clone at `<siblings>/brAIn-store/registry.json` — works
+   *      offline, edits via `git pull` (see `refreshLocalStore`)
+   *   2. HTTP fallback to `BRAIN_STORE_URL` — when the clone is
+   *      missing (network-disabled install, custom registry, …)
+   * 60-second in-memory cache on top of either source.
+   */
   async fetchRegistry(force = false): Promise<StoreRegistry> {
     const now = Date.now();
     if (!force && this.cache && now - this.cache.fetched_at < CACHE_TTL_MS) {
       return this.cache.data;
     }
-    const res = await fetch(this.storeUrl, { signal: AbortSignal.timeout(8_000) });
-    if (!res.ok) throw new Error(`store: GET ${this.storeUrl} → HTTP ${res.status}`);
-    const data = (await res.json()) as StoreRegistry;
+    const localPath = path.join(this.localStoreDir, "registry.json");
+    let data: StoreRegistry;
+    if (fs.existsSync(localPath)) {
+      try {
+        data = JSON.parse(fs.readFileSync(localPath, "utf-8")) as StoreRegistry;
+      } catch (err) {
+        logger.warn({ err, localPath }, "store: local registry unreadable, falling back to HTTP");
+        data = await this.httpFetch();
+      }
+    } else {
+      data = await this.httpFetch();
+    }
     if (data.version !== 1) throw new Error(`store: unsupported registry version ${data.version}`);
     this.cache = { fetched_at: now, data };
     return data;
+  }
+
+  private async httpFetch(): Promise<StoreRegistry> {
+    const res = await fetch(this.storeUrl, { signal: AbortSignal.timeout(8_000) });
+    if (!res.ok) throw new Error(`store: GET ${this.storeUrl} → HTTP ${res.status}`);
+    return (await res.json()) as StoreRegistry;
+  }
+
+  /** Pull the local store + bust cache. Implementation in ./upstream.ts. */
+  refreshLocalStore(): RefreshResult {
+    const r = refreshLocalStore(this.localStoreDir);
+    if (r.updated) this.cache = null;
+    return r;
+  }
+
+  /** "Marketplace ahead?" without pulling. Implementation in ./upstream.ts. */
+  marketplaceHasUpdate(): UpstreamStatus {
+    return marketplaceHasUpdate(this.localStoreDir);
+  }
+
+  /** Per-repo "is local HEAD behind the registry's pinned ref?". */
+  async installedNodeUpdates(): Promise<NodeUpdate[]> {
+    const reg = await this.fetchRegistry();
+    return installedNodeUpdates(reg, this.siblingsRoot);
   }
 
   /** Registry decorated with installation status for the dashboard. */

@@ -57,4 +57,33 @@ export class StoreController {
     }
     return result;
   }
+
+  /**
+   * Pull the local marketplace clone (`git pull`) and bust the
+   * registry cache. Triggered by the dashboard's refresh button.
+   */
+  @Post("refresh")
+  refresh(): { updated: boolean; message: string } {
+    return this.brain.store.refreshLocalStore();
+  }
+
+  /**
+   * Cheap "is the marketplace ahead?" check. `git fetch` + diff.
+   * Lets the dashboard show an "update available" badge without
+   * actually pulling.
+   */
+  @Get("upstream-status")
+  upstreamStatus(): { updateAvailable: boolean; localSha: string | null; remoteSha: string | null } {
+    return this.brain.store.marketplaceHasUpdate();
+  }
+
+  /**
+   * Per-installed-repo update status: true when the local checkout's
+   * HEAD differs from the registry's pinned ref. Surfaces as
+   * "node X has a new version" hints in the dashboard.
+   */
+  @Get("installed-updates")
+  async installedUpdates(): Promise<Array<{ name: string; repo: string; localSha: string | null; pinnedSha: string; updateAvailable: boolean }>> {
+    return await this.brain.store.installedNodeUpdates();
+  }
 }

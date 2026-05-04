@@ -14,3 +14,4 @@ nodes/_dynamic/
 __pycache__/
 *.pyc
 *.pyo
+/.test-fresh-install/
