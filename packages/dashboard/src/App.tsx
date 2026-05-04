@@ -15,7 +15,7 @@ import { useMessages } from "./hooks/useMessages";
 import { useNodeTypes } from "./hooks/useNodeTypes";
 import { useSelectedNode } from "./hooks/useSelectedNode";
 import { useMessageFlows } from "./hooks/useMessageFlows";
-import { getDevMode, setDevMode, tickAll } from "./api/client";
+import { getDevMode, setDevMode, tickAll, getTransport } from "./api/client";
 import { getSocket } from "./api/socket";
 
 export function App(): React.ReactElement {
@@ -34,6 +34,7 @@ export function App(): React.ReactElement {
   const [selectedEdge, setSelectedEdge] = useState<EdgeSelection | null>(null);
   const [activeView, setActiveView] = useState<MenuView>("graph");
   const [devMode, setDevModeState] = useState(false);
+  const [showAgents, setShowAgents] = useState(false);
   const [uiNodeId, setUiNodeId] = useState<string | null>(null);
 
   const handleOpenNodeUi = useCallback((nodeId: string): void => {
@@ -44,11 +45,15 @@ export function App(): React.ReactElement {
     setUiNodeId(null);
   }, []);
 
-  // Load initial dev mode state
+  // Load initial dev mode state + figure out if NATS is wired so we
+  // can show / hide the Agents tab.
   useEffect(() => {
     getDevMode()
       .then((r) => { setDevModeState(r.enabled); })
       .catch(() => { /* silent */ });
+    getTransport()
+      .then((r) => { setShowAgents(r.nats); })
+      .catch(() => { /* silent — keep hidden */ });
 
     const socket = getSocket();
     const handler = (data: { enabled: boolean }): void => {
@@ -122,7 +127,7 @@ export function App(): React.ReactElement {
       />
 
       <div className="flex-1 flex overflow-hidden">
-        <Menu active={activeView} onChange={setActiveView} />
+        <Menu active={activeView} onChange={setActiveView} showAgents={showAgents} />
 
         {activeView === "graph" && (
           <>

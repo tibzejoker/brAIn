@@ -7,6 +7,15 @@ import type {
 } from "./types";
 import { request } from "./request";
 
+/**
+ * Whether the API is wired to a NATS bus. Returns false in the
+ * default in-memory single-host mode — the dashboard hides the
+ * Agents tab in that case (it'd be perpetually empty).
+ */
+export function getTransport(): Promise<{ nats: boolean; url?: string }> {
+  return request("/network/transport");
+}
+
 // Store / marketplace endpoints — re-exported for back-compat with
 // callers that already imported from ./client.
 export {
