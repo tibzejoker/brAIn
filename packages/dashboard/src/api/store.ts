@@ -93,6 +93,8 @@ export interface MarketplaceSeed {
   checksum: string;
   tags?: string[];
   needs?: string[];
+  /** Concrete node list the seed will spawn (real names + types, not just needs[]). */
+  nodes?: Array<{ name: string; type: string }>;
   installed: boolean;
 }
 

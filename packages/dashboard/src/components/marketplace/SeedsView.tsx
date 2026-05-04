@@ -188,14 +188,11 @@ function SeedCard({ seed, applying, installing, onApply, onInstall }: {
         </div>
       </div>
       <p className="text-xs text-text-muted">{seed.description}</p>
-      {seed.needs && seed.needs.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1 mt-1.5 text-[11px]">
-          <span className="text-text-muted">needs:</span>
-          {seed.needs.map((n) => (
-            <code key={n} className="px-1.5 py-0.5 rounded bg-surface-overlay text-text-muted">{n}</code>
-          ))}
-        </div>
-      )}
+
+      {/* Real nodes list (with names) — preferred over `needs[]`. Falls back
+          to needs only when we don't have the parsed seed contents. */}
+      <SeedNodes seed={seed} />
+
       {seed.market && (
         <div className="mt-1 text-[10px] text-text-muted font-mono">
           {seed.market.repo}@{seed.market.ref.slice(0, 8)}
@@ -203,4 +200,43 @@ function SeedCard({ seed, applying, installing, onApply, onInstall }: {
       )}
     </div>
   );
+}
+
+function SeedNodes({ seed }: { seed: UnifiedSeed }): React.ReactElement | null {
+  // Local seeds carry the parsed nodes[] from the YAML; marketplace
+  // seeds may carry a `nodes` summary in the registry. Pick the
+  // richer source — only fall back to needs[] when neither is
+  // available, with a hint that what's shown is just the dependency
+  // declaration, not the actual spawn list.
+  const realNodes = seed.local?.nodes ?? seed.market?.nodes ?? [];
+  if (realNodes.length > 0) {
+    return (
+      <div className="flex flex-wrap items-center gap-1 mt-1.5 text-[11px]">
+        <span className="text-text-muted">spawns:</span>
+        {realNodes.map((n) => (
+          <span
+            key={`${n.name}-${n.type}`}
+            className="px-1.5 py-0.5 rounded bg-surface-overlay text-text"
+            title={`type: ${n.type}`}
+          >
+            <span className="font-medium">{n.name}</span>
+            <span className="text-text-muted"> · {n.type}</span>
+          </span>
+        ))}
+      </div>
+    );
+  }
+  if (seed.needs && seed.needs.length > 0) {
+    return (
+      <div className="flex flex-wrap items-center gap-1 mt-1.5 text-[11px]">
+        <span className="text-text-muted" title="Dependency declaration — actual node list unavailable until installed.">
+          requires:
+        </span>
+        {seed.needs.map((n) => (
+          <code key={n} className="px-1.5 py-0.5 rounded bg-surface-overlay text-text-muted">{n}</code>
+        ))}
+      </div>
+    );
+  }
+  return null;
 }
