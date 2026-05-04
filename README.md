@@ -313,7 +313,7 @@ BRAIN_NATS_URL=nats://<broker>:4222 pnpm start
 # Each worker (Pi, GPU box, …) — point at any directory that
 # contains the node packages this agent should be able to host.
 BRAIN_NATS_URL=nats://<broker>:4222 \
-  BRAIN_AGENT_NODES_DIR=/path/to/nodes \
+  BRAIN_NODES_DIR=/path/to/nodes \
   node packages/agent/dist/cli.js
 ```
 
