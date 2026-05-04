@@ -109,6 +109,27 @@ export class NatsBusService extends EventEmitter implements IBusService {
     this.nc = null;
   }
 
+  /**
+   * Watch the NATS connection status stream and emit a friendly event
+   * when the broker rejects us on auth grounds. Lets the agent CLI
+   * exit cleanly on token rotation rather than loop forever on
+   * "Authorization Violation" reconnect attempts. No-op if not
+   * connected. Intentionally not awaited — runs as a fire-and-forget
+   * task for the lifetime of the connection.
+   */
+  watchStatus(): void {
+    const nc = this.nc;
+    if (!nc) return;
+    void (async (): Promise<void> => {
+      for await (const s of nc.status()) {
+        const data = String((s as { data?: unknown }).data ?? "");
+        if (data.toLowerCase().includes("authorization violation")) {
+          this.emit("auth:rejected", { reason: data });
+        }
+      }
+    })().catch(() => { /* connection closed — fine */ });
+  }
+
   // === Routing ===
 
   publish(msg: Omit<Message, "id" | "timestamp"> & { from: string }): Message {

@@ -75,6 +75,14 @@ export class Agent {
       token: this.opts.natsToken,
     });
     await this.natsBus.connect();
+    // Token rotation upstream → broker rejects us → exit so the user
+    // sees the agent died (and knows to restart with the fresh token)
+    // rather than have it loop forever on Authorization Violation.
+    this.natsBus.on("auth:rejected", ({ reason }: { reason: string }) => {
+      log.error({ reason }, "broker rejected auth — token likely rotated; exiting");
+      process.exit(2);
+    });
+    this.natsBus.watchStatus();
 
     this.brain = new BrainService(this.opts.dbPath, this.natsBus);
     this.brain.bootstrap(this.opts.nodesDir);
