@@ -1,3 +1,22 @@
+# Default seed — the canonical "starter brAIn" network. Auto-applied
+# on first boot when the DB is empty. The framework itself ships
+# with NO nodes; everything below is fetched from the marketplace
+# (tibzejoker/brAIn-store) and verified against pinned commit SHAs +
+# per-file SHA-256 checksums before spawning.
+
+needs:
+  - type: brain
+  - type: developer
+  - type: chat
+  - type: llm-basic
+  - type: terminal
+  - type: http-bridge
+  - type: reminder
+  - type: memory
+  - type: memory-vector
+  - type: memory-proxy
+  - type: memory-consolidator
+
 nodes:
   # === Human chat — the user talks here ===
   - type: chat
@@ -9,13 +28,21 @@ nodes:
       y: 350
     subscriptions:
       - topic: "chat.response"
+        description: "chat.response"
       - topic: "brain.output"
+        description: "brain.output"
       - topic: "report.*"
+        description: "report.*"
       - topic: "dev.result"
+        description: "dev.result"
       - topic: "cmd.output"
+        description: "cmd.output"
       - topic: "http.response"
+        description: "http.response"
       - topic: "reminder.*"
+        description: "reminder.*"
       - topic: "mem.response"
+        description: "mem.response"
 
   # === Central brain — orchestrates everything ===
   - type: brain
@@ -27,13 +54,21 @@ nodes:
       y: 350
     subscriptions:
       - topic: "chat.input"
+        description: "chat.input"
       - topic: "alerts.*"
+        description: "alerts.*"
       - topic: "report.*"
+        description: "report.*"
       - topic: "dev.result"
+        description: "dev.result"
       - topic: "cmd.output"
+        description: "cmd.output"
       - topic: "http.response"
+        description: "http.response"
       - topic: "reminder.*"
+        description: "reminder.*"
       - topic: "mem.response"
+        description: "mem.response"
     config_overrides:
       model: "ollama/gemma4:e4b"
       response_topic: "chat.response"
@@ -52,6 +87,7 @@ nodes:
       y: 150
     subscriptions:
       - topic: "task.analyze"
+        description: "task.analyze"
     config_overrides:
       model: "ollama/gemma4:e4b"
       system_prompt: "You are an analyst. Answer questions precisely and concisely. Focus on facts."
@@ -67,6 +103,7 @@ nodes:
       y: 350
     subscriptions:
       - topic: "dev.request"
+        description: "dev.request"
     config_overrides:
       cli: "claude"
       response_topic: "dev.result"
@@ -84,6 +121,7 @@ nodes:
       y: 550
     subscriptions:
       - topic: "cmd.exec"
+        description: "cmd.exec"
     config_overrides:
       response_topic: "cmd.output"
       timeout_ms: 15000
@@ -99,6 +137,7 @@ nodes:
       y: 600
     subscriptions:
       - topic: "http.request"
+        description: "http.request"
     config_overrides:
       response_topic: "http.response"
 
@@ -112,6 +151,7 @@ nodes:
       y: 600
     subscriptions:
       - topic: "reminder.set"
+        description: "reminder.set"
 
   # ── MEMORY ─────────────────────────────────
 
@@ -125,9 +165,13 @@ nodes:
       y: 150
     subscriptions:
       - topic: "mem.ask"
+        description: "mem.ask"
       - topic: "mem.store"
+        description: "mem.store"
       - topic: "memory.result"
+        description: "memory.result"
       - topic: "memory-vector.result"
+        description: "memory-vector.result"
     config_overrides:
       model: "ollama/gemma4:e4b"
       response_topic: "mem.response"
@@ -142,6 +186,7 @@ nodes:
       y: 150
     subscriptions:
       - topic: "memory.result"
+        description: "memory.result"
     config_overrides:
       model: "ollama/gemma4:e4b"
       max_iterations: 8
@@ -156,11 +201,17 @@ nodes:
       y: 50
     subscriptions:
       - topic: "memory.store"
+        description: "memory.store"
       - topic: "memory.recall"
+        description: "memory.recall"
       - topic: "memory.search"
+        description: "memory.search"
       - topic: "memory.update"
+        description: "memory.update"
       - topic: "memory.delete"
+        description: "memory.delete"
       - topic: "memory.list"
+        description: "memory.list"
 
   # === Vector memory — long-term semantic search ===
   - type: memory-vector
@@ -172,5 +223,8 @@ nodes:
       y: 50
     subscriptions:
       - topic: "memory-vector.store"
+        description: "memory-vector.store"
       - topic: "memory-vector.search"
+        description: "memory-vector.search"
       - topic: "memory-vector.index"
+        description: "memory-vector.index"
