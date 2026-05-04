@@ -42,6 +42,77 @@ importers:
         specifier: ^9.0.5
         version: 9.0.5
 
+  ../brAIn-memory/nodes/memory:
+    dependencies:
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+
+  ../brAIn-memory/nodes/memory-consolidator:
+    dependencies:
+      '@brain/core':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/core
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+
+  ../brAIn-memory/nodes/memory-proxy:
+    dependencies:
+      '@brain/core':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/core
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+
+  ../brAIn-memory/nodes/memory-vector:
+    dependencies:
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/sdk
+      '@lancedb/lancedb':
+        specifier: ^0.15.0
+        version: 0.15.0(apache-arrow@18.1.0)
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+
+  ../brAIn-memory/nodes/reminder:
+    dependencies:
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+
   ../brAIn-perception/nodes/gaze:
     dependencies:
       '@brain/core':
@@ -419,61 +490,6 @@ importers:
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.3.6)
-    devDependencies:
-      typescript:
-        specifier: ^5.4.0
-        version: 5.9.3
-
-  nodes/memory:
-    dependencies:
-      '@brain/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
-    devDependencies:
-      typescript:
-        specifier: ^5.4.0
-        version: 5.9.3
-
-  nodes/memory-consolidator:
-    dependencies:
-      '@brain/core':
-        specifier: workspace:*
-        version: link:../../packages/core
-      '@brain/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
-
-  nodes/memory-proxy:
-    dependencies:
-      '@brain/core':
-        specifier: workspace:*
-        version: link:../../packages/core
-      '@brain/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
-    devDependencies:
-      typescript:
-        specifier: ^5.4.0
-        version: 5.9.3
-
-  nodes/memory-vector:
-    dependencies:
-      '@brain/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
-      '@lancedb/lancedb':
-        specifier: ^0.15.0
-        version: 0.15.0(apache-arrow@18.1.0)
-    devDependencies:
-      typescript:
-        specifier: ^5.4.0
-        version: 5.9.3
-
-  nodes/reminder:
-    dependencies:
-      '@brain/sdk':
-        specifier: workspace:*
-        version: link:../../packages/sdk
     devDependencies:
       typescript:
         specifier: ^5.4.0
