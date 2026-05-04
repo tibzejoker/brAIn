@@ -5,7 +5,11 @@ import { getAgents, getTransport, type AgentSnapshot } from "../api/client";
  * Distributed runtime panel. The bus is always NATS — embedded by
  * default, or external when `BRAIN_NATS_URL` is set on the API.
  * This pane shows the broker URL (so remote `brain-agent` instances
- * know what to connect to) and the agents currently announcing on it.
+ * know what to connect to) and the hosts currently announcing on it.
+ *
+ * UI-side we call them "remote nodes" since users think of the unit
+ * of brAIn work as a node — code-side they're `Agent`s, hosts that
+ * happen to run nodes for us.
  */
 export function AgentsPanel(): React.ReactElement {
   const [agents, setAgents] = useState<AgentSnapshot[]>([]);
@@ -34,7 +38,7 @@ export function AgentsPanel(): React.ReactElement {
       <div className="flex items-center gap-3 px-5 py-3 border-b border-border">
         <h2 className="text-sm font-semibold text-text">Distributed</h2>
         <span className="text-xs text-text-muted">
-          {agents.length} agent{agents.length === 1 ? "" : "s"} connected
+          {agents.length} remote node{agents.length === 1 ? "" : "s"} connected
         </span>
         <button
           onClick={refresh}
@@ -59,8 +63,8 @@ export function AgentsPanel(): React.ReactElement {
 
         {!loading && agents.length === 0 && !error && (
           <div className="text-text-muted text-xs py-6 px-5 text-center max-w-md mx-auto">
-            No remote agents yet. Run the snippet above on the target
-            host to join this bus.
+            No remote nodes yet. Run the snippet above on the target
+            machine to join this bus.
           </div>
         )}
 
@@ -103,7 +107,7 @@ function TransportInfo({ transport }: { transport: { url: string | null; mode: "
   const [copied, setCopied] = useState(false);
 
   // Embedded brokers bind to 127.0.0.1 — only reachable from the same
-  // host. Remote agents need a network-routable URL, so we surface the
+  // host. Remote nodes need a network-routable URL, so we surface the
   // localhost snippet but flag the constraint.
   const localOnly = transport.mode === "embedded"
     && (transport.url?.includes("127.0.0.1") || transport.url?.includes("localhost"));
@@ -134,7 +138,7 @@ function TransportInfo({ transport }: { transport: { url: string | null; mode: "
       {localOnly && (
         <p className="text-[11px] text-text-muted mb-2">
           Embedded broker on 127.0.0.1 — only reachable from this host. To bring
-          agents from another machine, set <code className="text-text">BRAIN_NATS_URL</code> on
+          nodes from another machine, set <code className="text-text">BRAIN_NATS_URL</code> on
           the API to a network-routable broker.
         </p>
       )}
