@@ -29,6 +29,16 @@
   "engines": {
     "node": ">=20"
   },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "@lancedb/lancedb",
+      "@lancedb/lancedb-darwin-arm64",
+      "@lancedb/lancedb-darwin-x64",
+      "@lancedb/lancedb-linux-x64-gnu",
+      "@lancedb/lancedb-linux-arm64-gnu"
+    ]
+  },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/node": "^20.11.0",
