@@ -58,11 +58,14 @@ export function getStoreNodes(): Promise<StoreNodeStatus[]> {
   return request("/store/nodes");
 }
 
-export function installFromStore(packageName: string): Promise<StoreInstallResult> {
+export function installFromStore(
+  packageName: string,
+  opts?: { update?: boolean },
+): Promise<StoreInstallResult> {
   return request("/store/install", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ package_name: packageName }),
+    body: JSON.stringify({ package_name: packageName, update: opts?.update }),
   });
 }
 

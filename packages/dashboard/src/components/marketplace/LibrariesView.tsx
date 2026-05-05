@@ -57,11 +57,17 @@ export function LibrariesView({ onChanged }: { onChanged: () => void }): React.R
       .finally(() => setPulling(false));
   }, [pullMarketplace]);
 
-  const installLib = useCallback((repo: string, packageNames: string[]): void => {
+  // One install/update call per repo. We only need ONE package_name
+  // per repo because the backend clones the whole sister repo and
+  // rescans every node inside it; iterating over `packageNames` would
+  // just re-trigger the same git operations on the same dir.
+  const installLib = useCallback((
+    repo: string, packageNames: string[], opts?: { update?: boolean },
+  ): void => {
     const target = packageNames[0];
     if (!target) return;
     setInstalling(repo); setBanner(null);
-    installFromStore(target)
+    installFromStore(target, opts)
       .then((res) => {
         setBanner({
           type: res.status === "installed" ? "success" : "info",
@@ -146,6 +152,7 @@ export function LibrariesView({ onChanged }: { onChanged: () => void }): React.R
             group={g}
             installing={installing === g.repo}
             onInstall={() => installLib(g.repo, g.nodes.filter((n) => !n.installed).map((n) => n.package_name))}
+            onUpdate={() => installLib(g.repo, g.nodes.map((n) => n.package_name), { update: true })}
           />
         ))}
 
@@ -159,8 +166,8 @@ export function LibrariesView({ onChanged }: { onChanged: () => void }): React.R
   );
 }
 
-function LibCard({ group, installing, onInstall }: {
-  group: RepoGroup; installing: boolean; onInstall: () => void;
+function LibCard({ group, installing, onInstall, onUpdate }: {
+  group: RepoGroup; installing: boolean; onInstall: () => void; onUpdate: () => void;
 }): React.ReactElement {
   const allInstalled = group.installedCount === group.totalCount;
   const someInstalled = group.installedCount > 0 && !allInstalled;
@@ -191,7 +198,7 @@ function LibCard({ group, installing, onInstall }: {
           )}
           {allInstalled && group.hasUpdate && (
             <button
-              onClick={onInstall}
+              onClick={onUpdate}
               disabled={installing}
               className="px-3 py-1 text-xs rounded bg-accent/20 text-accent font-semibold disabled:opacity-40 hover:bg-accent/30"
             >

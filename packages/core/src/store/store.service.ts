@@ -20,7 +20,7 @@ import {
   installedNodeUpdates, marketplaceHasUpdate, refreshLocalStore,
 } from "./upstream";
 import { type InstallSeedResult, installSeedYaml } from "./seeds";
-import { cloneAndCheckout, installAndBuild, verifyChecksums } from "./install";
+import { cloneAndCheckout, fetchAndCheckout, installAndBuild, verifyChecksums } from "./install";
 
 const DEFAULT_STORE_URL =
   "https://raw.githubusercontent.com/tibzejoker/brAIn-store/main/registry.json";
@@ -243,8 +243,14 @@ export class StoreService {
     });
   }
 
-  /** Clone the parent repo of a node (if absent), then re-scan the type registry. */
-  async install(packageName: string): Promise<StoreInstallResult> {
+  /**
+   * Clone the parent repo of a node (if absent) or — when `update` is
+   * set — fast-forward the existing checkout to the registry's pinned
+   * ref. Then verify checksums, re-build, and re-scan the type
+   * registry. The dashboard's "Install missing" calls this without
+   * `update`; the "Update" button passes `{ update: true }`.
+   */
+  async install(packageName: string, opts?: { update?: boolean }): Promise<StoreInstallResult> {
     const registry = await this.fetchRegistry(true);
     const node = registry.nodes.find((n) => n.package_name === packageName);
     if (!node) {
@@ -255,7 +261,16 @@ export class StoreService {
       return { status: "failed", message: `registry references missing repo: ${node.repo}`, cloned_to: null, re_scanned_types: 0 };
     }
     const repoDir = path.join(this.siblingsRoot, node.repo);
-    if (fs.existsSync(repoDir)) {
+    const ref = node.ref ?? repoMeta.default_branch ?? "main";
+    const repoExists = fs.existsSync(repoDir);
+    // Implicit update: the repo dir is here but this node's dist isn't
+    // — typically because the existing checkout pre-dates the node
+    // being added to the registry. Fast-forward to the pinned ref so
+    // the rest of the pipeline (checksums + build) sees the new files.
+    const distHandler = path.join(repoDir, node.subpath, "dist", "handler.js");
+    const needsCatchUp = repoExists && !fs.existsSync(distHandler);
+    const doUpdate = !!opts?.update || needsCatchUp;
+    if (repoExists && !doUpdate) {
       logger.info({ repoDir, packageName }, "store: repo already present, skipping clone");
       const scanned = this.rescan(repoDir);
       return {
@@ -265,20 +280,30 @@ export class StoreService {
         re_scanned_types: scanned,
       };
     }
-    logger.info({ clone: repoMeta.clone, target: repoDir }, "store: cloning repo");
-    const ref = node.ref ?? repoMeta.default_branch ?? "main";
-    const cloneCheckout = cloneAndCheckout(repoMeta.clone, repoDir, ref);
-    if (cloneCheckout.error) {
-      // Roll back partial clones so a retry starts clean.
-      if (fs.existsSync(repoDir)) fs.rmSync(repoDir, { recursive: true, force: true });
-      return {
-        status: "failed", message: cloneCheckout.error, cloned_to: null, re_scanned_types: 0,
-      };
+    if (repoExists && doUpdate) {
+      logger.info({ repoDir, ref }, "store: updating repo to pinned ref");
+      const upd = fetchAndCheckout(repoDir, ref);
+      if (upd.error) {
+        return { status: "failed", message: upd.error, cloned_to: null, re_scanned_types: 0 };
+      }
+    } else {
+      logger.info({ clone: repoMeta.clone, target: repoDir }, "store: cloning repo");
+      const cloneCheckout = cloneAndCheckout(repoMeta.clone, repoDir, ref);
+      if (cloneCheckout.error) {
+        // Roll back partial clones so a retry starts clean.
+        if (fs.existsSync(repoDir)) fs.rmSync(repoDir, { recursive: true, force: true });
+        return {
+          status: "failed", message: cloneCheckout.error, cloned_to: null, re_scanned_types: 0,
+        };
+      }
     }
+    // On update we keep the dir on failure so the user can inspect /
+    // retry; on a fresh clone we tear it down so a retry starts clean.
+    const wipeOnFail = !doUpdate;
     if (node.checksums) {
       const mismatch = verifyChecksums(path.join(repoDir, node.subpath), node.checksums);
       if (mismatch) {
-        fs.rmSync(repoDir, { recursive: true, force: true });
+        if (wipeOnFail) fs.rmSync(repoDir, { recursive: true, force: true });
         return {
           status: "failed",
           message: `checksum mismatch in ${node.subpath}: ${mismatch}`,
@@ -287,12 +312,13 @@ export class StoreService {
       }
     }
     // Sister repos do not commit dist/. Build them in-place so the
-    // type registry can find dist/handler.js when spawning. Skip if
-    // the dist already exists (e.g. user pre-built before install).
-    if (!fs.existsSync(path.join(repoDir, node.subpath, "dist", "handler.js"))) {
+    // type registry can find dist/handler.js when spawning. On update
+    // we always rebuild — the just-checked-out source likely diverged
+    // from the previous dist/.
+    if (doUpdate || !fs.existsSync(distHandler)) {
       const buildErr = installAndBuild(repoDir, this.frameworkRoot);
       if (buildErr) {
-        fs.rmSync(repoDir, { recursive: true, force: true });
+        if (wipeOnFail) fs.rmSync(repoDir, { recursive: true, force: true });
         return {
           status: "failed",
           message: `post-install build failed: ${buildErr}`,
@@ -301,9 +327,10 @@ export class StoreService {
       }
     }
     const scanned = this.rescan(repoDir);
+    const verb = !repoExists ? "cloned" : "updated";
     return {
       status: "installed",
-      message: `cloned ${node.repo}@${ref}${node.checksums ? " (checksums OK)" : ""} to ${repoDir}`,
+      message: `${verb} ${node.repo}@${ref}${node.checksums ? " (checksums OK)" : ""} to ${repoDir}`,
       cloned_to: repoDir,
       re_scanned_types: scanned,
     };

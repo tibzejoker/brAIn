@@ -21,21 +21,25 @@ import { logger } from "../logger";
  */
 export function cloneAndCheckout(cloneUrl: string, repoDir: string, ref: string): { error?: string } {
   const isFullSha = /^[0-9a-f]{40}$/.test(ref);
-  const r1 = spawnSync("git", ["clone", "--filter=blob:none", "--no-checkout", cloneUrl, repoDir], {
+  // Neutralise Windows users' global `core.autocrlf=true` for every
+  // git invocation here — the post-clone checksum verify hashes raw
+  // file bytes, so CRLF rewriting would always mismatch.
+  const NO_EOL_REWRITE = ["-c", "core.autocrlf=false", "-c", "core.eol=lf"];
+  const r1 = spawnSync("git", [...NO_EOL_REWRITE, "clone", "--filter=blob:none", "--no-checkout", cloneUrl, repoDir], {
     stdio: ["ignore", "pipe", "pipe"],
   });
   if (r1.status !== 0) {
     const stderr = r1.stderr as Buffer | undefined;
     return { error: `git clone failed (${r1.status}): ${stderr ? stderr.toString() : ""}` };
   }
-  const r2 = spawnSync("git", ["fetch", "--depth", "1", "origin", ref], {
+  const r2 = spawnSync("git", [...NO_EOL_REWRITE, "fetch", "--depth", "1", "origin", ref], {
     cwd: repoDir, stdio: ["ignore", "pipe", "pipe"],
   });
   if (r2.status !== 0) {
     const stderr = r2.stderr as Buffer | undefined;
     return { error: `git fetch ${ref} failed (${r2.status}): ${stderr ? stderr.toString() : ""}` };
   }
-  const r3 = spawnSync("git", ["checkout", "FETCH_HEAD"], {
+  const r3 = spawnSync("git", [...NO_EOL_REWRITE, "checkout", "FETCH_HEAD"], {
     cwd: repoDir, stdio: ["ignore", "pipe", "pipe"],
   });
   if (r3.status !== 0) {
@@ -48,6 +52,31 @@ export function cloneAndCheckout(cloneUrl: string, repoDir: string, ref: string)
     if (head !== ref) {
       return { error: `post-checkout HEAD (${head ?? "?"}) does not match registry ref (${ref})` };
     }
+  }
+  return {};
+}
+
+/**
+ * In-place equivalent for the Update path: the repo dir already
+ * exists, we just need to fast-forward (or jump) to the pinned ref.
+ * Uses the same EOL-neutralising flags as cloneAndCheckout so file
+ * hashes line up with the registry's checksums.
+ */
+export function fetchAndCheckout(repoDir: string, ref: string): { error?: string } {
+  const NO_EOL_REWRITE = ["-c", "core.autocrlf=false", "-c", "core.eol=lf"];
+  const r1 = spawnSync("git", [...NO_EOL_REWRITE, "fetch", "--depth", "1", "origin", ref], {
+    cwd: repoDir, stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (r1.status !== 0) {
+    const stderr = r1.stderr as Buffer | undefined;
+    return { error: `git fetch ${ref} failed (${r1.status}): ${stderr ? stderr.toString() : ""}` };
+  }
+  const r2 = spawnSync("git", [...NO_EOL_REWRITE, "checkout", "--force", "FETCH_HEAD"], {
+    cwd: repoDir, stdio: ["ignore", "pipe", "pipe"],
+  });
+  if (r2.status !== 0) {
+    const stderr = r2.stderr as Buffer | undefined;
+    return { error: `git checkout FETCH_HEAD failed (${r2.status}): ${stderr ? stderr.toString() : ""}` };
   }
   return {};
 }

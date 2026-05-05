@@ -6,7 +6,7 @@ import {
   type StoreInstallResult, type StoreNodeStatus, type StoreRegistry, type StoreSeed,
 } from "@brain/core";
 
-interface InstallBody { package_name: string }
+interface InstallBody { package_name: string; update?: boolean }
 
 @Controller("store")
 export class StoreController {
@@ -52,7 +52,7 @@ export class StoreController {
     if (!body.package_name) {
       throw new HttpException("package_name required", HttpStatus.BAD_REQUEST);
     }
-    const result = await this.brain.store.install(body.package_name);
+    const result = await this.brain.store.install(body.package_name, { update: body.update });
     if (result.status === "failed") {
       throw new HttpException(result.message, HttpStatus.UNPROCESSABLE_ENTITY);
     }

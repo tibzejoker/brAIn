@@ -27,7 +27,14 @@ if (existsSync(STORE_DIR)) {
 
 const URL = "https://github.com/tibzejoker/brAIn-store.git";
 console.error(`clone-store: cloning ${URL} → ${STORE_DIR}`);
-const r = spawnSync("git", ["clone", "--depth", "1", URL, STORE_DIR], {
+// `-c core.autocrlf=false -c core.eol=lf` neutralises Windows users'
+// global git config so cloned files keep the byte-for-byte content
+// committed upstream — required because the marketplace verifies
+// SHA-256 of every file and CRLF rewriting would mismatch.
+const r = spawnSync("git", [
+  "-c", "core.autocrlf=false", "-c", "core.eol=lf",
+  "clone", "--depth", "1", URL, STORE_DIR,
+], {
   stdio: "inherit",
 });
 if (r.status !== 0) {

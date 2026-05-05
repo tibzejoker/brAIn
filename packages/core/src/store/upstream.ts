@@ -23,7 +23,13 @@ export function refreshLocalStore(localStoreDir: string): RefreshResult {
     return { updated: false, message: `local store missing at ${localStoreDir} — falling back to HTTP` };
   }
   const beforeSha = rev(localStoreDir) ?? "";
-  const r = spawnSync("git", ["pull", "--ff-only"], {
+  // Same EOL-neutralising flags as install.ts cloneAndCheckout — a
+  // user with `core.autocrlf=true` would otherwise rewrite the
+  // marketplace's checked-in JSON/YAML on pull.
+  const r = spawnSync("git", [
+    "-c", "core.autocrlf=false", "-c", "core.eol=lf",
+    "pull", "--ff-only",
+  ], {
     cwd: localStoreDir, stdio: ["ignore", "pipe", "pipe"], timeout: 30_000,
   });
   if (r.status !== 0) {
