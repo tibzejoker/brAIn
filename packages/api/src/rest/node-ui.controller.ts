@@ -23,17 +23,28 @@ export class NodeUiController {
   @Post("send")
   send(
     @Param("id") id: string,
-    @Body() body: { topic: string; content: string; criticality?: number },
+    @Body() body: {
+      topic: string;
+      content: string;
+      criticality?: number;
+      // Override the published `from`. Defaults to the node id (chat-style:
+      // the node is the author, e.g. typed message). Set to a synthetic
+      // origin like `system.ui` to drive the node's own subscriptions
+      // from its UI — `from === id` triggers the bus anti-loop.
+      from?: string;
+      metadata?: Record<string, unknown>;
+    },
   ): { message_id: string } {
     const node = this.brain.instanceRegistry.get(id);
     if (!node) throw new HttpException("Node not found", HttpStatus.NOT_FOUND);
 
     const msg = this.brain.bus.publish({
-      from: id,
+      from: body.from ?? id,
       topic: body.topic,
       type: "text",
       criticality: body.criticality ?? 3,
       payload: { content: body.content },
+      metadata: body.metadata,
     });
 
     return { message_id: msg.id };

@@ -26,3 +26,4 @@ __pycache__/
 packages/dashboard/vite.config.js
 packages/dashboard/vite.config.js.map
 packages/dashboard/vite.config.d.ts
+/log.txt

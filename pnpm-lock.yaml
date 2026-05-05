@@ -42,6 +42,26 @@ importers:
         specifier: ^9.0.5
         version: 9.0.5
 
+  ../brAIn-essentials/nodes/attention: {}
+
+  ../brAIn-essentials/nodes/brain: {}
+
+  ../brAIn-essentials/nodes/clock: {}
+
+  ../brAIn-essentials/nodes/cron: {}
+
+  ../brAIn-essentials/nodes/developer: {}
+
+  ../brAIn-essentials/nodes/echo: {}
+
+  ../brAIn-essentials/nodes/mcp-config: {}
+
+  ../brAIn-essentials/nodes/mcp-server: {}
+
+  ../brAIn-llm/nodes/llm-basic: {}
+
+  ../brAIn-llm/nodes/llm-cli: {}
+
   ../brAIn-memory/nodes/memory:
     dependencies:
       '@brain/sdk':
@@ -112,6 +132,194 @@ importers:
       typescript:
         specifier: ^5.4.0
         version: 5.9.3
+
+  ../brAIn-perception/nodes/gaze: {}
+
+  ../brAIn-perception/nodes/intent: {}
+
+  ../brAIn-perception/nodes/tts:
+    dependencies:
+      '@brain/core':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/core
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+
+  ../brAIn-perception/nodes/voice: {}
+
+  ../brAIn-tools/nodes/http-bridge: {}
+
+  ../brAIn-tools/nodes/terminal: {}
+
+  ../brAIn-ui/nodes/chat: {}
+
+  nodes/_dynamic/dev-03b43c48:
+    dependencies:
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@20.19.39)(vite@6.4.2(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))
+
+  nodes/_dynamic/dev-0ea7d0aa:
+    dependencies:
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@20.19.39)(vite@6.4.2(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))
+
+  nodes/_dynamic/dev-2cb6ba61:
+    dependencies:
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@20.19.39)(vite@6.4.2(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))
+
+  nodes/_dynamic/dev-4f42e500:
+    dependencies:
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@20.19.39)(vite@6.4.2(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))
+
+  nodes/_dynamic/dev-79190879:
+    dependencies:
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@20.19.39)(vite@6.4.2(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))
+
+  nodes/_dynamic/dev-843bd642:
+    dependencies:
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@20.19.39)(vite@6.4.2(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))
+
+  nodes/_dynamic/dev-a71b209c:
+    dependencies:
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@20.19.39)(vite@6.4.2(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))
+
+  nodes/_dynamic/dev-c1a679e0:
+    dependencies:
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@20.19.39)(vite@6.4.2(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))
+
+  nodes/_dynamic/dev-cd99374b:
+    dependencies:
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@20.19.39)(vite@6.4.2(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))
+
+  nodes/_dynamic/dev-dc85aece:
+    dependencies:
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@20.19.39)(vite@6.4.2(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))
 
   packages/agent:
     dependencies:
