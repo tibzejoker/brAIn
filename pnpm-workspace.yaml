@@ -13,3 +13,4 @@ packages:
   - "../brAIn-llm/nodes/*"
   - "../brAIn-ui/nodes/*"
   - "../brAIn-essentials/nodes/*"
+  - "../brAIn-demo-loneliness/nodes/*"

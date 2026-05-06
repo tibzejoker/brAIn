@@ -109,6 +109,7 @@ const brainServiceProvider = {
       path.resolve(MONOREPO_ROOT, "..", "brAIn-llm", "nodes"),
       path.resolve(MONOREPO_ROOT, "..", "brAIn-ui", "nodes"),
       path.resolve(MONOREPO_ROOT, "..", "brAIn-perception", "nodes"),
+      path.resolve(MONOREPO_ROOT, "..", "brAIn-demo-loneliness", "nodes"),
     ];
     const allExtras = [...extras, ...conventional].filter((p) => {
       try { return path.resolve(p) !== path.resolve(nodesDir) && require("fs").existsSync(p); }

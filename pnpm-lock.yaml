@@ -42,25 +42,184 @@ importers:
         specifier: ^9.0.5
         version: 9.0.5
 
-  ../brAIn-essentials/nodes/attention: {}
+  ../brAIn-demo-loneliness/nodes/phone-loneliness:
+    dependencies:
+      '@brain/core':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/core
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
 
-  ../brAIn-essentials/nodes/brain: {}
+  ../brAIn-essentials/nodes/attention:
+    dependencies:
+      '@brain/core':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/core
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
 
-  ../brAIn-essentials/nodes/clock: {}
+  ../brAIn-essentials/nodes/brain:
+    dependencies:
+      '@brain/core':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/core
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
 
-  ../brAIn-essentials/nodes/cron: {}
+  ../brAIn-essentials/nodes/clock:
+    dependencies:
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
 
-  ../brAIn-essentials/nodes/developer: {}
+  ../brAIn-essentials/nodes/cron:
+    dependencies:
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
 
-  ../brAIn-essentials/nodes/echo: {}
+  ../brAIn-essentials/nodes/developer:
+    dependencies:
+      '@brain/core':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/core
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/sdk
+      uuid:
+        specifier: ^9.0.0
+        version: 9.0.1
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      '@types/uuid':
+        specifier: ^9.0.0
+        version: 9.0.8
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
 
-  ../brAIn-essentials/nodes/mcp-config: {}
+  ../brAIn-essentials/nodes/echo:
+    dependencies:
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/sdk
+      pino:
+        specifier: ^10.3.1
+        version: 10.3.1
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
 
-  ../brAIn-essentials/nodes/mcp-server: {}
+  ../brAIn-essentials/nodes/mcp-config:
+    dependencies:
+      '@brain/core':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/core
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
 
-  ../brAIn-llm/nodes/llm-basic: {}
+  ../brAIn-essentials/nodes/mcp-server:
+    dependencies:
+      '@brain/core':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/core
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/sdk
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.3.6)
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
 
-  ../brAIn-llm/nodes/llm-cli: {}
+  ../brAIn-llm/nodes/llm-basic:
+    dependencies:
+      '@brain/core':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/core
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+
+  ../brAIn-llm/nodes/llm-cli:
+    dependencies:
+      '@brain/core':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/core
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
 
   ../brAIn-memory/nodes/memory:
     dependencies:
@@ -133,9 +292,49 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
-  ../brAIn-perception/nodes/gaze: {}
+  ../brAIn-perception/nodes/gaze:
+    dependencies:
+      '@brain/core':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/core
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
 
-  ../brAIn-perception/nodes/intent: {}
+  ../brAIn-perception/nodes/intent:
+    dependencies:
+      '@brain/core':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/core
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/sdk
+      better-sqlite3:
+        specifier: ^12.8.0
+        version: 12.8.0
+      ws:
+        specifier: ^8.18.0
+        version: 8.18.3
+    devDependencies:
+      '@types/better-sqlite3':
+        specifier: ^7.6.13
+        version: 7.6.13
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      '@types/ws':
+        specifier: ^8.5.13
+        version: 8.18.1
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
 
   ../brAIn-perception/nodes/tts:
     dependencies:
@@ -153,13 +352,66 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
-  ../brAIn-perception/nodes/voice: {}
+  ../brAIn-perception/nodes/voice:
+    dependencies:
+      '@brain/core':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/core
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/sdk
+      ws:
+        specifier: ^8.18.0
+        version: 8.18.3
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      '@types/ws':
+        specifier: ^8.5.13
+        version: 8.18.1
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
 
-  ../brAIn-tools/nodes/http-bridge: {}
+  ../brAIn-tools/nodes/http-bridge:
+    dependencies:
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
 
-  ../brAIn-tools/nodes/terminal: {}
+  ../brAIn-tools/nodes/terminal:
+    dependencies:
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
 
-  ../brAIn-ui/nodes/chat: {}
+  ../brAIn-ui/nodes/chat:
+    dependencies:
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../brAIn/packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
 
   nodes/_dynamic/dev-03b43c48:
     dependencies:
@@ -193,6 +445,22 @@ importers:
         specifier: ^4.1.4
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@20.19.39)(vite@6.4.2(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))
 
+  nodes/_dynamic/dev-249f8f23:
+    dependencies:
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@20.19.39)(vite@6.4.2(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))
+
   nodes/_dynamic/dev-2cb6ba61:
     dependencies:
       '@brain/sdk':
@@ -209,7 +477,55 @@ importers:
         specifier: ^4.1.4
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@20.19.39)(vite@6.4.2(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))
 
+  nodes/_dynamic/dev-399d738b:
+    dependencies:
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@20.19.39)(vite@6.4.2(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))
+
   nodes/_dynamic/dev-4f42e500:
+    dependencies:
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@20.19.39)(vite@6.4.2(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))
+
+  nodes/_dynamic/dev-5874694a:
+    dependencies:
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@20.19.39)(vite@6.4.2(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))
+
+  nodes/_dynamic/dev-60dd2de1:
     dependencies:
       '@brain/sdk':
         specifier: workspace:*
@@ -289,6 +605,22 @@ importers:
         specifier: ^4.1.4
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@20.19.39)(vite@6.4.2(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))
 
+  nodes/_dynamic/dev-c868fb74:
+    dependencies:
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@20.19.39)(vite@6.4.2(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))
+
   nodes/_dynamic/dev-cd99374b:
     dependencies:
       '@brain/sdk':
@@ -306,6 +638,22 @@ importers:
         version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@20.19.39)(vite@6.4.2(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))
 
   nodes/_dynamic/dev-dc85aece:
+    dependencies:
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^4.1.4
+        version: 4.1.4(@opentelemetry/api@1.9.0)(@types/node@20.19.39)(vite@6.4.2(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3))
+
+  nodes/_dynamic/dev-e2b39f2a:
     dependencies:
       '@brain/sdk':
         specifier: workspace:*

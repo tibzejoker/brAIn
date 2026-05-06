@@ -11,7 +11,8 @@ describe("Developer node: creates a new node type", () => {
   beforeAll(async () => {
     brain = new BrainService(":memory:");
     const nodesDir = path.resolve(__dirname, "../nodes");
-    brain.bootstrap(nodesDir);
+    const essentialsDir = path.resolve(__dirname, "../../brAIn-essentials/nodes");
+    brain.bootstrap([nodesDir, essentialsDir]);
 
     await CLIRegistry.getInstance().initialize();
   }, 60000);
@@ -41,9 +42,9 @@ describe("Developer node: creates a new node type", () => {
       type: "developer",
       name: "test-developer",
       subscriptions: [
-        { topic: "test.dev.request" },
-        { topic: "types.validation_failed" },
-        { topic: "types.registered" },
+        { topic: "test.dev.request", description: "Test channel for new node creation requests." },
+        { topic: "types.validation_failed", description: "Framework feedback after a failed dynamic-node validation." },
+        { topic: "types.registered", description: "Framework signal that a dynamic-node type was registered." },
       ],
       config_overrides: {
         cli: "claude",
