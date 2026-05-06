@@ -180,7 +180,7 @@ export function App(): React.ReactElement {
 
       <NodeCreator
         types={types}
-        existingNodeCount={nodes.length}
+        nodes={nodes}
         open={creatorOpen}
         onClose={handleCreatorClose}
         onSpawned={handleSpawned}
