@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { QRCodeSVG } from "qrcode.react";
 import { getAgents, getTransport, setTransportBind, type AgentSnapshot, type TransportInfo } from "../api/client";
 
 /**
@@ -117,8 +118,15 @@ function TransportInfoView({ transport, onChanged }: {
 
   // Only meaningful when bus is open AND we know an IP — otherwise no
   // snippet to copy.
-  const snippet = open && transport.url && ip
-    ? `BRAIN_NATS_URL=${transport.url.replace("0.0.0.0", ip)}${transport.token ? ` BRAIN_NATS_TOKEN=${transport.token}` : ""} npx brain-agent`
+  const reachableUrl = open && transport.url && ip ? transport.url.replace("0.0.0.0", ip) : "";
+  const snippet = reachableUrl
+    ? `BRAIN_NATS_URL=${reachableUrl}${transport.token ? ` BRAIN_NATS_TOKEN=${transport.token}` : ""} npx brain-agent`
+    : "";
+
+  // Mobile join URI — `brain://join?url=...&token=...`. Parseable by the
+  // Flutter mobile app's QR scanner and usable as a system deep link.
+  const joinUri = reachableUrl
+    ? `brain://join?url=${encodeURIComponent(reachableUrl)}${transport.token ? `&token=${encodeURIComponent(transport.token)}` : ""}`
     : "";
 
   const copy = (key: string, text: string): void => {
@@ -221,6 +229,27 @@ function TransportInfoView({ transport, onChanged }: {
           >
             {copied === "snippet" ? "copied" : "copy"}
           </button>
+        </div>
+      )}
+
+      {joinUri && (
+        <div className="flex items-start gap-3 pt-1">
+          {/* white background — QR scanners need contrast against the dark UI */}
+          <div className="bg-white p-2 rounded shrink-0">
+            <QRCodeSVG value={joinUri} size={120} level="M" marginSize={0} />
+          </div>
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] text-text-muted mb-1">
+              Scan from the brAIn mobile app to join this broker.
+            </p>
+            <button
+              onClick={() => copy("join-uri", joinUri)}
+              className="text-[11px] text-text-muted hover:text-text font-mono break-all text-left"
+              title="Copy the join URI"
+            >
+              {copied === "join-uri" ? "copied ✓" : joinUri}
+            </button>
+          </div>
         </div>
       )}
 
