@@ -27,6 +27,7 @@ export class InstanceRegistry extends EventEmitter {
     if (!node) return;
 
     const from = node.state;
+    if (from === state) return; // idempotent — saves a socket round-trip
     node.state = state;
     this.emit("node:state_changed", { nodeId, from, to: state });
   }
