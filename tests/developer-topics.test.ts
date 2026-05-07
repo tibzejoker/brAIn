@@ -22,7 +22,7 @@ describe("developer node — query topics", () => {
     // Bootstrap with the sister repo so `developer` is registered.
     const essentialsNodes = path.resolve(
       __dirname,
-      "../../brAIn-essentials/nodes",
+      "../../storeprojects/brAIn-essentials/nodes",
     );
     const brAInNodes = path.resolve(__dirname, "../nodes");
     brain.bootstrap([brAInNodes, essentialsNodes]);

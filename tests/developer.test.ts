@@ -11,7 +11,7 @@ describe("Developer node: creates a new node type", () => {
   beforeAll(async () => {
     brain = new BrainService(":memory:");
     const nodesDir = path.resolve(__dirname, "../nodes");
-    const essentialsDir = path.resolve(__dirname, "../../brAIn-essentials/nodes");
+    const essentialsDir = path.resolve(__dirname, "../../storeprojects/brAIn-essentials/nodes");
     brain.bootstrap([nodesDir, essentialsDir]);
 
     await CLIRegistry.getInstance().initialize();

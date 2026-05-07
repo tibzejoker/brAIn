@@ -2,11 +2,13 @@ packages:
   - "packages/*"
   - "nodes/*"
   - "nodes/_dynamic/*"
-  # Sister repos checked out alongside brAIn — each contains a
-  # domain-specific bundle of nodes. pnpm picks them up via these
-  # glob entries so workspace:* refs to @brain/sdk + @brain/core
-  # resolve, and `pnpm --filter @brain/node-X ...` reaches them.
-  # Missing paths are silently ignored, so cloning a subset works.
+  # Sister repos checked out alongside brAIn. We list both the "grouped"
+  # layout (every node bundle under ../storeprojects/) and the legacy
+  # "flat" layout (bundles as direct siblings of brAIn/) — pnpm silently
+  # ignores missing paths so only the layout actually present resolves.
+  # The grouped layout is the recommended one; the flat globs stay for
+  # back-compat with checkouts that haven't been reorganised.
+  - "../storeprojects/brAIn-*/nodes/*"
   - "../brAIn-perception/nodes/*"
   - "../brAIn-memory/nodes/*"
   - "../brAIn-tools/nodes/*"

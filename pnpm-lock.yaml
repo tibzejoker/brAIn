@@ -42,14 +42,14 @@ importers:
         specifier: ^9.0.5
         version: 9.0.5
 
-  ../brAIn-demo-loneliness/nodes/phone-loneliness:
+  ../storeprojects/brAIn-demo-loneliness/nodes/phone-loneliness:
     dependencies:
       '@brain/core':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/core
+        version: link:../../../../brAIn/packages/core
       '@brain/sdk':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/sdk
+        version: link:../../../../brAIn/packages/sdk
     devDependencies:
       '@types/node':
         specifier: ^20.11.0
@@ -58,14 +58,14 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
-  ../brAIn-essentials/nodes/attention:
+  ../storeprojects/brAIn-essentials/nodes/attention:
     dependencies:
       '@brain/core':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/core
+        version: link:../../../../brAIn/packages/core
       '@brain/sdk':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/sdk
+        version: link:../../../../brAIn/packages/sdk
     devDependencies:
       '@types/node':
         specifier: ^20.11.0
@@ -74,14 +74,14 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
-  ../brAIn-essentials/nodes/brain:
+  ../storeprojects/brAIn-essentials/nodes/brain:
     dependencies:
       '@brain/core':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/core
+        version: link:../../../../brAIn/packages/core
       '@brain/sdk':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/sdk
+        version: link:../../../../brAIn/packages/sdk
     devDependencies:
       '@types/node':
         specifier: ^20.11.0
@@ -90,11 +90,11 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
-  ../brAIn-essentials/nodes/clock:
+  ../storeprojects/brAIn-essentials/nodes/clock:
     dependencies:
       '@brain/sdk':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/sdk
+        version: link:../../../../brAIn/packages/sdk
     devDependencies:
       '@types/node':
         specifier: ^20.11.0
@@ -103,11 +103,11 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
-  ../brAIn-essentials/nodes/cron:
+  ../storeprojects/brAIn-essentials/nodes/cron:
     dependencies:
       '@brain/sdk':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/sdk
+        version: link:../../../../brAIn/packages/sdk
     devDependencies:
       '@types/node':
         specifier: ^20.11.0
@@ -116,14 +116,14 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
-  ../brAIn-essentials/nodes/developer:
+  ../storeprojects/brAIn-essentials/nodes/developer:
     dependencies:
       '@brain/core':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/core
+        version: link:../../../../brAIn/packages/core
       '@brain/sdk':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/sdk
+        version: link:../../../../brAIn/packages/sdk
       uuid:
         specifier: ^9.0.0
         version: 9.0.1
@@ -138,11 +138,11 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
-  ../brAIn-essentials/nodes/echo:
+  ../storeprojects/brAIn-essentials/nodes/echo:
     dependencies:
       '@brain/sdk':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/sdk
+        version: link:../../../../brAIn/packages/sdk
       pino:
         specifier: ^10.3.1
         version: 10.3.1
@@ -154,14 +154,14 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
-  ../brAIn-essentials/nodes/mcp-config:
+  ../storeprojects/brAIn-essentials/nodes/mcp-config:
     dependencies:
       '@brain/core':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/core
+        version: link:../../../../brAIn/packages/core
       '@brain/sdk':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/sdk
+        version: link:../../../../brAIn/packages/sdk
     devDependencies:
       '@types/node':
         specifier: ^20.11.0
@@ -170,14 +170,14 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
-  ../brAIn-essentials/nodes/mcp-server:
+  ../storeprojects/brAIn-essentials/nodes/mcp-server:
     dependencies:
       '@brain/core':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/core
+        version: link:../../../../brAIn/packages/core
       '@brain/sdk':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/sdk
+        version: link:../../../../brAIn/packages/sdk
       '@modelcontextprotocol/sdk':
         specifier: ^1.29.0
         version: 1.29.0(zod@4.3.6)
@@ -189,14 +189,14 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
-  ../brAIn-llm/nodes/llm-basic:
+  ../storeprojects/brAIn-llm/nodes/llm-basic:
     dependencies:
       '@brain/core':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/core
+        version: link:../../../../brAIn/packages/core
       '@brain/sdk':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/sdk
+        version: link:../../../../brAIn/packages/sdk
     devDependencies:
       '@types/node':
         specifier: ^20.11.0
@@ -205,14 +205,14 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
-  ../brAIn-llm/nodes/llm-cli:
+  ../storeprojects/brAIn-llm/nodes/llm-cli:
     dependencies:
       '@brain/core':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/core
+        version: link:../../../../brAIn/packages/core
       '@brain/sdk':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/sdk
+        version: link:../../../../brAIn/packages/sdk
     devDependencies:
       '@types/node':
         specifier: ^20.11.0
@@ -221,11 +221,11 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
-  ../brAIn-memory/nodes/memory:
+  ../storeprojects/brAIn-memory/nodes/memory:
     dependencies:
       '@brain/sdk':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/sdk
+        version: link:../../../../brAIn/packages/sdk
     devDependencies:
       '@types/node':
         specifier: ^20.11.0
@@ -234,27 +234,27 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
-  ../brAIn-memory/nodes/memory-consolidator:
+  ../storeprojects/brAIn-memory/nodes/memory-consolidator:
     dependencies:
       '@brain/core':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/core
+        version: link:../../../../brAIn/packages/core
       '@brain/sdk':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/sdk
+        version: link:../../../../brAIn/packages/sdk
     devDependencies:
       '@types/node':
         specifier: ^20.11.0
         version: 20.19.39
 
-  ../brAIn-memory/nodes/memory-proxy:
+  ../storeprojects/brAIn-memory/nodes/memory-proxy:
     dependencies:
       '@brain/core':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/core
+        version: link:../../../../brAIn/packages/core
       '@brain/sdk':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/sdk
+        version: link:../../../../brAIn/packages/sdk
     devDependencies:
       '@types/node':
         specifier: ^20.11.0
@@ -263,11 +263,11 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
-  ../brAIn-memory/nodes/memory-vector:
+  ../storeprojects/brAIn-memory/nodes/memory-vector:
     dependencies:
       '@brain/sdk':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/sdk
+        version: link:../../../../brAIn/packages/sdk
       '@lancedb/lancedb':
         specifier: ^0.15.0
         version: 0.15.0(apache-arrow@18.1.0)
@@ -279,11 +279,11 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
-  ../brAIn-memory/nodes/reminder:
+  ../storeprojects/brAIn-memory/nodes/reminder:
     dependencies:
       '@brain/sdk':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/sdk
+        version: link:../../../../brAIn/packages/sdk
     devDependencies:
       '@types/node':
         specifier: ^20.11.0
@@ -292,14 +292,14 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
-  ../brAIn-perception/nodes/gaze:
+  ../storeprojects/brAIn-perception/nodes/gaze:
     dependencies:
       '@brain/core':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/core
+        version: link:../../../../brAIn/packages/core
       '@brain/sdk':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/sdk
+        version: link:../../../../brAIn/packages/sdk
     devDependencies:
       '@types/node':
         specifier: ^20.11.0
@@ -308,14 +308,14 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
-  ../brAIn-perception/nodes/intent:
+  ../storeprojects/brAIn-perception/nodes/intent:
     dependencies:
       '@brain/core':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/core
+        version: link:../../../../brAIn/packages/core
       '@brain/sdk':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/sdk
+        version: link:../../../../brAIn/packages/sdk
       better-sqlite3:
         specifier: ^12.8.0
         version: 12.8.0
@@ -336,14 +336,14 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
-  ../brAIn-perception/nodes/tts:
+  ../storeprojects/brAIn-perception/nodes/tts:
     dependencies:
       '@brain/core':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/core
+        version: link:../../../../brAIn/packages/core
       '@brain/sdk':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/sdk
+        version: link:../../../../brAIn/packages/sdk
     devDependencies:
       '@types/node':
         specifier: ^20.11.0
@@ -352,14 +352,14 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
-  ../brAIn-perception/nodes/voice:
+  ../storeprojects/brAIn-perception/nodes/voice:
     dependencies:
       '@brain/core':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/core
+        version: link:../../../../brAIn/packages/core
       '@brain/sdk':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/sdk
+        version: link:../../../../brAIn/packages/sdk
       ws:
         specifier: ^8.18.0
         version: 8.18.3
@@ -374,11 +374,11 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
-  ../brAIn-tools/nodes/http-bridge:
+  ../storeprojects/brAIn-tools/nodes/http-bridge:
     dependencies:
       '@brain/sdk':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/sdk
+        version: link:../../../../brAIn/packages/sdk
     devDependencies:
       '@types/node':
         specifier: ^20.11.0
@@ -387,11 +387,11 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
-  ../brAIn-tools/nodes/terminal:
+  ../storeprojects/brAIn-tools/nodes/terminal:
     dependencies:
       '@brain/sdk':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/sdk
+        version: link:../../../../brAIn/packages/sdk
     devDependencies:
       '@types/node':
         specifier: ^20.11.0
@@ -400,11 +400,11 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
-  ../brAIn-ui/nodes/chat:
+  ../storeprojects/brAIn-ui/nodes/chat:
     dependencies:
       '@brain/sdk':
         specifier: workspace:*
-        version: link:../../../brAIn/packages/sdk
+        version: link:../../../../brAIn/packages/sdk
     devDependencies:
       '@types/node':
         specifier: ^20.11.0

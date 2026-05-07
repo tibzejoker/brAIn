@@ -22,6 +22,10 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const FRAMEWORK_ROOT = resolve(HERE, "..");
 const SIBLINGS_ROOT = resolve(FRAMEWORK_ROOT, "..");
 const REGISTRY_PATH = resolve(SIBLINGS_ROOT, "brAIn-store", "registry.json");
+// Where node bundles live. "grouped" layout: SIBLINGS_ROOT/storeprojects/.
+// Falls back to SIBLINGS_ROOT (flat layout) for backward compat.
+const STOREPROJECTS = resolve(SIBLINGS_ROOT, "storeprojects");
+const BUNDLES_ROOT = fs.existsSync(STOREPROJECTS) ? STOREPROJECTS : SIBLINGS_ROOT;
 
 const argv = process.argv.slice(2);
 const cmd = argv[0];
@@ -45,7 +49,7 @@ function readRegistry() {
 
 /** True when the parent repo is cloned and the node's subpath has a config.json. */
 function isInstalled(node) {
-  const repoDir = resolve(SIBLINGS_ROOT, node.repo);
+  const repoDir = resolve(BUNDLES_ROOT, node.repo);
   if (!existsSync(repoDir)) return false;
   return existsSync(resolve(repoDir, node.subpath, "config.json"));
 }
@@ -133,7 +137,7 @@ function cmdPull(name) {
   }
   const repo = reg.repos?.[node.repo];
   if (!repo) die(`registry inconsistency: node "${name}" references unknown repo "${node.repo}"`);
-  const repoDir = resolve(SIBLINGS_ROOT, node.repo);
+  const repoDir = resolve(BUNDLES_ROOT, node.repo);
   const ref = node.ref ?? repo.default_branch ?? "main";
 
   process.stderr.write(`brain: cloning ${repo.clone} @ ${ref.slice(0, 12)}…\n`);
@@ -175,7 +179,7 @@ function cmdRemove(name, yes) {
   // Removal is repo-level: nodes share their parent repo, so nuking
   // one means nuking the others. List the casualties up front and
   // require --yes when there's more than one.
-  const repoDir = resolve(SIBLINGS_ROOT, node.repo);
+  const repoDir = resolve(BUNDLES_ROOT, node.repo);
   const siblings = (reg.nodes ?? []).filter((n) => n.repo === node.repo);
   if (siblings.length > 1 && !yes) {
     process.stderr.write(`brain: "${name}" lives in ${node.repo}, which also contains:\n`);

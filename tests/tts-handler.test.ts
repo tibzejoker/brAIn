@@ -4,7 +4,7 @@ import {
   parseEspeakVoices,
   parsePowershellVoices,
   buildSpeakArgs,
-} from "../../brAIn-perception/nodes/tts/src/handler";
+} from "../../storeprojects/brAIn-perception/nodes/tts/src/handler";
 
 // === parseSayVoices ──────────────────────────────────────────────────
 

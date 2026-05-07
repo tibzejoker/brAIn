@@ -7,8 +7,8 @@ import {
   parseJsonContent,
   pickCli,
   readTree,
-} from "../../brAIn-essentials/nodes/developer/src/handler";
-import { NODE_TEMPLATE_DOCS } from "../../brAIn-essentials/nodes/developer/src/template";
+} from "../../storeprojects/brAIn-essentials/nodes/developer/src/handler";
+import { NODE_TEMPLATE_DOCS } from "../../storeprojects/brAIn-essentials/nodes/developer/src/template";
 import type { Message } from "@brain/sdk";
 
 function msg(overrides: Partial<Message>): Message {

@@ -12,6 +12,7 @@ import { MCPOAuthController } from "./rest/mcp-oauth.controller";
 import { MCPController } from "./rest/mcp.controller";
 import { DashboardGateway } from "./ws/dashboard.gateway";
 import * as path from "path";
+import * as fs from "fs";
 
 // Resolve paths relative to monorepo root, not the api package cwd
 const MONOREPO_ROOT = path.resolve(__dirname, "../../..");
@@ -100,17 +101,30 @@ const brainServiceProvider = {
       .split(process.platform === "win32" ? ";" : ":")
       .map((p) => p.trim()).filter(Boolean)
       .map((p) => resolveFromRoot(p, p));
-    // Mirror pnpm-workspace.yaml's sibling globs so every repo cloned
-    // alongside brAIn/ contributes its node types automatically.
-    const conventional = [
-      path.resolve(MONOREPO_ROOT, "..", "brAIn-essentials", "nodes"),
-      path.resolve(MONOREPO_ROOT, "..", "brAIn-memory", "nodes"),
-      path.resolve(MONOREPO_ROOT, "..", "brAIn-tools", "nodes"),
-      path.resolve(MONOREPO_ROOT, "..", "brAIn-llm", "nodes"),
-      path.resolve(MONOREPO_ROOT, "..", "brAIn-ui", "nodes"),
-      path.resolve(MONOREPO_ROOT, "..", "brAIn-perception", "nodes"),
-      path.resolve(MONOREPO_ROOT, "..", "brAIn-demo-loneliness", "nodes"),
+    // Auto-discover bundle repos. The "grouped" layout has every node
+    // bundle under `<wrapper>/storeprojects/brAIn-<X>/`, the legacy
+    // "flat" layout puts them as direct siblings of brAIn/. We scan
+    // both — and list child repos by name instead of hardcoding them,
+    // so adding a marketplace bundle doesn't require editing this file.
+    const candidates = [
+      path.resolve(MONOREPO_ROOT, "..", "storeprojects"),
+      path.resolve(MONOREPO_ROOT, ".."),
     ];
+    const conventional: string[] = [];
+    const seen = new Set<string>();
+    for (const root of candidates) {
+      if (!fs.existsSync(root)) continue;
+      for (const entry of fs.readdirSync(root, { withFileTypes: true })) {
+        if (!entry.isDirectory() || !entry.name.startsWith("brAIn-")) continue;
+        // brAIn-store is the registry repo, brAIn-mobile is an app —
+        // neither hosts brAIn node types.
+        if (entry.name === "brAIn-store" || entry.name === "brAIn-mobile") continue;
+        const nodesDir = path.resolve(root, entry.name, "nodes");
+        if (!fs.existsSync(nodesDir) || seen.has(nodesDir)) continue;
+        seen.add(nodesDir);
+        conventional.push(nodesDir);
+      }
+    }
     const allExtras = [...extras, ...conventional].filter((p) => {
       try { return path.resolve(p) !== path.resolve(nodesDir) && require("fs").existsSync(p); }
       catch { return false; }

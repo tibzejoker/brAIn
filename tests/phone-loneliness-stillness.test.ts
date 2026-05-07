@@ -2,7 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   StillnessDetector,
   type AccelSample,
-} from "../../brAIn-demo-loneliness/nodes/phone-loneliness/src/stillness";
+} from "../../storeprojects/brAIn-demo-loneliness/nodes/phone-loneliness/src/stillness";
 
 function steady(t0: number, n: number, x: number, y: number, z: number, jitter = 0): AccelSample[] {
   const out: AccelSample[] = [];

@@ -126,6 +126,7 @@ export interface StoreCandidate {
 export class StoreService {
   private cache: { fetched_at: number; data: StoreRegistry } | null = null;
   private readonly frameworkRoot: string;
+  private readonly bundlesRoot: string;
 
   constructor(
     private readonly typeRegistry: TypeRegistry,
@@ -140,8 +141,22 @@ export class StoreService {
      * `<siblingsRoot>/brAIn` per convention.
      */
     frameworkRoot?: string,
+    /**
+     * Where node-bundle repos live. Auto-detected: if a `storeprojects`
+     * directory exists under [siblingsRoot] we use that, otherwise we
+     * fall back to siblingsRoot itself (legacy flat layout). This lets
+     * the wrapper hold brAIn-store + brAIn-mobile next to a tidy
+     * `storeprojects/` containing every node bundle.
+     */
+    bundlesRoot?: string,
   ) {
     this.frameworkRoot = frameworkRoot ?? path.resolve(siblingsRoot, "brAIn");
+    if (bundlesRoot) {
+      this.bundlesRoot = bundlesRoot;
+    } else {
+      const grouped = path.resolve(siblingsRoot, "storeprojects");
+      this.bundlesRoot = fs.existsSync(grouped) ? grouped : siblingsRoot;
+    }
   }
 
   /**
@@ -205,7 +220,7 @@ export class StoreService {
   /** Per-repo "is local HEAD behind the registry's pinned ref?". */
   async installedNodeUpdates(): Promise<NodeUpdate[]> {
     const reg = await this.fetchRegistry();
-    return installedNodeUpdates(reg, this.siblingsRoot);
+    return installedNodeUpdates(reg, this.bundlesRoot);
   }
 
   /** All marketplace seeds with installed-locally status. */
@@ -233,7 +248,7 @@ export class StoreService {
       // runtime check meaningful and silences the linter).
       const repoMeta = registry.repos[n.repo] as StoreRepo | undefined;
       const installPath = repoMeta
-        ? path.join(this.siblingsRoot, n.repo, n.subpath)
+        ? path.join(this.bundlesRoot, n.repo, n.subpath)
         : null;
       const installed =
         installPath !== null
@@ -260,7 +275,7 @@ export class StoreService {
     if (!repoMeta) {
       return { status: "failed", message: `registry references missing repo: ${node.repo}`, cloned_to: null, re_scanned_types: 0 };
     }
-    const repoDir = path.join(this.siblingsRoot, node.repo);
+    const repoDir = path.join(this.bundlesRoot, node.repo);
     const ref = node.ref ?? repoMeta.default_branch ?? "main";
     const repoExists = fs.existsSync(repoDir);
     // Implicit update: the repo dir is here but this node's dist isn't
