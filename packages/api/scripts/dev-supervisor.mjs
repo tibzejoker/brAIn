@@ -29,6 +29,7 @@ let stopping = false;
 function spawnTsc() {
   const t = spawn("npx", ["tsc", "-w", "--preserveWatchOutput"], {
     cwd: API_DIR, stdio: ["ignore", "inherit", "inherit"], env: process.env,
+    shell: process.platform === "win32",
   });
   t.on("exit", () => {
     if (!stopping) process.stderr.write("[dev-supervisor] tsc -w exited unexpectedly\n");

@@ -17,6 +17,10 @@ interface ProviderEntry {
   envKey: string;
   testModel: string;
   models: string[];
+  // Optional override for the availability probe. Ollama uses this to
+  // skip a `generateText` call (which would force a multi-GB model
+  // load on cold boot and time out), hitting /api/tags instead.
+  check?: () => Promise<{ models?: string[] }>;
 }
 
 let instance: LLMRegistry | null = null;
@@ -99,6 +103,24 @@ export class LLMRegistry {
       envKey: "OLLAMA_BASE_URL",
       testModel: process.env.OLLAMA_TEST_MODEL ?? "gemma4:e4b",
       models: [],
+      check: async () => {
+        // /api/tags is the cheap probe: confirms the daemon is up and
+        // returns the list of pulled models without loading any of them.
+        // Doing a `generateText` instead would force Ollama to load the
+        // test model into RAM/VRAM (multi-GB, can take >30s on cold
+        // boot), which the AI SDK's internal timeout misreports as
+        // "Cannot connect to API".
+        const ctrl = new AbortController();
+        const timer = setTimeout(() => ctrl.abort(), 3000);
+        try {
+          const res = await fetch(`${ollamaUrl}/api/tags`, { signal: ctrl.signal });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          const body = (await res.json()) as { models?: { name: string }[] };
+          return { models: (body.models ?? []).map((m) => m.name) };
+        } finally {
+          clearTimeout(timer);
+        }
+      },
     });
   }
 
@@ -113,19 +135,26 @@ export class LLMRegistry {
     const checks = Array.from(this.providers.entries()).map(
       async ([key, provider]) => {
         try {
-          await generateText({
-            model: provider.factory(provider.testModel),
-            prompt: "Say OK",
-            maxOutputTokens: 5,
-          });
+          let discoveredModels: string[] | undefined;
+          if (provider.check) {
+            const result = await provider.check();
+            discoveredModels = result.models;
+          } else {
+            await generateText({
+              model: provider.factory(provider.testModel),
+              prompt: "Say OK",
+              maxOutputTokens: 5,
+            });
+          }
 
+          const models = discoveredModels ?? provider.models;
           const status: ProviderStatus = {
             name: provider.name,
             available: true,
-            models: provider.models,
+            models,
           };
           this.statuses.set(key, status);
-          logger.info({ provider: key, models: provider.models.length }, "Provider available");
+          logger.info({ provider: key, models: models.length }, "Provider available");
         } catch (err) {
           const status: ProviderStatus = {
             name: provider.name,

@@ -4,9 +4,9 @@
   "license": "MIT",
   "scripts": {
     "preinstall": "echo '⚙ brAIn — installing deps. After this, run: pnpm start' >&2",
-    "postinstall": "pnpm --filter @brain/sdk build && pnpm --filter @brain/core build && pnpm --filter @brain/agent build && node scripts/clone-store.mjs && node scripts/install-nats.mjs",
-    "start": "concurrently -n api,dashboard -c blue,magenta \"pnpm --filter @brain/api dev\" \"wait-on http-get://localhost:3000/network -t 30000 && pnpm --filter @brain/dashboard dev\"",
-    "start:log": "concurrently -n api,dashboard -c blue,magenta \"pnpm --filter @brain/api dev >> log.txt 2>&1\" \"wait-on http-get://localhost:3000/network -t 30000 && pnpm --filter @brain/dashboard dev >> log.txt 2>&1\"",
+    "postinstall": "pnpm --filter @brain/sdk build && pnpm --filter @brain/core build && pnpm --filter @brain/agent build && node scripts/clone-store.mjs && node scripts/install-nats.mjs && node scripts/ensure-store-built.mjs",
+    "start": "node scripts/ensure-store-built.mjs && concurrently -n api,dashboard -c blue,magenta \"pnpm --filter @brain/api dev\" \"wait-on http-get://localhost:3000/network -t 30000 && pnpm --filter @brain/dashboard dev\"",
+    "start:log": "node scripts/ensure-store-built.mjs && concurrently -n api,dashboard -c blue,magenta \"pnpm --filter @brain/api dev >> log.txt 2>&1\" \"wait-on http-get://localhost:3000/network -t 30000 && pnpm --filter @brain/dashboard dev >> log.txt 2>&1\"",
     "start:attention": "concurrently -n api,dashboard,seed -c blue,magenta,green \"pnpm --filter @brain/api dev\" \"wait-on http-get://localhost:3000/network -t 30000 && pnpm --filter @brain/dashboard dev\" \"wait-on http-get://localhost:3000/network -t 30000 && node scripts/seed-attention.mjs\"",
     "dev:api": "pnpm --filter @brain/api dev",
     "dev:dashboard": "pnpm --filter @brain/dashboard dev",
