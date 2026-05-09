@@ -1,0 +1,38 @@
+{
+  "name": "create-brain",
+  "version": "0.1.0",
+  "description": "Bootstrap a brAIn (Bus-Reactive Ambient Intelligent Nodes) dev workspace.",
+  "type": "module",
+  "bin": {
+    "create-brain": "index.mjs"
+  },
+  "scripts": {
+    "test": "node --check index.mjs"
+  },
+  "files": [
+    "index.mjs",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
+  "license": "MIT",
+  "homepage": "https://github.com/tibzejoker/brAIn",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tibzejoker/brAIn.git",
+    "directory": "scripts/installer"
+  },
+  "bugs": {
+    "url": "https://github.com/tibzejoker/brAIn/issues"
+  },
+  "keywords": [
+    "brain",
+    "brAIn",
+    "agents",
+    "nats",
+    "ambient",
+    "create",
+    "bootstrap"
+  ]
+}

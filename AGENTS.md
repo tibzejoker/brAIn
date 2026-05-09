@@ -12,6 +12,25 @@ when idle, can be preempted by higher-criticality messages, and can
 live in this process or on a remote `brain-agent` joined to the same
 broker.
 
+## Install
+
+End-user / fresh checkout — bootstraps brAIn + brAIn-store + an empty
+storeprojects/ in one shot, then runs `pnpm install`:
+
+```bash
+npm create brain                 # → ./brain/
+npm create brain my-instance     # → ./my-instance/
+```
+
+Source for the bootstrapper lives in `scripts/installer/` (published to npm
+as `create-brain`). See its [README](./scripts/installer/README.md).
+
+Manual / contributors:
+
+```bash
+git clone https://github.com/tibzejoker/brAIn && cd brAIn && pnpm install
+```
+
 ## Commands
 
 ```bash
@@ -22,11 +41,17 @@ pnpm dev:dashboard      # Frontend only (Vite HMR)
 pnpm build              # Build all packages (sdk → core → api/agent/dashboard)
 pnpm lint               # ESLint strict — must pass with 0 errors AND 0 warnings
 pnpm test               # vitest, all suites
+pnpm kill-orphans       # cleanup leaked dev processes / ports
+pnpm kill-ports         # blunter port cleanup
 
 pnpm brain list                  # marketplace registry — installed + available
 pnpm brain pull <name>           # install a node from brAIn-store
 pnpm brain remove <name> [--yes] # uninstall a node (whole sister repo) or seed
 ```
+
+Node-specific dev scripts (e.g. `dev:voice`, `setup:gaze`, `dev:vocal-chat`)
+live in their respective sister repos (`brAIn-perception`, etc.) — not in
+this package.json.
 
 ## Repo layout
 
@@ -42,10 +67,11 @@ packages/python-sdk → brain-web         Python helper for nodes that speak the
 nodes/_dynamic/*    → custom nodes you author locally (auto-registered)
 seeds/*.yaml        → starter network definitions
 scripts/brain.mjs   → CLI for marketplace operations
+scripts/installer/  → `create-brain` package — published to npm separately
 ../brAIn-store      → marketplace registry (auto-cloned by postinstall)
-../brAIn-{essentials,memory,tools,llm,ui,perception}
+../storeprojects/brAIn-{essentials,memory,tools,llm,ui,perception}
                     → sister repos contributing node types via pnpm-workspace
-                      sibling globs. Cloned on demand via `pnpm brain pull`.
+                      sibling globs. Pulled on demand via `pnpm brain pull`.
 ```
 
 **Dependency flow**: `sdk` ← `core` ← `api` / `agent`. Dashboard imports `sdk`

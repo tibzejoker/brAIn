@@ -115,8 +115,11 @@ export function verifyChecksums(rootDir: string, checksums: Record<string, strin
  */
 export function installAndBuild(repoDir: string, frameworkRoot: string): string | null {
   logger.info({ repoDir, frameworkRoot }, "store: pnpm install + build (post-clone)");
+  // shell: true on Windows so the pnpm.cmd shim resolves — without it
+  // spawnSync returns status null (ENOENT) and the caller sees "exit ?".
+  const isWin = process.platform === "win32";
   const inst = spawnSync("pnpm", ["install"], {
-    cwd: frameworkRoot, stdio: ["ignore", "pipe", "pipe"], timeout: 5 * 60_000,
+    cwd: frameworkRoot, stdio: ["ignore", "pipe", "pipe"], timeout: 5 * 60_000, shell: isWin,
   });
   if (inst.status !== 0) {
     const err = ((inst.stderr as Buffer | undefined)?.toString() ?? "")
@@ -125,7 +128,7 @@ export function installAndBuild(repoDir: string, frameworkRoot: string): string 
     return `pnpm install (in ${frameworkRoot}): ${err.split("\n").slice(-3).join(" | ")}`;
   }
   const build = spawnSync("pnpm", ["--dir", repoDir, "-r", "build"], {
-    cwd: frameworkRoot, stdio: ["ignore", "pipe", "pipe"], timeout: 5 * 60_000,
+    cwd: frameworkRoot, stdio: ["ignore", "pipe", "pipe"], timeout: 5 * 60_000, shell: isWin,
   });
   if (build.status !== 0) {
     const err = ((build.stderr as Buffer | undefined)?.toString() ?? "")

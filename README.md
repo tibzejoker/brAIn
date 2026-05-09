@@ -267,29 +267,61 @@ the ML weights on first spawn.
 
 ## Quickstart
 
-### Prerequisites
-
-- **Node.js** ≥ 20, **pnpm** 7+
-- **Ollama** for local LLM nodes (`ollama pull gemma3:4b`,
-  `ollama pull qwen3-embedding:0.6b`)
-- **NATS** is included — `pnpm install` fetches the bundled
-  `nats-server` Go binary. To use a broker you already run, set
-  `BRAIN_NATS_URL` and the framework skips the download.
-- **Python 3.11** only if you check out
-  [brAIn-perception](https://github.com/tibzejoker/brAIn-perception)
-
-### Run the framework alone
+### One-command install
 
 ```bash
-pnpm install            # postinstall: builds sdk + core, clones
-                        # brAIn-store, downloads nats-server binary
-pnpm start
+npm create brain
+# or pick a folder name:
+npm create brain my-instance
+```
+
+This bootstraps the dev workspace via the [`create-brain`](./scripts/installer)
+package: clones `brAIn/` and `brAIn-store/`, creates an empty
+`storeprojects/` directory, runs `pnpm install` (which downloads the bundled
+`nats-server` Go binary and builds the framework). Layout produced:
+
+```
+brain/                    (default folder)
+├── brAIn/                framework
+├── brAIn-store/          marketplace registry
+└── storeprojects/        empty — populated at runtime by `pnpm brain pull`
+```
+
+Then launch:
+
+```bash
+cd brain/brAIn
+./run                     # unix
+run.cmd                   # windows
 # API       → http://localhost:3000
 # Dashboard → http://localhost:5173
 ```
 
-The framework boots empty (zero nodes) and spawns an embedded
-`nats-server` on a free localhost port.
+### Prerequisites
+
+- **Node.js** ≥ 20 (pnpm is auto-bootstrapped via `corepack` if missing)
+- **git** in `PATH`
+- **Ollama** only if you install LLM nodes (`ollama pull gemma3:4b`,
+  `ollama pull qwen3-embedding:0.6b`)
+- **Python 3.11** only if you install the perception nodes (voice / gaze)
+  from [brAIn-perception](https://github.com/tibzejoker/brAIn-perception)
+
+`nats-server` ships embedded — `pnpm install` fetches the right binary
+for your platform. Set `BRAIN_NATS_URL` to skip the embedded broker and
+join an external one instead.
+
+### Manual install (contributors)
+
+If you're going to hack on the framework itself:
+
+```bash
+git clone https://github.com/tibzejoker/brAIn && cd brAIn
+pnpm install            # postinstall: builds sdk/core/agent, clones
+                        # brAIn-store, downloads nats-server binary
+pnpm start
+```
+
+### Adding nodes
 
 ```bash
 pnpm brain list                  # marketplace registry — installed + available
@@ -311,18 +343,6 @@ from `seeds/` (`default`, `chat`, `vocal-chat`, `demo-memory`,
   /network/seeds/<name>/apply`. Delete with `pnpm brain remove
   <name>`.
 
-### Pre-wired stacks (require sibling clones)
-
-When the relevant sister repo is cloned alongside `brAIn/`,
-`pnpm-workspace.yaml` picks it up automatically:
-
-```bash
-pnpm dev:voice          # voice + seed
-pnpm dev:gaze           # gaze + seed
-pnpm dev:intent         # voice + gaze + intent
-pnpm dev:vocal-chat     # the full ambient stack
-```
-
 ### Hosting nodes on another machine
 
 On the API host, open the Distributed tab and click **Open to LAN**
@@ -332,8 +352,8 @@ token. The panel shows a one-liner snippet — copy it.
 On the target machine:
 
 ```bash
-git clone https://github.com/tibzejoker/brAIn && cd brAIn
-pnpm install
+npm create brain
+cd brain/brAIn
 pnpm brain pull memory          # (or whichever nodes the agent should host)
 # paste the snippet from the Distributed tab:
 BRAIN_NATS_URL=nats://<api-lan-ip>:<port> BRAIN_NATS_TOKEN=<token> npx brain-agent

@@ -18,7 +18,10 @@ needs:
 #   chat   ──chat.input─────────────> consciousness
 #   brain  ──chat.response──────────> chat
 #
-# Run: `pnpm dev:vocal-chat` (requires `ollama serve` + `ollama pull gemma4:e4b`).
+# Run from brAIn-perception: `pnpm dev:vocal-chat` (requires `ollama serve`
+# + `ollama pull gemma4:e4b`). Apply via the dashboard's Seeds tab or
+# `POST /network/seeds/vocal-chat/apply` once the listed sister-repo nodes
+# are installed (Marketplace tab or `pnpm brain pull <name>`).
 nodes:
   # ── PERCEPTION ────────────────────────────────────────────────
   # voice + gaze keep their default subscriptions / publishes from each

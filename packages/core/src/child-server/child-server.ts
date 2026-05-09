@@ -68,8 +68,9 @@ export async function startChildServer(opts: ChildServerOptions): Promise<ChildS
   const pollMs = opts.healthPollMs ?? DEFAULT_HEALTH_POLL_MS;
   const grace = opts.killGracePeriodMs ?? DEFAULT_KILL_GRACE_MS;
 
-  // Already running? Attach instead of spawning. This keeps `pnpm dev:voice`
-  // and node-spawned modes coexisting cleanly during local development.
+  // Already running? Attach instead of spawning. Lets a manually-started
+  // sister-repo dev server (e.g. uvicorn for voice/gaze) coexist with a
+  // node-spawned one during local development.
   if (await probeHealth(opts.healthUrl)) {
     logger.info({ name: opts.name, healthUrl: opts.healthUrl }, "child-server: attached to existing");
     return {

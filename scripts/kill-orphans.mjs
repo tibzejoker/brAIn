@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 /**
- * Kill brAIn dev-stack orphans: API on 3000/3500, voice/gaze/intent uvicorn
- * children, plus any nest --watch / dist/main hanging around.
+ * Kill brAIn dev-stack orphans: API on 3000/3500, sister-repo Python
+ * uvicorn children (voice/gaze/intent on 8765/8766/8767), plus any
+ * nest --watch / dist/main hanging around.
  *
- * `concurrently --kill-others --kill-signal SIGTERM` in dev:voice / dev:gaze
- * usually handles teardown, but tsc-watch and nest --watch can leak when
- * the user force-quits the terminal. Run this when port 3000 (or 8765/8766)
+ * tsc-watch and nest --watch occasionally leak when the user force-quits
+ * the terminal. Run this when port 3000 (or one of the uvicorn ports)
  * is stuck on EADDRINUSE.
  *
  * Usage: pnpm kill-orphans

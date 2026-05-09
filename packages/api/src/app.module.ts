@@ -179,16 +179,27 @@ export class AppModule implements OnModuleInit, OnModuleDestroy {
       this.log.log(`Restored ${restored} nodes from database`);
     }
 
-    // Auto-seed from default if DB is empty
+    // Auto-seed from default if DB is empty. Fire-and-forget: a fresh
+    // install has to clone+install several sister repos which can take
+    // 30-90s. Blocking onModuleInit on that delays app.listen(), the
+    // dashboard's wait-on times out, and the user sees nothing.
+    // Instead we let listen() happen right away and the seeded nodes
+    // appear in the dashboard via Socket.IO as they spawn.
+    // README promises "boots empty (zero nodes)" — failures are logged
+    // and the user can pick a seed from the dashboard.
     if (restored === 0) {
       const seeds = this.brain.getSeeds();
       const defaultSeed = seeds.find((s) => s.name === "default" && s.valid);
       if (defaultSeed) {
-        const r = await this.brain.seed(defaultSeed.path);
-        this.log.log(
-          `Seeded ${r.spawned} nodes from ${defaultSeed.filename}`
-          + (r.installed.length > 0 ? ` (installed: ${r.installed.join(", ")})` : "")
-          + (r.skipped > 0 ? ` (skipped ${r.skipped} pre-existing)` : ""),
+        void this.brain.seed(defaultSeed.path).then(
+          (r) => this.log.log(
+            `Seeded ${r.spawned} nodes from ${defaultSeed.filename}`
+            + (r.installed.length > 0 ? ` (installed: ${r.installed.join(", ")})` : "")
+            + (r.skipped > 0 ? ` (skipped ${r.skipped} pre-existing)` : ""),
+          ),
+          (err: unknown) => this.log.warn(
+            `default seed apply failed (booting empty — apply a seed from the dashboard): ${String(err)}`,
+          ),
         );
       }
     }
