@@ -50,8 +50,11 @@ Usage:
   npm create brain [folder] [options]
   npx create-brain [folder] [options]
 
+Default: clone, install, AND launch (one command, end-to-end).
+
 Options:
-  --no-install    Skip the final \`pnpm install\` inside brAIn/
+  --no-start      Stop after install — do not launch \`pnpm start\`
+  --no-install    Skip the final \`pnpm install\` (implies --no-start)
   -h, --help      Show this help
 
 Layout produced (default folder: ./brain):
@@ -63,15 +66,18 @@ Layout produced (default folder: ./brain):
 }
 
 function parseArgs(argv) {
-  const args = { folder: undefined, install: true };
+  const args = { folder: undefined, install: true, start: true };
   for (const a of argv) {
     if (a === "--no-install") args.install = false;
+    else if (a === "--no-start") args.start = false;
     else if (a === "-h" || a === "--help") { printHelp(); process.exit(0); }
     else if (a.startsWith("-")) die(`unknown flag: ${a} (try --help)`);
     else if (args.folder === undefined) args.folder = a;
     else die(`unexpected positional arg: ${a}`);
   }
   if (args.folder === undefined) args.folder = "brain";
+  // No install → no start (start needs the deps).
+  if (!args.install) args.start = false;
   return args;
 }
 
@@ -178,6 +184,27 @@ function main() {
   }
 
   const launcher = IS_WIN ? "run.cmd" : "./run";
+
+  if (args.start) {
+    // Auto-launch: hand off to `pnpm start`. The installer becomes a
+    // long-running launcher — Ctrl+C from the user kills the chain.
+    console.log(`
+${c.green}${c.bold}✓ brAIn workspace ready — launching${c.reset}
+
+API:        ${c.bold}http://localhost:3000${c.reset}
+Dashboard:  ${c.bold}http://localhost:5173${c.reset}  ${c.dim}← open in your browser once both are up${c.reset}
+
+${c.dim}First boot takes ~1 min: the auto-seed clones a few sister repos.${c.reset}
+${c.dim}Pass --no-start next time if you'd rather launch manually with \`${launcher}\`.${c.reset}
+`);
+    const r = spawnSync("pnpm", ["start"], {
+      cwd: resolve(process.cwd(), args.folder, "brAIn"),
+      stdio: "inherit",
+      shell: IS_WIN,
+    });
+    process.exit(r.status ?? 0);
+  }
+
   console.log(`
 ${c.green}${c.bold}✓ brAIn workspace ready${c.reset}
 

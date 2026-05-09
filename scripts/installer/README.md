@@ -17,26 +17,28 @@ brain/                     # default folder name (override: `npm create brain my
 └── storeprojects/         # empty — populated at runtime by `pnpm brain pull <name>`
 ```
 
-Then runs `pnpm install` inside `brAIn/`, which downloads the bundled
-`nats-server` Go binary for your platform and builds `@brain/sdk`,
-`@brain/core`, and `@brain/agent`.
+Then runs `pnpm install` inside `brAIn/` (downloads the bundled
+`nats-server` Go binary, builds `@brain/sdk`, `@brain/core`,
+`@brain/agent`), and **launches `pnpm start`**. One command, end-to-end.
 
-## Next steps
+API on http://localhost:3000, Dashboard on http://localhost:5173.
+First boot takes ~1 min — the auto-seed clones a few sister repos.
+
+## Options
+
+| Flag | Default | What it does |
+|---|---|---|
+| `--no-start` | launches | Stop after install — don't auto-launch |
+| `--no-install` | install runs | Skip `pnpm install` (implies `--no-start`) |
+| `-h`, `--help` | — | Show help |
+
+## Re-launching later
 
 ```bash
 cd brain/brAIn
 ./run            # unix
 run.cmd          # windows
 ```
-
-API on http://localhost:3000, Dashboard on http://localhost:5173.
-
-## Options
-
-| Flag | Default | What it does |
-|---|---|---|
-| `--no-install` | install runs | Skip the final `pnpm install` |
-| `-h`, `--help` | — | Show help |
 
 ## Requirements
 

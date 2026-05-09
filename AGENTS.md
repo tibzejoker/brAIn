@@ -15,11 +15,12 @@ broker.
 ## Install
 
 End-user / fresh checkout — bootstraps brAIn + brAIn-store + an empty
-storeprojects/ in one shot, then runs `pnpm install`:
+storeprojects/, runs `pnpm install`, **and launches the stack**:
 
 ```bash
-npm create brain                 # → ./brain/
+npm create brain                 # → ./brain/, then auto-runs `pnpm start`
 npm create brain my-instance     # → ./my-instance/
+npm create brain -- --no-start   # stop after install (don't launch)
 ```
 
 Source for the bootstrapper lives in `scripts/installer/` (published to npm

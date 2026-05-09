@@ -277,8 +277,9 @@ npm create brain my-instance
 
 This bootstraps the dev workspace via the [`create-brain`](./scripts/installer)
 package: clones `brAIn/` and `brAIn-store/`, creates an empty
-`storeprojects/` directory, runs `pnpm install` (which downloads the bundled
-`nats-server` Go binary and builds the framework). Layout produced:
+`storeprojects/` directory, runs `pnpm install` (downloads the bundled
+`nats-server` binary, builds the framework), **and launches the stack**.
+End-to-end, one command. Layout produced:
 
 ```
 brain/                    (default folder)
@@ -287,15 +288,16 @@ brain/                    (default folder)
 └── storeprojects/        empty — populated at runtime by `pnpm brain pull`
 ```
 
-Then launch:
+Once it boots (first boot takes ~1 min while the auto-seed clones a few
+sister repos), open:
 
-```bash
-cd brain/brAIn
-./run                     # unix
-run.cmd                   # windows
-# API       → http://localhost:3000
-# Dashboard → http://localhost:5173
 ```
+API       → http://localhost:3000
+Dashboard → http://localhost:5173
+```
+
+To stop without auto-launch (just clone + install) pass `--no-start`.
+To re-launch later: `cd brain/brAIn && ./run` (`run.cmd` on Windows).
 
 ### Prerequisites
 
