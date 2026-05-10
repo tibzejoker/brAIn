@@ -6,6 +6,7 @@
     "preinstall": "echo '⚙ brAIn — installing deps. After this, run: pnpm start' >&2",
     "postinstall": "pnpm --filter @brain/sdk build && pnpm --filter @brain/core build && pnpm --filter @brain/agent build && node scripts/clone-store.mjs && node scripts/install-nats.mjs && node scripts/ensure-store-built.mjs",
     "start": "node scripts/ensure-store-built.mjs && concurrently -n api,dashboard -c blue,magenta \"pnpm --filter @brain/api dev\" \"wait-on http-get://localhost:3000/network -t 120000 && pnpm --filter @brain/dashboard dev\"",
+    "start:prod": "node packages/api/dist/main.js",
     "dev:api": "pnpm --filter @brain/api dev",
     "dev:dashboard": "pnpm --filter @brain/dashboard dev",
     "build": "pnpm -r build",
