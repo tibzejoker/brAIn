@@ -1,0 +1,19 @@
+# Build artifacts + state must be regenerated inside the container.
+node_modules
+**/node_modules
+**/dist
+data
+log.txt
+start.log
+**/start.log
+.idea
+.vscode
+
+# User-authored workspaces — re-derived at runtime (and may contain
+# leftover state from local testing).
+nodes/_dynamic/*
+
+# .git of the framework repo isn't needed at runtime; sister repos'
+# .git directories ARE useful (the marketplace tracks SHA pins), so
+# they stay if cloned by the builder.
+.git
