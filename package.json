@@ -29,7 +29,10 @@
       "@lancedb/lancedb-darwin-x64",
       "@lancedb/lancedb-linux-x64-gnu",
       "@lancedb/lancedb-linux-arm64-gnu"
-    ]
+    ],
+    "overrides": {
+      "vitest": "^3.2.4"
+    }
   },
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
@@ -41,7 +44,7 @@
     "eslint": "^10.2.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.0.1",
-    "vitest": "^4.1.4",
+    "vitest": "^3.2.4",
     "wait-on": "^9.0.5"
   }
 }

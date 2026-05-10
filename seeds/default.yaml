@@ -103,11 +103,29 @@ nodes:
       y: 350
     subscriptions:
       - topic: "dev.request"
-        description: "dev.request"
+        description: "Author a brand-new node from a natural-language description."
+      - topic: "dev.improve"
+        description: "Improve an existing dev-authored node."
+      - topic: "dev.workspaces.list"
+        description: "List authored workspaces under nodes/_dynamic/."
+      - topic: "dev.files.tree"
+        description: "Inspect the file tree of one workspace."
+      - topic: "dev.cli.list"
+        description: "List code-authoring CLIs available."
+      - topic: "types.validation_failed"
+        description: "Framework feedback when a workspace failed validation — triggers retry."
+      - topic: "types.registered"
+        description: "Framework signal that an authored workspace was registered — triggers auto-spawn."
+      - topic: "types.updated"
+        description: "Framework signal that an authored workspace's spec changed."
     config_overrides:
       cli: "claude"
       response_topic: "dev.result"
       timeout_ms: 300000
+      # Handler timeout must clear the CLI's run time (claude -p needs
+      # ~60-180s on a fresh node). Default 60s aborts mid-iteration and
+      # types.registered then arrives to a sleeping/dead node.
+      handler_timeout_ms: 600000
 
   # ── TOOLS ──────────────────────────────────
 
