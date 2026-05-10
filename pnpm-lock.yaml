@@ -416,23 +416,7 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
-  nodes/_dynamic/dev-358be33c:
-    dependencies:
-      '@brain/sdk':
-        specifier: workspace:*
-        version: link:../../../packages/sdk
-    devDependencies:
-      '@types/node':
-        specifier: ^20.11.0
-        version: 20.19.39
-      typescript:
-        specifier: ^5.4.0
-        version: 5.9.3
-      vitest:
-        specifier: ^3.2.4
-        version: 3.2.4(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)
-
-  nodes/_dynamic/dev-a55004be:
+  nodes/_dynamic/dev-d71403a4:
     dependencies:
       '@brain/sdk':
         specifier: workspace:*
