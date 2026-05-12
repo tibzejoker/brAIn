@@ -12,7 +12,7 @@
     "build": "pnpm -r build",
     "clean": "pnpm -r exec rm -rf dist",
     "kill-orphans": "node scripts/kill-orphans.mjs",
-    "kill-ports": "node scripts/kill-ports.mjs",
+    "kill-ports": "node scripts/kill-orphans.mjs --ports-only",
     "brain": "node scripts/brain.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
