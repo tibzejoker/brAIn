@@ -255,6 +255,38 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
+  ../storeprojects/brAIn-games/nodes/hangman:
+    dependencies:
+      '@brain/core':
+        specifier: workspace:*
+        version: link:../../../../brAIn/packages/core
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../../brAIn/packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+
+  ../storeprojects/brAIn-games/nodes/tictactoe:
+    dependencies:
+      '@brain/core':
+        specifier: workspace:*
+        version: link:../../../../brAIn/packages/core
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../../brAIn/packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+
   ../storeprojects/brAIn-llm/nodes/llm-basic:
     dependencies:
       '@brain/core':
