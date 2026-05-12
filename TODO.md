@@ -134,3 +134,13 @@ n'importe quelle landing page de framework agentique.
   couvre déjà la distribution.
 - 6.1b/6.2/6.2b/6.3/6.4 (observabilité avancée): toutes shippées,
   cf git log.
+
+
+
+
+todo aussi
+
+faire un template de dev node avec les bonnes pratiques et adapter pour que au debut de la creation ca fasse un copier collé du template dans le bon dossier et l'ia part avec ca, ca consommera moins de tokens.
+
+faire des petits jeux pour profiter du de l'ui et de la puissance d'un llm. des jeux au tour par tour ou avec interaction réguliere sur temps dattente.
+exemples de jeux : pendu, morpion, puissance 4, bataille navale, tamagoshi (genre un pet quoi sans le nom tamagoshi), 
