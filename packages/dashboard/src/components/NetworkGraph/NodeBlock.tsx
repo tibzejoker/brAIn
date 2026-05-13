@@ -18,6 +18,10 @@ type NodeBlockData = Node<{
    *  handles so authority edges can attach. Driven by the dashboard's
    *  capability-hover toggle, not by hover state. */
   showCapabilityLayer: boolean;
+  /** Currently hovered? Drives the "controlled by / controls" labels
+   *  around the top/bottom handles — only the hovered node renders
+   *  them, to keep the graph quiet at rest. */
+  isHovered: boolean;
 }>;
 
 const AUTHORITY_CHIP: Record<number, { label: string; cls: string }> = {
@@ -25,6 +29,11 @@ const AUTHORITY_CHIP: Record<number, { label: string; cls: string }> = {
   1: { label: "ELEVATED",  cls: "bg-amber-600 text-white" },
   2: { label: "ROOT",      cls: "bg-red-700  text-white" },
 };
+
+// Match the stroke colours used in NetworkGraph.buildAuthorityEdges so
+// the textual labels read as a direct legend for the lines.
+const AUTH_CONTROL_COLOR = "#dc2626";
+const AUTH_INSPECT_COLOR = "#0891b2";
 
 const STATE_COLORS: Record<string, string> = {
   active: "border-node-active",
@@ -93,6 +102,32 @@ export function NodeBlock({ data, selected }: NodeProps<NodeBlockData>): React.R
         >
           {AUTHORITY_CHIP[data.authorityLevel]?.label ?? "BASIC"}
         </div>
+      )}
+
+      {/* Capability legend at the hovered node — labels above/below
+          double as a colour legend for the red/cyan authority edges.
+          Hidden for cases that don't apply: ROOT can't be controlled,
+          BASIC has no outgoing capabilities. */}
+      {data.showCapabilityLayer && data.isHovered && (
+        <>
+          {data.authorityLevel < 2 && (
+            <div className="absolute left-1/2 -translate-x-1/2 -top-12 flex flex-col items-center gap-0.5 text-[10px] font-bold whitespace-nowrap pointer-events-none leading-tight">
+              <span style={{ color: AUTH_CONTROL_COLOR }}>↑ controlled by</span>
+              <span style={{ color: AUTH_INSPECT_COLOR }}>↑ inspected by</span>
+            </div>
+          )}
+          {data.authorityLevel === 2 && (
+            <div className="absolute left-1/2 -translate-x-1/2 -top-7 flex items-center text-[10px] font-bold whitespace-nowrap pointer-events-none leading-tight">
+              <span style={{ color: AUTH_INSPECT_COLOR }}>↑ inspected by</span>
+            </div>
+          )}
+          {data.authorityLevel >= 1 && (
+            <div className="absolute left-1/2 -translate-x-1/2 -bottom-12 flex flex-col items-center gap-0.5 text-[10px] font-bold whitespace-nowrap pointer-events-none leading-tight">
+              <span style={{ color: AUTH_CONTROL_COLOR }}>↓ controls</span>
+              <span style={{ color: AUTH_INSPECT_COLOR }}>↓ inspects</span>
+            </div>
+          )}
+        </>
       )}
 
       {/* === Header (centered) ===

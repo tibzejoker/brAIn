@@ -87,6 +87,9 @@ function snapshotToFlowNode(
       unreadCount: n.unread_count ?? 0,
       authorityLevel: n.authority_level ?? 0,
       showCapabilityLayer,
+      // Hover is patched in by the `displayNodes` memo below so this
+      // heavy build effect doesn't re-run on every mouse-over.
+      isHovered: false,
     },
   };
 }
@@ -350,8 +353,12 @@ export function NetworkGraph({
   }, [snapshots, flows, types, setEdges, capabilityHoverEnabled, hoveredNodeId]);
 
   const displayNodes = useMemo(
-    () => nodes.map((n) => ({ ...n, selected: n.id === selectedNodeId })),
-    [nodes, selectedNodeId],
+    () => nodes.map((n) => ({
+      ...n,
+      selected: n.id === selectedNodeId,
+      data: { ...n.data, isHovered: n.id === hoveredNodeId },
+    })),
+    [nodes, selectedNodeId, hoveredNodeId],
   );
 
   const handleNodeDragStop = useCallback((_event: React.MouseEvent, node: Node): void => {
