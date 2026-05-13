@@ -254,7 +254,13 @@ export class LLMFacade {
             messages,
             tools: { [opts.tool.name]: wrappedTool },
             toolChoice: "required",
-            maxOutputTokens: opts.maxTokens ?? 2048,
+            // Generous default — thinking-capable local models (gemma4,
+            // qwen-thinking, …) burn tokens on internal reasoning before
+            // the tool call. A tight budget cuts them off mid-thought and
+            // ai-sdk reports "no tool call emitted". Callers may shrink
+            // for known-cheap calls, but the default trades a few cents
+            // of headroom for not silently failing on local models.
+            maxOutputTokens: opts.maxTokens ?? 4096,
             abortSignal: opts.signal ?? this.deps.signal,
           });
           if (opts.onResult) {
@@ -380,7 +386,13 @@ export class LLMFacade {
             messages,
             tools: wrapped,
             toolChoice,
-            maxOutputTokens: opts.maxTokens ?? 2048,
+            // Generous default — thinking-capable local models (gemma4,
+            // qwen-thinking, …) burn tokens on internal reasoning before
+            // the tool call. A tight budget cuts them off mid-thought and
+            // ai-sdk reports "no tool call emitted". Callers may shrink
+            // for known-cheap calls, but the default trades a few cents
+            // of headroom for not silently failing on local models.
+            maxOutputTokens: opts.maxTokens ?? 4096,
             abortSignal: opts.signal ?? this.deps.signal,
           });
           if (opts.onResult) try { opts.onResult(result); } catch { /* ignore */ }
