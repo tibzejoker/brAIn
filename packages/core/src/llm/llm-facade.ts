@@ -80,6 +80,8 @@ export interface MultiToolOptions {
   retries?: number;
   signal?: AbortSignal;
   onResult?: (result: unknown) => void;
+  /** Default true — see SDK LLMMultiToolOptions for semantics. */
+  allowStop?: boolean;
 }
 
 export interface MultiToolResult {
@@ -302,11 +304,22 @@ export class LLMFacade {
    *  text() / tool(). Returns `{toolName, args}` for the picked tool.
    *
    *  Use this instead of `tool()` + a `oneOf` discriminated schema:
-   *  local LLMs handle the multi-tool path reliably, but botch oneOf. */
+   *  local LLMs handle the multi-tool path reliably, but botch oneOf.
+   *
+   *  **Framework-injected `stop` tool**: every multi-tool call also
+   *  exposes a `stop` tool (zero args). This gives every LLM-powered
+   *  handler a canonical "I'm done, nothing more to do" exit that
+   *  works under `toolChoice: "required"` without forcing a noisy
+   *  fake action. Callers should treat `{toolName: "stop"}` as the
+   *  end of their step loop. Opt out with `allowStop: false` only if
+   *  you have a genuine reason to forbid early termination. */
   async tools(opts: MultiToolOptions): Promise<MultiToolResult> {
-    const toolNames = Object.keys(opts.tools);
-    if (toolNames.length === 0) {
+    const userToolNames = Object.keys(opts.tools);
+    if (userToolNames.length === 0) {
       throw new Error("ctx.llm.tools: pass at least one tool");
+    }
+    if (opts.allowStop !== false && "stop" in opts.tools) {
+      throw new Error("ctx.llm.tools: `stop` is a framework-reserved tool name. Rename your tool or pass allowStop: false.");
     }
     const candidates = this.buildCandidates(opts.model, opts.fallback);
     if (candidates.length === 0) {
@@ -319,12 +332,17 @@ export class LLMFacade {
     for (const [name, t] of Object.entries(opts.tools)) {
       warnIfUnionSchema(t.inputSchema, name);
     }
+    // Merge the framework `stop` tool unless explicitly disabled.
+    const effectiveTools = opts.allowStop === false
+      ? opts.tools
+      : { ...opts.tools, stop: STOP_TOOL };
+    const toolNames = Object.keys(effectiveTools);
     const top = candidates[0].spec;
     const failedProviders = new Set<string>();
     let lastError: Error | undefined;
     const messages = this.normaliseMessages(opts.prompt);
     const wrapped = Object.fromEntries(
-      Object.entries(opts.tools).map(([name, t]) => [
+      Object.entries(effectiveTools).map(([name, t]) => [
         name,
         aiTool({
           description: t.description,
@@ -546,6 +564,27 @@ function wrapInputSchema(raw: unknown): unknown {
   }
   return jsonSchema(raw as Parameters<typeof jsonSchema>[0]);
 }
+
+/** Framework-injected escape hatch for `ctx.llm.tools()`.
+ *
+ *  Every LLM-driven handler that picks among several tools needs a
+ *  canonical "nothing more to do" choice. Without it, `toolChoice:
+ *  "required"` (the safe default on local models) forces the LLM to
+ *  fabricate a noisy fake action on observation-only wakes. Exposing
+ *  `stop` framework-side means every node gets the escape for free,
+ *  with identical semantics across the network. Callers detect it via
+ *  `picked.toolName === "stop"` and exit their step loop. */
+const STOP_TOOL = {
+  description:
+    "End this wake intentionally. Call this when no further action and no message to the user is needed for the messages you just received. " +
+    "The framework will park your node; you'll be re-invoked on the next subscribed message. " +
+    "Prefer `stop` over emitting an empty `respond` — a respond goes to the user.",
+  inputSchema: {
+    type: "object" as const,
+    additionalProperties: false,
+    properties: {},
+  },
+};
 
 /** Warn loudly when a schema uses `oneOf` / `anyOf`. Local LLMs handle
  *  discriminated unions unreliably; for branching dispatch use

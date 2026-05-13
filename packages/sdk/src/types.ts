@@ -378,10 +378,21 @@ export interface LLMMultiToolOptions {
   toolChoice?: "required" | "auto";
   retries?: number;
   signal?: AbortSignal;
+  /** Default `true`: the framework auto-injects a zero-arg `stop` tool
+   *  into the catalog as a canonical "nothing more to do" escape. Under
+   *  the default `toolChoice: "required"` this is what lets the LLM end
+   *  a wake without fabricating a noisy fake action. Detect it on the
+   *  result via `picked.toolName === "stop"` and exit your step loop.
+   *  Pass `false` only if you have a genuine reason to forbid early
+   *  termination (and don't name one of your own tools `stop`). */
+  allowStop?: boolean;
 }
 
 export interface LLMMultiToolResult {
-  /** Which tool the model picked. Matches a key from `opts.tools`. */
+  /** Which tool the model picked. Matches a key from `opts.tools` — or
+   *  the literal string `"stop"` when the framework-injected escape
+   *  tool fired (unless `allowStop: false`). On `"stop"`, `args` is `{}`
+   *  and the caller should exit its step loop. */
   toolName: string;
   /** Validated args for the picked tool. Typed as `unknown` because
    *  the shape varies per tool — caller narrows by `toolName`. */
