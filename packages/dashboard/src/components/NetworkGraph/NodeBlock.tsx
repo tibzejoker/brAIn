@@ -115,20 +115,20 @@ export function NodeBlock({ data, selected }: NodeProps<NodeBlockData>): React.R
           {/* Top — incoming */}
           {data.authorityLevel < 2 && (
             <div className="absolute -top-5 text-[10px] font-bold whitespace-nowrap pointer-events-none leading-tight -translate-x-1/2" style={{ left: "35%", color: AUTH_CONTROL_COLOR }}>
-              ↓ controlled by
+              ↓ can be controlled by
             </div>
           )}
           <div className="absolute -top-5 text-[10px] font-bold whitespace-nowrap pointer-events-none leading-tight -translate-x-1/2" style={{ left: "65%", color: AUTH_INSPECT_COLOR }}>
-            ↓ inspected by
+            ↓ can be inspected by
           </div>
           {/* Bottom — outgoing (only meaningful for ELEVATED+) */}
           {data.authorityLevel >= 1 && (
             <>
               <div className="absolute -bottom-5 text-[10px] font-bold whitespace-nowrap pointer-events-none leading-tight -translate-x-1/2" style={{ left: "35%", color: AUTH_CONTROL_COLOR }}>
-                ↓ controls
+                ↓ can control
               </div>
               <div className="absolute -bottom-5 text-[10px] font-bold whitespace-nowrap pointer-events-none leading-tight -translate-x-1/2" style={{ left: "65%", color: AUTH_INSPECT_COLOR }}>
-                ↓ inspects
+                ↓ can inspect
               </div>
             </>
           )}

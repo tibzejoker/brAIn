@@ -107,8 +107,12 @@ function snapshotToFlowNode(
 //   - Y can INSPECT X (read-only network/node introspection) iff
 //     Y.authority_level >= 1.
 //
-// We only draw the strongest relationship per pair — control implies
-// inspect, so a single red line is enough.
+// Both relationships are drawn independently when they apply — control
+// does NOT subsume inspect visually, because someone reading the graph
+// wants to see "this node can inspect anyone reachable" as a distinct
+// statement from "this node can control specific peers." So a ROOT
+// hovering will show a cyan line to every other node (inspect-anyone)
+// plus red lines to the subset it can also kill/stop.
 
 const AUTH_CONTROL_COLOR = "#dc2626"; // strong red — kill/stop/rewire
 const AUTH_INSPECT_COLOR = "#0891b2"; // strong cyan — read-only
@@ -128,44 +132,38 @@ function buildAuthorityEdges(hoveredId: string | null, snapshots: NodeSnapshot[]
     if (other.id === hovered.id) continue;
     const otherAuth = other.authority_level ?? 0;
 
-    // Incoming to hovered: what can `other` do TO `hovered`?
-    if (otherAuth >= 1) {
-      const isControl = otherAuth > hoveredAuth;
-      const kind = isControl ? "control" : "inspect";
+    const pushEdge = (
+      direction: "in" | "out",
+      kind: "control" | "inspect",
+      source: string,
+      target: string,
+    ): void => {
       edges.push({
-        id: `auth:in:${kind}:${other.id}->${hovered.id}`,
-        source: other.id,
-        target: hovered.id,
+        id: `auth:${direction}:${kind}:${source}->${target}`,
+        source,
+        target,
         sourceHandle: `auth-out-${kind}`,
         targetHandle: `auth-in-${kind}`,
         type: "smoothstep" as const,
         animated: true,
         style: {
-          stroke: isControl ? AUTH_CONTROL_COLOR : AUTH_INSPECT_COLOR,
+          stroke: kind === "control" ? AUTH_CONTROL_COLOR : AUTH_INSPECT_COLOR,
           strokeWidth: AUTH_STROKE_WIDTH,
           opacity: AUTH_STROKE_OPACITY,
         },
       });
+    };
+
+    // Incoming to hovered: what can `other` do TO `hovered`?
+    if (otherAuth >= 1) {
+      pushEdge("in", "inspect", other.id, hovered.id);
+      if (otherAuth > hoveredAuth) pushEdge("in", "control", other.id, hovered.id);
     }
 
     // Outgoing from hovered: what can `hovered` do TO `other`?
     if (hoveredAuth >= 1) {
-      const isControl = hoveredAuth > otherAuth;
-      const kind = isControl ? "control" : "inspect";
-      edges.push({
-        id: `auth:out:${kind}:${hovered.id}->${other.id}`,
-        source: hovered.id,
-        target: other.id,
-        sourceHandle: `auth-out-${kind}`,
-        targetHandle: `auth-in-${kind}`,
-        type: "smoothstep" as const,
-        animated: true,
-        style: {
-          stroke: isControl ? AUTH_CONTROL_COLOR : AUTH_INSPECT_COLOR,
-          strokeWidth: AUTH_STROKE_WIDTH,
-          opacity: AUTH_STROKE_OPACITY,
-        },
-      });
+      pushEdge("out", "inspect", hovered.id, other.id);
+      if (hoveredAuth > otherAuth) pushEdge("out", "control", hovered.id, other.id);
     }
   }
 
