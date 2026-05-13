@@ -7,6 +7,7 @@ import EventEmitter from "eventemitter3";
 import { v4 as uuid } from "uuid";
 import { matchTopic } from "./bus.matcher";
 import { Mailbox } from "./mailbox";
+import { runPublishValidation } from "./publish-validator";
 import type { IBusService, SubscribeOptions, BusMailboxView } from "./bus.interface";
 
 interface Subscription {
@@ -58,6 +59,9 @@ export class BusService extends EventEmitter implements IBusService {
     if (this.messageHistory.length > this.maxHistory) {
       this.messageHistory.shift();
     }
+
+    // Phase 1 schema validation — log-only, message still delivered below.
+    runPublishValidation(this, message);
 
     // Route to matching subscriptions (skip sender to prevent self-loops)
     for (const [nodeId, nodeSubs] of this.subscriptions) {

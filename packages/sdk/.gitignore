@@ -1,0 +1,8 @@
+dist
+# Stale build artifacts have leaked into src/ in the past — explicitly
+# blocklist them so future `tsc` misconfigurations or hand-edits can't
+# shadow the .ts sources when vite-source-map mode loads the SDK.
+src/*.js
+src/*.js.map
+src/*.d.ts
+src/*.d.ts.map

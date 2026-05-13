@@ -63,11 +63,16 @@ export function NodeCreator({
   const handleSubmit = useCallback((): void => {
     if (!selection || !name) return;
 
+    // Spawn-time overrides via the wizard only let the user paste topic
+    // names — there's no UI to author a JSON Schema. Treat each as an
+    // internal listener so the framework's discipline isn't violated.
+    // For schema-carrying public subs, declare them in the node's
+    // config.json instead.
     const subs = subscriptions
       .split(",")
       .map((s) => s.trim())
       .filter(Boolean)
-      .map((topic) => ({ topic, description: topic }));
+      .map((topic) => ({ topic, description: topic, internal: true as const }));
 
     setLoading(true);
     setError(null);

@@ -123,33 +123,82 @@ export const DEFAULT_MAILBOX_CONFIG: MailboxConfig = {
 
 // === Subscriptions ===
 
-export interface SubscriptionConfig {
+/**
+ * A bus subscription is either a "tool" (public API of the node — the
+ * brain LLM and external MCP clients can discover + call it) or an
+ * "internal listener" (private plumbing — observers, log sinks, fan-out
+ * tees that aren't meant to be called as commands).
+ *
+ * Discriminated union so TypeScript catches *at compile time* nodes
+ * that declare a public subscription without an `inputSchema`. The
+ * framework's validator additionally rejects bad shapes at type-
+ * registration time so JSON `config.json` files can't sneak past
+ * either.
+ */
+export interface BaseSubscription {
   topic: string;
-  /**
-   * Human-readable purpose of this subscription. **Required.** Used as
-   * the description of the auto-exposed MCP tool when the framework's
-   * MCP service is consulted, and surfaced in the dashboard so anyone
-   * can see what each topic does without reading source. Keep it
-   * short, in English, and complete enough that an external client
-   * could decide whether to call this tool from the description alone.
-   */
+  /** Human-readable purpose. **Always required** — internal subs need
+   *  it too because the dashboard and logs reference it. */
   description: string;
-  /**
-   * Optional JSON Schema describing the expected payload shape. When
-   * present, the framework's MCP service uses it as the tool's
-   * `inputSchema`. Defaults to a permissive `{type: "object"}`.
-   */
-  inputSchema?: Record<string, unknown>;
   min_criticality?: number;
   mailbox?: Partial<MailboxConfig>;
 }
 
-// === Wake conditions ===
+export interface PublicSubscriptionConfig extends BaseSubscription {
+  /** Marker — distinguishes from `InternalSubscriptionConfig`. Setting
+   *  `internal: false` explicitly is fine but typically omitted. */
+  internal?: false;
+  /** JSON Schema describing the expected payload. **Required.** The
+   *  framework validates messages against this at publish time and
+   *  surfaces it via `/tools` so the brain LLM can use the topic as
+   *  a discovered tool. There is no "permissive default" anymore —
+   *  if your payload is genuinely unstructured, declare an empty
+   *  object schema explicitly: `{ type: "object" }`. */
+  inputSchema: Record<string, unknown>;
+}
 
-export type WakeCondition =
-  | { type: "topic"; value: string; min_criticality?: number }
-  | { type: "timer"; value: string }
-  | { type: "any" };
+export interface InternalSubscriptionConfig extends BaseSubscription {
+  /** Hides this sub from `/tools`, the MCPBridge, and publish-time
+   *  validation. Use sparingly — only for observe-only / fan-in
+   *  listeners that aren't a node's public API surface. */
+  internal: true;
+  /** Allowed but not required on internal subs. */
+  inputSchema?: Record<string, unknown>;
+}
+
+export type SubscriptionConfig = PublicSubscriptionConfig | InternalSubscriptionConfig;
+
+/** Narrow a `SubscriptionConfig` to its public form for callers that
+ *  filter out internal listeners (the MCPBridge, `/tools` discovery). */
+export function isPublicSubscription(s: SubscriptionConfig): s is PublicSubscriptionConfig {
+  return s.internal !== true;
+}
+
+/** Coerce a raw subscription record (e.g. parsed from a config.json or
+ *  a DB row) into the typed discriminated union. If `inputSchema` is
+ *  missing the sub is forced to `internal: true` — the framework's
+ *  validator is responsible for refusing un-migrated configs upstream;
+ *  this helper just makes downstream framework code (lifecycle, restore,
+ *  remote dispatch) compile against the strict types. */
+export function normaliseSubscription(raw: {
+  topic: string;
+  description?: string;
+  inputSchema?: Record<string, unknown>;
+  min_criticality?: number;
+  mailbox?: Partial<MailboxConfig>;
+  internal?: boolean;
+}): SubscriptionConfig {
+  const base = {
+    topic: raw.topic,
+    description: raw.description ?? raw.topic,
+    min_criticality: raw.min_criticality,
+    mailbox: raw.mailbox,
+  };
+  if (raw.internal === true || !raw.inputSchema) {
+    return { ...base, internal: true, inputSchema: raw.inputSchema };
+  }
+  return { ...base, inputSchema: raw.inputSchema };
+}
 
 // === Node info ===
 
@@ -243,9 +292,25 @@ export interface LLMResolutionTrace {
   fallback_reason?: string;
 }
 
+/**
+ * Schema-shape discipline (applies everywhere `inputSchema` is taken):
+ *
+ *   ✅ Flat object schemas with `type`, `properties`, `required`,
+ *      `additionalProperties`, and `enum` lists.
+ *   ❌ `oneOf` / `anyOf` discriminated unions — local LLMs (Gemma,
+ *      smaller Llamas) handle these unreliably. If you need branching
+ *      between several actions, use `ctx.llm.tools({tools: {...}})`
+ *      below and let ai-sdk + the model pick a tool natively. One
+ *      tool = one flat shape.
+ *
+ * The framework logs a warning when it sees `oneOf` / `anyOf` in a
+ * passed inputSchema. Treat it as an antipattern outside of niche
+ * cases (e.g. typed unions with capable hosted models only).
+ */
 export interface LLMToolOptions<Args> {
-  /** The tool the model is forced to invoke. `inputSchema` is a zod
-   *  schema; the resolved args are returned typed via `z.infer`. */
+  /** The tool the model is forced to invoke. `inputSchema` is either a
+   *  zod schema OR a flat JSON Schema (no oneOf — see discipline note
+   *  above the type). The resolved args are returned typed. */
   tool: {
     name: string;
     description: string;
@@ -266,14 +331,81 @@ export interface LLMToolOptions<Args> {
   _argsType?: Args;
 }
 
+// === Tool discovery (network-wide catalog) ===
+
+export interface ToolDescriptor {
+  /** The node currently exposing this tool. */
+  node_id: string;
+  /** Node's type (e.g. "hangman", "memory"). */
+  node_type: string;
+  /** Node's display name (instance-specific). */
+  node_name: string;
+  /** Bus topic the tool is invoked on. */
+  topic: string;
+  /** Human-readable purpose. */
+  description: string;
+  /** JSON Schema describing accepted payload. */
+  inputSchema: Record<string, unknown>;
+}
+
+export interface ToolsFacade {
+  /** Returns every public (non-internal) subscription currently
+   *  exposed on the network, in MCP-tool-compatible shape. Refreshes
+   *  each call — picks up newly-spawned nodes immediately. */
+  list(): ToolDescriptor[];
+  /** Filter to a single node — for hierarchical drill-down by external
+   *  MCP clients or by `ctx.llm.agent` when scoping its tool catalog. */
+  listForNode(nodeId: string): ToolDescriptor[];
+}
+
+export interface LLMMultiToolOptions {
+  /** The set of tools the model can pick from. Each entry has its own
+   *  flat inputSchema (see the discipline note on `LLMToolOptions`).
+   *  Use this — NOT a single `tool()` call with `oneOf` — whenever
+   *  the model needs to branch between distinct actions. */
+  tools: Record<string, {
+    description: string;
+    inputSchema: unknown;
+  }>;
+  prompt: string | Array<{ role: "system" | "user" | "assistant"; content: string }>;
+  system?: string;
+  model?: string;
+  fallback?: string[];
+  maxTokens?: number;
+  /** Default "required": the model MUST call exactly one of the tools.
+   *  "auto" lets it answer in plain text if it wants — handy for chat
+   *  flows where a tool call is optional. */
+  toolChoice?: "required" | "auto";
+  retries?: number;
+  signal?: AbortSignal;
+}
+
+export interface LLMMultiToolResult {
+  /** Which tool the model picked. Matches a key from `opts.tools`. */
+  toolName: string;
+  /** Validated args for the picked tool. Typed as `unknown` because
+   *  the shape varies per tool — caller narrows by `toolName`. */
+  args: Record<string, unknown>;
+}
+
 export interface LLMFacade {
   /** Plain text generation. Returns the extracted answer. */
   text(opts: LLMTextOptions): Promise<string>;
   /** Forced tool call — the model MUST emit a structured `inputSchema`-
    *  validated object. No client-side JSON parsing needed; the ai-sdk
    *  schema-validates the result. Returns the tool args. Throws if every
-   *  provider in the chain fails to produce a valid call. */
+   *  provider in the chain fails to produce a valid call.
+   *
+   *  For multi-action branching, prefer `tools()` instead — that hits
+   *  ai-sdk's native multi-tool path and works reliably with local
+   *  models, where a single tool with `oneOf` does not. */
   tool<Args = Record<string, unknown>>(opts: LLMToolOptions<Args>): Promise<Args>;
+  /** Multi-tool dispatch: the model picks ONE tool from the supplied
+   *  map. Same failover semantics as `tool()`. Returns `{toolName,
+   *  args}`. This is the right shape for "let the LLM choose between
+   *  several distinct actions" — replaces the `tool()` + `oneOf`
+   *  antipattern. */
+  tools(opts: LLMMultiToolOptions): Promise<LLMMultiToolResult>;
   /** Resolution-only — returns what model this node would use without
    *  making a call. Powers dashboard previews. */
   resolveModel(explicit?: string, fallbackOverride?: string[]): LLMResolutionTrace;
@@ -329,25 +461,26 @@ export interface NodeContext {
   /** Publish to a specific topic. Use respond() unless you need explicit routing. */
   publish(topic: string, message: Omit<Message, "id" | "from" | "timestamp" | "topic">): void;
   /**
-   * Add a runtime subscription. When `description` is supplied, the
-   * subscription is appended to the node's `subscriptions` list (so
-   * the framework's MCP service exposes it as a tool); without it,
-   * the subscription is treated as internal plumbing not surfaced
-   * outside the bus.
+   * Add a runtime subscription. Two call shapes, mirroring the static
+   * `default_subscriptions` discipline — the framework refuses an
+   * incomplete public declaration so nothing can sneak into the
+   * network without a schema.
+   *
+   *  - Public tool: `{ description, inputSchema }` both required. The
+   *    subscription is appended to `nodeInfo.subscriptions`, surfaced
+   *    via `/tools`, and validated on publish.
+   *  - Internal listener: `{ internal: true, description? }`. No schema
+   *    needed; the sub is private plumbing (observers, fan-in tees).
    */
   subscribe(
     topic: string,
-    opts?: {
-      description?: string;
-      inputSchema?: Record<string, unknown>;
-      mailbox?: Partial<MailboxConfig>;
-    },
+    opts?:
+      | { description: string; inputSchema: Record<string, unknown>; mailbox?: Partial<MailboxConfig>; internal?: false }
+      | { internal: true; description?: string; mailbox?: Partial<MailboxConfig> },
   ): void;
   unsubscribe(topic: string): void;
 
   // Lifecycle
-  sleep(conditions: WakeCondition[]): void;
-
   /**
    * Spawn a new node. Requires the caller to have at least ELEVATED
    * authority — the AuthorityService check on the lifecycle path
@@ -374,6 +507,14 @@ export interface NodeContext {
    * code; `callLLM` is kept for backward compatibility but stubbed.
    */
   llm: LLMFacade;
+
+  /**
+   * Network-wide tool catalog — every public subscription currently
+   * exposed by any node. Use this when wiring `ctx.llm.agent({tools})`
+   * so the LLM sees every callable command on the bus without you
+   * having to maintain a separate list. Internal subs are filtered out.
+   */
+  tools: ToolsFacade;
 
   // External tools / MCP
   callTool(server: string, tool: string, params: unknown): Promise<unknown>;

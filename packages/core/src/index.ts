@@ -13,7 +13,7 @@ export type {
   DynamicScannerOptions, WorkspaceHashes,
 } from "./registry";
 export { AuthorityService } from "./authority";
-export { NodeRunner, SleepService, IdleThrottle } from "./runner";
+export { NodeRunner, IdleThrottle } from "./runner";
 export type { LogEntry } from "./runner";
 export { logger, createNodeLogger } from "./logger";
 export { getDb, closeDb, getSetting, setSetting, deleteSetting } from "./db";
@@ -43,5 +43,15 @@ export type {
 } from "./store";
 export {
   MCPBridge, toolsForNode, federatedTools, resolveNode,
+  META_TOOLS,
+  META_TOOL_LIST_NODES,
+  META_TOOL_LIST_NODE_TOOLS,
+  META_TOOL_CALL_NODE_TOOL,
+  buildMetaToolHandlers,
 } from "./mcp";
-export type { MCPTool, ResolveResult } from "./mcp";
+export type {
+  MCPTool, ResolveResult,
+  MetaTool, MetaToolHandlers,
+  ListNodesEntry, ListNodeToolsResult,
+  CallNodeToolResult, CallNodeToolOk, CallNodeToolErr,
+} from "./mcp";

@@ -98,9 +98,9 @@ export function NodeBlock({ data, selected }: NodeProps<NodeBlockData>): React.R
       {/* Authority chip — only when the capability layer is toggled on. */}
       {data.showCapabilityLayer && (
         <div
-          className={`absolute -top-2 -left-2 px-1.5 h-5 rounded text-[10px] font-bold flex items-center shadow-lg z-10 ${AUTHORITY_CHIP[data.authorityLevel]?.cls ?? AUTHORITY_CHIP[0].cls}`}
+          className={`absolute -top-2 -left-2 px-1.5 h-5 rounded text-[10px] font-bold flex items-center shadow-lg z-10 ${AUTHORITY_CHIP[data.authorityLevel].cls}`}
         >
-          {AUTHORITY_CHIP[data.authorityLevel]?.label ?? "BASIC"}
+          {AUTHORITY_CHIP[data.authorityLevel].label}
         </div>
       )}
 

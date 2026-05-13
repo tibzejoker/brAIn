@@ -9,7 +9,6 @@
 import { describe, it, expect } from "vitest";
 import { BusService } from "@brain/core";
 import { ServiceRunner } from "../packages/core/src/runner/service-runner";
-import { SleepService } from "../packages/core/src/runner/sleep.service";
 import { InstanceRegistry } from "../packages/core/src/registry/instance-registry";
 import type { NodeInfo, NodeHandler, NodeOnSpawn, NodeTeardown } from "@brain/sdk";
 import { NodeState } from "@brain/sdk";
@@ -26,10 +25,10 @@ function makeNode(): NodeInfo {
   };
 }
 
-function makeDeps(): { bus: BusService; registry: InstanceRegistry; sleepService: SleepService } {
+function makeDeps(): { bus: BusService; registry: InstanceRegistry } {
   const bus = new BusService();
   const registry = new InstanceRegistry();
-  return { bus, registry, sleepService: new SleepService(bus, registry) };
+  return { bus, registry };
 }
 
 const noopHandler: NodeHandler = (): Promise<void> => Promise.resolve();

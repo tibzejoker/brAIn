@@ -127,16 +127,6 @@ export function startNode(
   });
 }
 
-export function wakeNode(
-  id: string,
-  message?: string,
-): Promise<{ woken: boolean; node_id: string }> {
-  return request(`/nodes/${id}/wake`, {
-    method: "POST",
-    body: JSON.stringify({ message }),
-  });
-}
-
 // === Node position ===
 
 export function updateNodePosition(

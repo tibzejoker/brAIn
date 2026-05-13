@@ -6,7 +6,6 @@ import {
   type Message,
   type RunMode,
   type WebTransportConfig,
-  NodeState,
 } from "@brain/sdk";
 import WebSocket from "ws";
 import { BaseRunner, type RunnerDeps } from "./base-runner";
@@ -25,7 +24,6 @@ import { logger } from "../logger";
  *   { type: "publish", topic, payload, criticality, message_type?, metadata? }
  *   { type: "subscribe", topic, mailbox? }
  *   { type: "unsubscribe", topic }
- *   { type: "sleep", conditions: WakeCondition[] }
  *   { type: "log", level, message, data? }
  *   { type: "pong" }
  */
@@ -46,11 +44,10 @@ interface PublishFrame {
 }
 interface SubscribeFrame { type: "subscribe"; topic: string; mailbox?: { max_size?: number; retention?: "latest" | "lowest_priority" } }
 interface UnsubscribeFrame { type: "unsubscribe"; topic: string }
-interface SleepFrame { type: "sleep"; conditions: Array<{ type: "topic" | "timer" | "any"; value?: string }> }
 interface LogFrame { type: "log"; level: "info" | "warn" | "error" | "debug"; message: string; data?: Record<string, unknown> }
 interface PingPongFrame { type: "ping" | "pong" }
 
-type IncomingFrame = PublishFrame | SubscribeFrame | UnsubscribeFrame | SleepFrame | LogFrame | PingPongFrame;
+type IncomingFrame = PublishFrame | SubscribeFrame | UnsubscribeFrame | LogFrame | PingPongFrame;
 type OutgoingFrame = MessagesFrame | PingPongFrame;
 
 const DEFAULT_RECONNECT_MIN_MS = 500;
@@ -102,14 +99,11 @@ export class WebRunner extends BaseRunner {
   }
 
   protected async executionLoop(): Promise<void> {
-    // Web nodes don't run a local handler in a budget loop — the runner
-    // sweeps the mailbox and forwards everything to the remote node in
-    // one frame. We do that here, then auto-sleep on `[any]` like
-    // ServiceRunner.
+    // Web nodes don't run a local handler — the runner sweeps the
+    // mailbox and forwards everything to the remote node in one frame.
+    // Then the runner parks until the next bus message arrives.
     this.flushToWs();
     await Promise.resolve();
-    if (this.sleepRequested) this.enterSleep();
-    else this.autoSleep();
   }
 
   private flushToWs(): void {
@@ -170,14 +164,8 @@ export class WebRunner extends BaseRunner {
       this.currentBackoffMs = this.cfg.reconnect_min_ms ?? DEFAULT_RECONNECT_MIN_MS;
       this.log.info(`web socket open → ${url}`);
       this.startPing();
-      // On (re)connect, flush any pending messages immediately. Also wake
-      // the runner so subsequent bus messages drive executionLoop again.
+      // On (re)connect, flush any pending messages immediately.
       this.flushToWs();
-      if (this.sleeping) {
-        this.sleeping = false;
-        this.sleepConditions = [];
-        this.deps.sleepService.unregisterSleep(this.nodeInfo.id);
-      }
     });
     ws.on("message", (raw: WebSocket.RawData) => {
       try {
@@ -246,11 +234,6 @@ export class WebRunner extends BaseRunner {
         break;
       case "unsubscribe":
         this.deps.bus.unsubscribe(this.nodeInfo.id, frame.topic);
-        break;
-      case "sleep":
-        this.pendingSleepConditions = frame.conditions as typeof this.pendingSleepConditions;
-        this.deps.registry.updateState(this.nodeInfo.id, NodeState.SLEEPING);
-        this.enterSleep();
         break;
       case "log":
         this.log.add(frame.level, frame.message, frame.data);

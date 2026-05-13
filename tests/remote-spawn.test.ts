@@ -16,8 +16,9 @@ import { describe, it, expect } from "vitest";
 import { setTimeout as wait } from "node:timers/promises";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { join } from "node:path";
 import { BrainService, NatsBusService } from "@brain/core";
+import { allStoreprojectNodeDirs } from "./_helpers/storeprojects-dirs";
 
 // Shared broker from tests/_setup/nats-broker.ts.
 const URL = process.env.BRAIN_TEST_NATS_URL;
@@ -26,7 +27,7 @@ const HAS_NATS = !!URL;
 describe.skipIf(!HAS_NATS)("Remote spawn (transport: remote)", () => {
   it("API dispatches a spawn-request; agent hosts the runner; bus traffic flows end-to-end", async () => {
     const scratch = mkdtempSync(join(tmpdir(), "remote-spawn-"));
-    const nodesDir = resolve(__dirname, "..", "nodes");
+    const nodesDir = allStoreprojectNodeDirs();
 
     // Two NATS-backed buses on the same broker.
     const apiBus = new NatsBusService({ url: URL!, prefix: "rs" });
@@ -111,9 +112,9 @@ describe.skipIf(!HAS_NATS)("Remote spawn (transport: remote)", () => {
     await agentBus.close();
   });
 
-  it("API stop/start/wake commands route over NATS to the agent runner", async () => {
+  it("API stop/start commands route over NATS to the agent runner", async () => {
     const scratch = mkdtempSync(join(tmpdir(), "remote-control-"));
-    const nodesDir = resolve(__dirname, "..", "nodes");
+    const nodesDir = allStoreprojectNodeDirs();
 
     const apiBus = new NatsBusService({ url: URL!, prefix: "rc" });
     const agentBus = new NatsBusService({ url: URL!, prefix: "rc" });
@@ -126,7 +127,7 @@ describe.skipIf(!HAS_NATS)("Remote spawn (transport: remote)", () => {
     agent.bootstrap(nodesDir);
 
     const controlNodeId = "agent:agent-B:control";
-    for (const action of ["spawn", "kill", "stop", "start", "wake"]) {
+    for (const action of ["spawn", "kill", "stop", "start"]) {
       agentBus.subscribe(controlNodeId, `brain.agents.agent-B.${action}`);
     }
     agentBus.on(`message:${controlNodeId}`, (msg) => {
@@ -143,7 +144,6 @@ describe.skipIf(!HAS_NATS)("Remote spawn (transport: remote)", () => {
         switch (action) {
           case "stop": agent.stopNode(nodeId); break;
           case "start": await agent.startNode(nodeId); break;
-          case "wake": agent.wakeNode(nodeId); break;
           case "kill": agent.killNode(nodeId); break;
         }
       })();
@@ -191,7 +191,7 @@ describe.skipIf(!HAS_NATS)("Remote spawn (transport: remote)", () => {
 
   it("API reads remote node logs via NATS request-reply", async () => {
     const scratch = mkdtempSync(join(tmpdir(), "remote-readback-"));
-    const nodesDir = resolve(__dirname, "..", "nodes");
+    const nodesDir = allStoreprojectNodeDirs();
 
     const apiBus = new NatsBusService({ url: URL!, prefix: "rb" });
     const agentBus = new NatsBusService({ url: URL!, prefix: "rb" });
@@ -257,7 +257,7 @@ describe.skipIf(!HAS_NATS)("Remote spawn (transport: remote)", () => {
 
   it("API reads remote node dead-letters via NATS request-reply", async () => {
     const scratch = mkdtempSync(join(tmpdir(), "remote-dlq-"));
-    const nodesDir = resolve(__dirname, "..", "nodes");
+    const nodesDir = allStoreprojectNodeDirs();
 
     const apiBus = new NatsBusService({ url: URL!, prefix: "rdlq" });
     const agentBus = new NatsBusService({ url: URL!, prefix: "rdlq" });

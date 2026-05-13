@@ -12,7 +12,7 @@
  * anymore — go through ctx.llm. That keeps the boilerplate centralised
  * and means provider swaps don't ripple into nodes.
  */
-import { generateText, tool as aiTool } from "ai";
+import { generateText, tool as aiTool, jsonSchema } from "ai";
 import type { IBusService } from "../bus/bus.interface";
 import type { LLMRegistry } from "./llm-registry";
 import type { LLMConfigStore } from "./llm-config";
@@ -69,6 +69,24 @@ export interface ToolOptions<Schema = unknown> {
   signal?: AbortSignal;
 }
 
+export interface MultiToolOptions {
+  tools: Record<string, { description: string; inputSchema: unknown }>;
+  prompt: string | Array<{ role: "system" | "user" | "assistant"; content: string }>;
+  system?: string;
+  model?: string;
+  fallback?: string[];
+  maxTokens?: number;
+  toolChoice?: "required" | "auto";
+  retries?: number;
+  signal?: AbortSignal;
+  onResult?: (result: unknown) => void;
+}
+
+export interface MultiToolResult {
+  toolName: string;
+  args: Record<string, unknown>;
+}
+
 export interface ResolutionTrace {
   requested: string;
   resolved: string;
@@ -81,7 +99,7 @@ export interface UsageEvent {
   node_id: string;
   node_name: string;
   node_type: string;
-  call_kind: "text" | "tool" | "agent" | "cli";
+  call_kind: "text" | "tool" | "tools" | "agent" | "cli";
   requested_model: string;
   resolution_layer: ResolutionTrace["layer"];
   resolved_model: string;
@@ -188,17 +206,17 @@ export class LLMFacade {
     if (candidates.length === 0) {
       throw new Error("ctx.llm.tool: no candidate models available");
     }
+    // Discipline: warn when callers pass oneOf/anyOf — local LLMs handle
+    // them unreliably. The right pattern is `ctx.llm.tools()` with one
+    // flat tool per branch.
+    warnIfUnionSchema(opts.tool.inputSchema, opts.tool.name);
     const top = candidates[0].spec;
     const failedProviders = new Set<string>();
     let lastError: Error | undefined;
     const messages = this.normaliseMessages(opts.prompt);
-    // `inputSchema` comes in as `unknown` because the public types in
-    // @brain/sdk can't pull in a `z.ZodTypeAny` dependency. ai-sdk's
-    // `tool()` accepts either a zod schema or a JSON-schema object; we
-    // hand whatever the caller gave us through as a typed parameter.
     const wrappedTool = aiTool({
       description: opts.tool.description,
-      inputSchema: opts.tool.inputSchema as Parameters<typeof aiTool>[0]["inputSchema"],
+      inputSchema: wrapInputSchema(opts.tool.inputSchema) as Parameters<typeof aiTool>[0]["inputSchema"],
     });
     const maxRetries = Math.max(0, opts.retries ?? 1);
 
@@ -276,6 +294,128 @@ export class LLMFacade {
     }
 
     throw lastError ?? new Error("ctx.llm.tool: every candidate failed");
+  }
+
+  /** Multi-tool dispatch. The model sees several tools each with their
+   *  own flat inputSchema and picks one. ai-sdk handles the routing
+   *  natively — no oneOf required. Same failover-chain semantics as
+   *  text() / tool(). Returns `{toolName, args}` for the picked tool.
+   *
+   *  Use this instead of `tool()` + a `oneOf` discriminated schema:
+   *  local LLMs handle the multi-tool path reliably, but botch oneOf. */
+  async tools(opts: MultiToolOptions): Promise<MultiToolResult> {
+    const toolNames = Object.keys(opts.tools);
+    if (toolNames.length === 0) {
+      throw new Error("ctx.llm.tools: pass at least one tool");
+    }
+    const candidates = this.buildCandidates(opts.model, opts.fallback);
+    if (candidates.length === 0) {
+      throw new Error("ctx.llm.tools: no candidate models available");
+    }
+    // Warn per-tool on oneOf — same discipline as `tool()`. Multi-tool
+    // is precisely the right replacement for oneOf at the dispatcher
+    // level; warning here is a belt-and-suspenders catch when someone
+    // nests a union INSIDE a per-tool schema by mistake.
+    for (const [name, t] of Object.entries(opts.tools)) {
+      warnIfUnionSchema(t.inputSchema, name);
+    }
+    const top = candidates[0].spec;
+    const failedProviders = new Set<string>();
+    let lastError: Error | undefined;
+    const messages = this.normaliseMessages(opts.prompt);
+    const wrapped = Object.fromEntries(
+      Object.entries(opts.tools).map(([name, t]) => [
+        name,
+        aiTool({
+          description: t.description,
+          inputSchema: wrapInputSchema(t.inputSchema) as Parameters<typeof aiTool>[0]["inputSchema"],
+        }),
+      ]),
+    );
+    const toolChoice = opts.toolChoice ?? "required";
+    const maxRetries = Math.max(0, opts.retries ?? 1);
+
+    for (const candidate of candidates) {
+      const provider = candidate.spec.split("/")[0];
+      if (failedProviders.has(provider)) continue;
+      if (!this.deps.registry.isSpecAvailable(candidate.spec)) {
+        failedProviders.add(provider);
+        continue;
+      }
+      const resolution: ResolutionTrace = {
+        requested: top,
+        resolved: candidate.spec,
+        layer: candidate.layer,
+        fell_back: candidate.spec !== top,
+        fallback_reason: candidate.spec !== top ? (lastError?.message ?? `${top} unavailable`) : undefined,
+      };
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        const start = Date.now();
+        try {
+          const model = this.deps.registry.getModel(candidate.spec);
+          const stricterSuffix = attempt === 0
+            ? ""
+            : `\n\n>>> Previous attempt did not call a tool. You MUST call exactly one of: ${toolNames.join(", ")}. Do not reply in plain text.`;
+          const result = await generateText({
+            model,
+            system: (opts.system ?? "") + stricterSuffix,
+            messages,
+            tools: wrapped,
+            toolChoice,
+            maxOutputTokens: opts.maxTokens ?? 2048,
+            abortSignal: opts.signal ?? this.deps.signal,
+          });
+          if (opts.onResult) try { opts.onResult(result); } catch { /* ignore */ }
+          const picked = this.extractFirstToolCall(result, toolNames);
+          const usage = (result as { usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number } }).usage;
+          if (picked) {
+            this.emitUsage({
+              call_kind: "tools", resolution, latency_ms: Date.now() - start,
+              tokens: usage ? { input: usage.inputTokens, output: usage.outputTokens, total: usage.totalTokens } : undefined,
+            });
+            return picked;
+          }
+          this.emitUsage({
+            call_kind: "tools", resolution, latency_ms: Date.now() - start,
+            tokens: usage ? { input: usage.inputTokens, output: usage.outputTokens, total: usage.totalTokens } : undefined,
+            error: "no tool call emitted",
+          });
+          lastError = new Error(`${candidate.spec}: no tool call emitted`);
+          if (attempt === maxRetries) {
+            failedProviders.add(provider);
+            break;
+          }
+        } catch (err) {
+          lastError = err instanceof Error ? err : new Error(String(err));
+          this.emitUsage({
+            call_kind: "tools", resolution, latency_ms: Date.now() - start,
+            error: lastError.message,
+          });
+          if ((opts.signal ?? this.deps.signal).aborted) throw lastError;
+          failedProviders.add(provider);
+          break;
+        }
+      }
+    }
+    throw lastError ?? new Error("ctx.llm.tools: every candidate failed");
+  }
+
+  /** Pull the first call to ANY of the supplied tool names out of a
+   *  generateText result. Returns null if the model emitted nothing. */
+  private extractFirstToolCall(result: unknown, toolNames: string[]): MultiToolResult | null {
+    const names = new Set(toolNames);
+    const r = result as {
+      toolCalls?: Array<{ toolName?: string; input?: unknown }>;
+      steps?: Array<{ toolCalls?: Array<{ toolName?: string; input?: unknown }> }>;
+    };
+    const fromTop = r.toolCalls?.find((c) => c.toolName !== undefined && names.has(c.toolName));
+    const call = fromTop ?? r.steps?.flatMap((s) => s.toolCalls ?? [])
+      .find((c) => c.toolName !== undefined && names.has(c.toolName));
+    if (!call?.toolName) return null;
+    const args = typeof call.input === "object" && call.input !== null
+      ? call.input as Record<string, unknown>
+      : {};
+    return { toolName: call.toolName, args };
   }
 
   /** Pull the first matching tool call out of a generateText result.
@@ -390,5 +530,36 @@ export class LLMFacade {
     } catch {
       // Telemetry must never break a call.
     }
+  }
+}
+
+// === Shared helpers ===
+
+/** Detect plain-JSON-Schema vs zod. Zod schemas expose `parse()`; JSON
+ *  Schema is a plain object. ai-sdk's `tool()` accepts both but needs
+ *  JSON schemas explicitly wrapped via `jsonSchema()` so its validator
+ *  knows what to do. */
+function wrapInputSchema(raw: unknown): unknown {
+  if (typeof raw === "object" && raw !== null
+      && typeof (raw as { parse?: unknown }).parse === "function") {
+    return raw; // already zod
+  }
+  return jsonSchema(raw as Parameters<typeof jsonSchema>[0]);
+}
+
+/** Warn loudly when a schema uses `oneOf` / `anyOf`. Local LLMs handle
+ *  discriminated unions unreliably; for branching dispatch use
+ *  `ctx.llm.tools({tools: {...}})` with one flat tool per branch. */
+function warnIfUnionSchema(schema: unknown, label: string): void {
+  if (typeof schema !== "object" || schema === null) return;
+  const s = schema as { oneOf?: unknown; anyOf?: unknown };
+  if (Array.isArray(s.oneOf) || Array.isArray(s.anyOf)) {
+    // eslint-disable-next-line no-console
+    console.warn(
+      `[ctx.llm] tool "${label}" uses oneOf/anyOf in its inputSchema. ` +
+      `Local LLMs (Gemma, smaller Llamas) handle discriminated unions ` +
+      `unreliably — prefer ctx.llm.tools({tools: {...}}) with one flat ` +
+      `tool per branch. See @brain/sdk LLMToolOptions JSDoc.`,
+    );
   }
 }

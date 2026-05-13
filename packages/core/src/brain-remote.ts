@@ -13,7 +13,7 @@
  * future state-change topic will keep the two sides in sync.
  */
 import { v4 as uuid } from "uuid";
-import { NodeState, type NodeInfo, type NodeInstanceConfig } from "@brain/sdk";
+import { NodeState, type NodeInfo, type NodeInstanceConfig, normaliseSubscription } from "@brain/sdk";
 import type { LifecycleDeps } from "./brain-lifecycle";
 
 export type RemoteAction = "stop" | "start" | "wake";
@@ -40,7 +40,7 @@ export function dispatchRemoteSpawn(
     authority_level: config.authority_level ?? typeConfig?.default_authority ?? 0,
     state: NodeState.ACTIVE,
     priority: config.priority ?? typeConfig?.default_priority ?? 1,
-    subscriptions: config.subscriptions ?? typeConfig?.default_subscriptions ?? [],
+    subscriptions: (config.subscriptions ?? typeConfig?.default_subscriptions ?? []).map(normaliseSubscription),
     transport: "remote",
     target_agent_id: agentId,
     position: config.position ?? { x: 0, y: 0 },

@@ -94,18 +94,6 @@ export class NodesController {
     return { started: true, node_id: id };
   }
 
-  @Post(":id/wake")
-  wake(
-    @Param("id") id: string,
-    @Body("message") message?: string,
-  ): { woken: boolean; node_id: string } {
-    const woken = this.brain.wakeNode(id, undefined, message);
-    if (!woken) {
-      throw new HttpException("Node not found or not sleeping", HttpStatus.NOT_FOUND);
-    }
-    return { woken: true, node_id: id };
-  }
-
   @Patch(":id/position")
   updatePosition(
     @Param("id") id: string,

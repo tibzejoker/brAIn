@@ -10,11 +10,8 @@ export {
   clearAll,
   recordHistory,
   getHistory,
-  saveSleepState,
-  deleteSleepState,
-  loadAllSleepStates,
   getSetting,
   setSetting,
   deleteSetting,
 } from "./database";
-export type { SavedNode, SavedSubscription, HistoryEntry, HistoryAction, SavedSleepState } from "./database";
+export type { SavedNode, SavedSubscription, HistoryEntry, HistoryAction } from "./database";

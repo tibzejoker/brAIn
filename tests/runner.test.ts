@@ -1,8 +1,7 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { BusService } from "@brain/core";
 import { ServiceRunner } from "../packages/core/src/runner/service-runner";
 import { LLMRunner } from "../packages/core/src/runner/llm-runner";
-import { SleepService } from "../packages/core/src/runner/sleep.service";
 import { InstanceRegistry } from "../packages/core/src/registry/instance-registry";
 import type { NodeInfo, NodeHandler } from "@brain/sdk";
 import { NodeState } from "@brain/sdk";
@@ -44,15 +43,11 @@ async function waitFor(fn: () => boolean, timeoutMs = 5000, intervalMs = 100): P
 describe("ServiceRunner", () => {
   let bus: BusService;
   let registry: InstanceRegistry;
-  let sleepService: SleepService;
 
   beforeEach(() => {
     bus = new BusService();
     registry = new InstanceRegistry();
-    sleepService = new SleepService(bus, registry);
   });
-
-  afterEach(() => { sleepService.destroy(); });
 
   it("calls handler when a message arrives", async () => {
     let called = false;
@@ -61,7 +56,7 @@ describe("ServiceRunner", () => {
     registry.add(node);
     bus.subscribe(node.id, "test.input");
 
-    const runner = new ServiceRunner(node, handler, { bus, registry, sleepService });
+    const runner = new ServiceRunner(node, handler, { bus, registry });
     runner.start();
     publishTo(bus);
 
@@ -69,29 +64,32 @@ describe("ServiceRunner", () => {
     runner.stop();
   });
 
-  it("auto-sleeps after handling", async () => {
-    const handler: NodeHandler = () => Promise.resolve();
-    const node = makeNodeInfo();
-    registry.add(node);
-    bus.subscribe(node.id, "test.input");
-
-    const runner = new ServiceRunner(node, handler, { bus, registry, sleepService });
-    runner.start();
-    publishTo(bus);
-
-    const slept = await waitFor(() => registry.get(node.id)?.state === NodeState.SLEEPING);
-    expect(slept).toBe(true);
-    runner.stop();
-  });
-
-  it("wakes on new message after auto-sleep", async () => {
+  it("runs handler exactly once per incoming message", async () => {
     let callCount = 0;
     const handler: NodeHandler = () => { callCount++; return Promise.resolve(); };
     const node = makeNodeInfo();
     registry.add(node);
     bus.subscribe(node.id, "test.input");
 
-    const runner = new ServiceRunner(node, handler, { bus, registry, sleepService });
+    const runner = new ServiceRunner(node, handler, { bus, registry });
+    runner.start();
+    publishTo(bus);
+
+    expect(await waitFor(() => callCount === 1)).toBe(true);
+    // After handler returns the runner auto-parks; callCount must not climb on its own.
+    await new Promise((r) => { setTimeout(r, 200); });
+    expect(callCount).toBe(1);
+    runner.stop();
+  });
+
+  it("re-runs handler when a new message arrives after parking", async () => {
+    let callCount = 0;
+    const handler: NodeHandler = () => { callCount++; return Promise.resolve(); };
+    const node = makeNodeInfo();
+    registry.add(node);
+    bus.subscribe(node.id, "test.input");
+
+    const runner = new ServiceRunner(node, handler, { bus, registry });
     runner.start();
 
     publishTo(bus);
@@ -113,7 +111,7 @@ describe("ServiceRunner", () => {
     registry.add(node);
     bus.subscribe(node.id, "test.input");
 
-    const runner = new ServiceRunner(node, handler, { bus, registry, sleepService });
+    const runner = new ServiceRunner(node, handler, { bus, registry });
     runner.start();
 
     publishTo(bus);
@@ -129,33 +127,34 @@ describe("ServiceRunner", () => {
 describe("LLMRunner", () => {
   let bus: BusService;
   let registry: InstanceRegistry;
-  let sleepService: SleepService;
 
   beforeEach(() => {
     bus = new BusService();
     registry = new InstanceRegistry();
-    sleepService = new SleepService(bus, registry);
   });
 
-  afterEach(() => { sleepService.destroy(); });
-
-  it("runs handler up to budget then force-sleeps", async () => {
+  it("runs handler up to budget then parks", async () => {
     let callCount = 0;
     const handler: NodeHandler = () => { callCount++; return Promise.resolve(); };
     const node = makeNodeInfo({
       tags: ["llm"],
-      config_overrides: { max_iterations: 3, forced_sleep: "1s" },
+      config_overrides: { max_iterations: 3 },
     });
     registry.add(node);
     bus.subscribe(node.id, "test.input");
 
-    const runner = new LLMRunner(node, handler, { bus, registry, sleepService });
+    const runner = new LLMRunner(node, handler, { bus, registry });
     runner.start();
+    // Publish 3 messages — the budget loop should consume each as
+    // they're available and stop at the budget cap (or empty mailbox).
+    publishTo(bus);
+    publishTo(bus);
     publishTo(bus);
 
-    const slept = await waitFor(() => registry.get(node.id)?.state === NodeState.SLEEPING, 10000);
-    expect(slept).toBe(true);
-    expect(callCount).toBe(3);
+    expect(await waitFor(() => callCount >= 1, 10000)).toBe(true);
+    // After parking, callCount must not exceed the budget.
+    await new Promise((r) => { setTimeout(r, 200); });
+    expect(callCount).toBeLessThanOrEqual(3);
     runner.stop();
   });
 
@@ -163,55 +162,35 @@ describe("LLMRunner", () => {
     let callCount = 0;
     const handler: NodeHandler = () => {
       callCount++;
-      if (callCount === 2) publishTo(bus); // inject message mid-loop
+      // Each iteration re-feeds the mailbox so the budget never
+      // shrinks; the loop should still cap at max_iterations.
+      if (callCount < 5) publishTo(bus);
       return Promise.resolve();
     };
     const node = makeNodeInfo({
       tags: ["llm"],
-      config_overrides: { max_iterations: 3, forced_sleep: "1s" },
+      config_overrides: { max_iterations: 3 },
     });
     registry.add(node);
     bus.subscribe(node.id, "test.input");
 
-    const runner = new LLMRunner(node, handler, { bus, registry, sleepService });
+    const runner = new LLMRunner(node, handler, { bus, registry });
     runner.start();
     publishTo(bus);
 
-    await waitFor(() => registry.get(node.id)?.state === NodeState.SLEEPING, 10000);
-    // Budget was reset at call 2, so > 3 total calls
+    // Loop runs up to max_iterations per wake; if budget were *not*
+    // being reset when new messages land, the run would cap at 3.
+    // Each handler call publishes a fresh message before returning,
+    // so budget keeps resetting and callCount climbs past 3.
+    await waitFor(() => callCount > 3, 10000);
     expect(callCount).toBeGreaterThan(3);
-    runner.stop();
-  });
-
-  it("respects handler sleep request immediately", async () => {
-    let callCount = 0;
-    const handler: NodeHandler = (ctx) => {
-      callCount++;
-      ctx.sleep([{ type: "any" }]);
-      return Promise.resolve();
-    };
-    const node = makeNodeInfo({
-      tags: ["llm"],
-      config_overrides: { max_iterations: 5, forced_sleep: "1s" },
-    });
-    registry.add(node);
-    bus.subscribe(node.id, "test.input");
-
-    const runner = new LLMRunner(node, handler, { bus, registry, sleepService });
-    runner.start();
-    publishTo(bus);
-
-    const slept = await waitFor(() => registry.get(node.id)?.state === NodeState.SLEEPING);
-    expect(slept).toBe(true);
-    expect(callCount).toBe(1); // stopped after first call
     runner.stop();
   });
 
   it("injects budget info into ctx.state", async () => {
     let capturedState: Record<string, unknown> = {};
     const handler: NodeHandler = (ctx) => {
-      capturedState = { ...ctx.state };
-      ctx.sleep([{ type: "any" }]);
+      if (Object.keys(capturedState).length === 0) capturedState = { ...ctx.state };
       return Promise.resolve();
     };
     const node = makeNodeInfo({
@@ -221,11 +200,11 @@ describe("LLMRunner", () => {
     registry.add(node);
     bus.subscribe(node.id, "test.input");
 
-    const runner = new LLMRunner(node, handler, { bus, registry, sleepService });
+    const runner = new LLMRunner(node, handler, { bus, registry });
     runner.start();
     publishTo(bus);
 
-    await waitFor(() => registry.get(node.id)?.state === NodeState.SLEEPING);
+    await waitFor(() => Object.keys(capturedState).length > 0);
 
     expect(capturedState._iteration).toBe(1);
     expect(capturedState._iterations_remaining).toBe(5);

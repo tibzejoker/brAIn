@@ -6,7 +6,6 @@ import {
   type NodeContext,
   type NodeInstanceConfig,
   type Message,
-  type WakeCondition,
   type PreemptionContext,
   type RunMode,
   NodeState,
@@ -14,7 +13,6 @@ import {
 import { buildNodeContext } from "./context-builder";
 import type { IBusService } from "../bus/bus.interface";
 import type { InstanceRegistry } from "../registry/instance-registry";
-import type { SleepService } from "./sleep.service";
 import { NodeLog, type LogEntry } from "./node-log";
 import { PreemptionMonitor } from "./preemption";
 import { logger } from "../logger";
@@ -27,7 +25,6 @@ const WATCHER_INTERVAL_MS = 1_000;
 export interface RunnerDeps {
   bus: IBusService;
   registry: InstanceRegistry;
-  sleepService: SleepService;
   /**
    * Optional bridges back to the lifecycle. When provided, `ctx.spawn`
    * / `ctx.kill` route through them with the running node's id as
@@ -45,8 +42,14 @@ export interface RunnerDeps {
 }
 
 /**
- * Base runner — handles lifecycle, timers, busy lock, sleep/wake.
- * Subclasses override `executionLoop()` to define their execution strategy.
+ * Base runner — handles lifecycle, timers, busy lock.
+ *
+ * The framework is purely event-driven: a node sits idle until a
+ * matching bus message arrives, at which point the runner drives the
+ * handler once. There is no explicit "sleep" state and no timer-based
+ * wake — nodes that need a heartbeat subscribe to `time.tick` from the
+ * `clock` / `cron` node. Subclasses override `executionLoop()` to
+ * define their per-wake strategy (single-pass vs. budgeted multi-step).
  */
 export abstract class BaseRunner {
   private running = false;
@@ -54,12 +57,6 @@ export abstract class BaseRunner {
   private runMode: RunMode;
   private watcherTimer?: NodeJS.Timeout;
   private messageListener?: () => void;
-
-  // Sleep
-  protected sleeping = false;
-  protected sleepConditions: WakeCondition[] = [];
-  protected sleepRequested = false;
-  protected pendingSleepConditions: WakeCondition[] = [];
 
   private teardownFired = false;
   private onSpawnFired = false;
@@ -118,22 +115,15 @@ export abstract class BaseRunner {
   /**
    * Run `onSpawn` to completion BEFORE the first handler tick, so
    * handlers that initialise per-instance state in onSpawn don't
-   * race the runner's first invocation. Without this, zero-subscription
-   * nodes can land in the handler before their onSpawn microtask
-   * fires (handler runs synchronously up to its first await, while
-   * onSpawn is queued on the microtask queue).
+   * race the runner's first invocation.
    */
   private async bootstrap(): Promise<void> {
     await this.runOnSpawn();
     // Nodes with at least one subscription bootstrap reactively when a
-    // matching message lands. Nodes with zero subscriptions (clock,
-    // cron, anything purely timer-based) would otherwise never fire,
-    // because tryRun's hasUnreadMessages guard gates them out — bypass
-    // the guard with one explicit run on start so they get a chance to
-    // schedule their first sleep timer.
-    if (this.nodeInfo.subscriptions.length === 0) {
-      this.startRun();
-    } else {
+    // matching message lands. Nodes with zero subscriptions exist only
+    // for their onSpawn side-effects (e.g. clock, cron — they push
+    // ticks via setInterval and never need their handler driven).
+    if (this.nodeInfo.subscriptions.length > 0) {
       this.tryRun();
     }
   }
@@ -157,7 +147,6 @@ export abstract class BaseRunner {
       this.deps.bus.removeListener(`message:${this.nodeInfo.id}`, this.messageListener);
       this.messageListener = undefined;
     }
-    this.deps.sleepService.unregisterSleep(this.nodeInfo.id);
     this.runTeardown();
   }
 
@@ -200,7 +189,6 @@ export abstract class BaseRunner {
   protected tryRun(): void {
     if (this.runMode === "manual") return;
     if (!this.deps.bus.hasUnreadMessages(this.nodeInfo.id)) return;
-    if (this.sleeping && !this.shouldWake()) return;
     if (this.busy) {
       this.preemption.inspect();
       return;
@@ -208,30 +196,7 @@ export abstract class BaseRunner {
     this.startRun();
   }
 
-  private shouldWake(): boolean {
-    return this.sleepConditions.some((c) => {
-      if (c.type === "any") return true;
-      if (c.type === "topic") return this.deps.bus.hasUnreadForPattern(this.nodeInfo.id, c.value);
-      return false;
-    });
-  }
-
   private async run(): Promise<void> {
-    const wasSleeping = this.sleeping;
-    if (this.sleeping) {
-      const hadMessages = this.deps.bus.hasUnreadMessages(this.nodeInfo.id);
-      this.sleeping = false;
-      this.sleepConditions = [];
-      this.deps.sleepService.unregisterSleep(this.nodeInfo.id);
-      this.deps.registry.updateState(this.nodeInfo.id, NodeState.ACTIVE);
-      this.log.info(hadMessages ? "Woken by message" : "Woken by timer");
-
-      this.state._wake_reason = hadMessages ? "message" : "timer";
-    } else {
-      this.state._wake_reason = "running";
-    }
-    this.state._woke_from_sleep = wasSleeping;
-
     await this.executionLoop();
   }
 
@@ -305,34 +270,6 @@ export abstract class BaseRunner {
     return [...this.deadLetters];
   }
 
-  protected enterSleep(): void {
-    this.sleepRequested = false;
-    this.sleeping = true;
-    this.sleepConditions = this.pendingSleepConditions;
-    this.deps.registry.updateState(this.nodeInfo.id, NodeState.SLEEPING);
-
-    this.deps.sleepService.registerSleep(this.nodeInfo.id, this.sleepConditions, () => {
-      this.sleeping = false; this.sleepConditions = []; this.startRun();
-    });
-    const desc = this.sleepConditions
-      .map((c) => c.type === "timer" ? `timer:${c.value}` : c.type === "topic" ? `topic:${c.value}` : "any")
-      .join(", ");
-    this.log.info(`sleep [${desc}]`);
-  }
-
-  protected forceSleep(duration: string): void {
-    this.sleepRequested = false;
-    this.pendingSleepConditions = [{ type: "timer", value: duration }, { type: "any" }];
-    this.enterSleep();
-    this.log.info(`forced sleep [${duration}]`);
-  }
-
-  protected autoSleep(): void {
-    this.sleepRequested = false;
-    this.pendingSleepConditions = [{ type: "any" }];
-    this.enterSleep();
-  }
-
   // === Context builder (delegated to ./context-builder) ===
 
   protected buildContext(
@@ -346,10 +283,6 @@ export abstract class BaseRunner {
         state: this.state,
         log: this.log,
         iteration: this.iteration,
-        requestSleep: (conditions: WakeCondition[]) => {
-          this.sleepRequested = true;
-          this.pendingSleepConditions = conditions;
-        },
       },
       {
         bus: this.deps.bus,
@@ -357,6 +290,7 @@ export abstract class BaseRunner {
         killNode: this.deps.killNode,
         llmRegistry: this.deps.llmRegistry,
         llmConfig: this.deps.llmConfig,
+        instanceRegistry: this.deps.registry,
       },
       messages, signal, preemption,
     );

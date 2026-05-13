@@ -1,7 +1,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as YAML from "yaml";
-import type { NodeInstanceConfig, MailboxConfig } from "@brain/sdk";
+import { type NodeInstanceConfig, type MailboxConfig, normaliseSubscription } from "@brain/sdk";
 import { logger } from "../logger";
 
 interface SeedSubscription {
@@ -111,7 +111,7 @@ export function buildTypeStoreMap(storeprojectsRoot: string): Map<string, string
   return out;
 }
 
-function validateSeedContent(raw: string, knownTypes?: Set<string>): {
+function validateSeedContent(raw: string, _knownTypes?: Set<string>): {
   valid: boolean;
   errors: ValidationError[];
   config: SeedConfig | null;
@@ -245,16 +245,16 @@ export function loadSeedFile(filePath: string): LoadedSeed {
     name: node.name,
     description: node.description,
     tags: node.tags,
-    subscriptions: node.subscriptions?.map((s) => ({
+    subscriptions: node.subscriptions?.map((s) => normaliseSubscription({
       topic: s.topic,
       // Seeds without an explicit description fall back to the topic
       // name — the type's default_subscriptions still carry the real
       // description, so this only loses metadata when the seed
       // overrides a subscription that didn't exist on the type.
       description: s.description ?? s.topic,
-      ...(s.inputSchema ? { inputSchema: s.inputSchema } : {}),
-      ...(s.min_criticality !== undefined ? { min_criticality: s.min_criticality } : {}),
-      ...(s.mailbox ? { mailbox: s.mailbox } : {}),
+      inputSchema: s.inputSchema,
+      min_criticality: s.min_criticality,
+      mailbox: s.mailbox,
     })),
     priority: node.priority,
     authority_level: node.authority_level,

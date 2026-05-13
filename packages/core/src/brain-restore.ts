@@ -1,8 +1,8 @@
-import { type NodeInfo, type NodeInstanceConfig, type NodeModule, type RunMode, NodeState } from "@brain/sdk";
+import { type NodeInfo, type NodeInstanceConfig, type NodeModule, type RunMode, NodeState, normaliseSubscription } from "@brain/sdk";
 import type Database from "better-sqlite3";
 import { loadAllNodes, loadSubscriptions } from "./db";
 import { logger } from "./logger";
-import { createRunner, type BaseRunner, type SleepService } from "./runner";
+import { createRunner, type BaseRunner } from "./runner";
 import type { IBusService } from "./bus";
 import type { TypeRegistry, InstanceRegistry } from "./registry";
 import type { LLMRegistry } from "./llm/llm-registry";
@@ -15,7 +15,6 @@ export async function restoreNodes(opts: {
   bus: IBusService;
   typeRegistry: TypeRegistry;
   instanceRegistry: InstanceRegistry;
-  sleepService: SleepService;
   runners: Map<string, BaseRunner>;
   globalRunMode: RunMode;
   loadHandler: HandlerLoader;
@@ -66,7 +65,7 @@ export async function restoreNodes(opts: {
     );
     const subscriptions = subs.map((s) => {
       const fallback = typeDefaults.get(s.topic);
-      return {
+      return normaliseSubscription({
         topic: s.topic,
         description: s.description || fallback?.description || s.topic,
         inputSchema: s.input_schema
@@ -77,7 +76,8 @@ export async function restoreNodes(opts: {
           max_size: s.mailbox_max_size,
           retention: s.mailbox_retention as "latest" | "lowest_priority",
         },
-      };
+        internal: fallback ? fallback.internal === true : false,
+      });
     });
 
     const nodeInfo: NodeInfo = {
@@ -111,7 +111,7 @@ export async function restoreNodes(opts: {
       nodeInfo,
       mod.handler,
       {
-        bus: opts.bus, registry: opts.instanceRegistry, sleepService: opts.sleepService,
+        bus: opts.bus, registry: opts.instanceRegistry,
         spawnNode: opts.spawnNode,
         killNode: opts.killNode,
         llmRegistry: opts.llmRegistry,

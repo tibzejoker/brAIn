@@ -1,6 +1,6 @@
 import {
   type AuthorityLevel,
-  type MailboxConfig,
+  type SubscriptionConfig,
   type TransportMode,
   type WebTransportConfig,
 } from "./types";
@@ -11,17 +11,11 @@ export interface NodeTypeConfig {
   tags: string[];
   default_authority: AuthorityLevel;
   default_priority: number;
-  default_subscriptions: Array<{
-    topic: string;
-    /**
-     * Required: what this topic does, used as MCP tool description
-     * and surfaced in the dashboard.
-     */
-    description: string;
-    /** Optional JSON Schema for the payload; defaults to open object. */
-    inputSchema?: Record<string, unknown>;
-    mailbox?: Partial<MailboxConfig>;
-  }>;
+  /** Every entry is either a public tool (`{description, inputSchema}` both required)
+   *  or marked `{internal: true}`. The discriminated union enforces this at compile
+   *  time — config.json files that omit `inputSchema` without `internal:true` are
+   *  rejected by the framework's TypeValidatorService at registration time. */
+  default_subscriptions: SubscriptionConfig[];
   default_publishes?: string[];
   has_ui?: boolean;
   interval?: string;
@@ -45,13 +39,8 @@ export interface NodeInstanceConfig {
   name: string;
   description?: string;
   tags?: string[];
-  subscriptions?: Array<{
-    topic: string;
-    /** Required when overriding subscriptions at instance level too. */
-    description: string;
-    inputSchema?: Record<string, unknown>;
-    mailbox?: Partial<MailboxConfig>;
-  }>;
+  /** Same discriminated-union discipline as `default_subscriptions`. */
+  subscriptions?: SubscriptionConfig[];
   priority?: number;
   ttl?: string;
   authority_level?: AuthorityLevel;

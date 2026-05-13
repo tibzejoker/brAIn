@@ -7,17 +7,39 @@ import {
   type NodeInstanceConfig,
   type RunMode,
   NodeState,
+  normaliseSubscription,
 } from "@brain/sdk";
 import type Database from "better-sqlite3";
 import { v4 as uuid } from "uuid";
 import { saveNode, saveSubscription, deleteNode } from "./db";
-import { createRunner, type BaseRunner, type SleepService } from "./runner";
+import { createRunner, type BaseRunner } from "./runner";
 import type { IBusService } from "./bus";
 import type { TypeRegistry, InstanceRegistry } from "./registry";
 import type { AuthorityService } from "./authority";
 import { dispatchRemoteSpawn, dispatchRemoteAction } from "./brain-remote";
 import type { LLMRegistry } from "./llm/llm-registry";
 import type { LLMConfigStore } from "./llm/llm-config";
+
+/**
+ * Parse an interval string ("500ms" / "30s" / "5m" / "2h" / "1d" /
+ * "1w" / "1y") into milliseconds. Used for TTL only — periodic wakes
+ * subscribe to a tick topic from the clock/cron node now.
+ */
+function parseInterval(value: string): number {
+  const match = value.match(/^(\d+)(ms|s|m|h|d|w|y)$/);
+  if (!match) throw new Error(`Invalid interval: ${value}`);
+  const num = parseInt(match[1], 10);
+  switch (match[2]) {
+    case "ms": return num;
+    case "s":  return num * 1000;
+    case "m":  return num * 60_000;
+    case "h":  return num * 3_600_000;
+    case "d":  return num * 86_400_000;
+    case "w":  return num * 7 * 86_400_000;
+    case "y":  return num * 365 * 86_400_000;
+    default: throw new Error(`Invalid interval unit: ${match[2]}`);
+  }
+}
 
 type HandlerLoader = (typeName: string, typePath: string) => Promise<NodeModule>;
 
@@ -27,7 +49,6 @@ export interface LifecycleDeps {
   typeRegistry: TypeRegistry;
   instanceRegistry: InstanceRegistry;
   authority: AuthorityService;
-  sleepService: SleepService;
   runners: Map<string, BaseRunner>;
   globalRunMode: RunMode;
   loadHandler: HandlerLoader;
@@ -106,13 +127,13 @@ export async function spawnNode(
     authority_level: config.authority_level ?? typeConfig.default_authority,
     state: NodeState.ACTIVE,
     priority: config.priority ?? typeConfig.default_priority,
-    subscriptions: config.subscriptions ?? typeConfig.default_subscriptions,
+    subscriptions: (config.subscriptions ?? typeConfig.default_subscriptions ?? []).map(normaliseSubscription),
     transport,
     position: config.position ?? { x: 0, y: 0 },
     config_overrides: mergedOverrides,
     default_publishes: typeConfig.default_publishes,
     spawned_by: callerNodeId,
-    ttl: config.ttl ? deps.sleepService.parseInterval(config.ttl) : undefined,
+    ttl: config.ttl ? parseInterval(config.ttl) : undefined,
     created_at: Date.now(),
   };
 
@@ -141,7 +162,7 @@ export async function spawnNode(
       // "use the default"), which trips the constraint. Coerce to ""
       // here so the default really is empty-string when the caller
       // hasn't supplied one.
-      description: sub.description ?? "",
+      description: sub.description,
       input_schema: sub.inputSchema ? JSON.stringify(sub.inputSchema) : null,
       min_criticality: sub.min_criticality ?? null,
       mailbox_max_size: sub.mailbox?.max_size ?? 100,
@@ -159,7 +180,7 @@ export async function spawnNode(
     nodeInfo,
     handler,
     {
-      bus: deps.bus, registry: deps.instanceRegistry, sleepService: deps.sleepService,
+      bus: deps.bus, registry: deps.instanceRegistry,
       spawnNode: (c, caller) => spawnNode(deps, c, caller),
       killNode: (id, caller, reason) => killNode(deps, id, caller, reason),
       llmRegistry: deps.llmRegistry,
@@ -294,7 +315,7 @@ export async function startNode(
   const runner = createRunner(
     node, handler,
     {
-      bus: deps.bus, registry: deps.instanceRegistry, sleepService: deps.sleepService,
+      bus: deps.bus, registry: deps.instanceRegistry,
       spawnNode: (c, caller) => spawnNode(deps, c, caller),
       killNode: (id, caller, reason) => killNode(deps, id, caller, reason),
       llmRegistry: deps.llmRegistry,
@@ -322,33 +343,4 @@ export async function startNode(
   return true;
 }
 
-export function wakeNode(
-  deps: LifecycleDeps,
-  nodeId: string,
-  callerNodeId?: string,
-  message?: string,
-): boolean {
-  if (dispatchRemoteAction(deps, nodeId, "wake", callerNodeId, message)) return true;
-
-  const node = deps.instanceRegistry.get(nodeId);
-  if (!node || node.state !== NodeState.SLEEPING) return false;
-
-  if (callerNodeId) {
-    const caller = deps.instanceRegistry.get(callerNodeId);
-    if (!caller) throw new Error(`Caller not found: ${callerNodeId}`);
-    if (!deps.authority.canPerform(caller, "wake_node", node)) {
-      throw new Error("Insufficient authority to wake this node");
-    }
-  }
-
-  if (message) {
-    deps.bus.publish({
-      from: callerNodeId ?? "system", topic: `node.${nodeId}.wake`,
-      type: "text", criticality: 5, payload: { content: message },
-    });
-  }
-
-  deps.sleepService.wake(nodeId);
-  return true;
-}
 

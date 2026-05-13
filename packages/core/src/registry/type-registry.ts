@@ -20,6 +20,28 @@ export class TypeRegistry {
       throw new Error(`config.json at ${dirPath} is missing "name" field`);
     }
 
+    // Hard cutover (2026-05-13): every public subscription MUST declare
+    // an inputSchema, or opt out with `internal: true`. Mirrors the
+    // check in TypeValidatorService for dynamic node types — applied
+    // here so static (in-tree + installed-package) nodes get the same
+    // discipline. The single source of truth fans out to /tools, the
+    // MCPBridge, publish-time validation, and ctx.tools.list().
+    for (const sub of config.default_subscriptions) {
+      const s = sub as { topic: string; description?: string; inputSchema?: unknown; internal?: boolean };
+      if (s.internal === true) continue;
+      if (!s.inputSchema || typeof s.inputSchema !== "object") {
+        throw new Error(
+          `Node "${config.name}" at ${dirPath}: subscription "${s.topic}" is missing required \`inputSchema\` (JSON Schema). ` +
+          `Add the schema describing accepted payloads, or mark { "internal": true } if this is private plumbing.`,
+        );
+      }
+      if (!s.description || typeof s.description !== "string") {
+        throw new Error(
+          `Node "${config.name}" at ${dirPath}: subscription "${s.topic}" is missing required 'description'.`,
+        );
+      }
+    }
+
     this.types.set(config.name, config);
     this.typePaths.set(config.name, dirPath);
     return config;
@@ -77,8 +99,13 @@ export class TypeRegistry {
 
       try {
         registered.push(this.register(dirPath));
-      } catch {
-        logger.warn({ dirPath }, "Failed to register node type");
+      } catch (err) {
+        // Surface schema-discipline failures loudly — they're almost
+        // always actionable (config.json missing inputSchema).
+        logger.error(
+          { dirPath, error: err instanceof Error ? err.message : String(err) },
+          "Failed to register node type",
+        );
       }
     }
 

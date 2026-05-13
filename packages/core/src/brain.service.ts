@@ -16,7 +16,7 @@ import { BusService, type IBusService, type NatsBusService } from "./bus";
 import { replayTrace } from "./brain-replay";
 import { TypeRegistry, InstanceRegistry, DynamicTypeScanner, type DynamicScannerOptions } from "./registry";
 import { AuthorityService } from "./authority";
-import { type BaseRunner, SleepService, setNodeDataRoot } from "./runner";
+import { type BaseRunner, setNodeDataRoot } from "./runner";
 import { logger } from "./logger";
 import {
   getDb, clearAll, updateNodePosition, recordHistory, getHistory,
@@ -34,7 +34,7 @@ import {
 import { restoreNodes } from "./brain-restore";
 import {
   spawnNode as doSpawn, killNode as doKill, stopNode as doStop,
-  startNode as doStart, wakeNode as doWake, type LifecycleDeps,
+  startNode as doStart, type LifecycleDeps,
 } from "./brain-lifecycle";
 import { LLMRegistry, type ProviderStatus } from "./llm/llm-registry";
 import { CLIRegistry, type CLIStatus } from "./llm/cli-registry";
@@ -52,7 +52,6 @@ export class BrainService extends EventEmitter {
   readonly typeRegistry: TypeRegistry;
   readonly instanceRegistry: InstanceRegistry;
   readonly authority: AuthorityService;
-  readonly sleepService: SleepService;
   private dynamicScanner: DynamicTypeScanner | null = null;
   private readonly runners = new Map<string, BaseRunner>();
   /** Nodes this instance dispatched to a remote agent (id → agent_id). */
@@ -100,8 +99,6 @@ export class BrainService extends EventEmitter {
     this.typeRegistry = new TypeRegistry();
     this.instanceRegistry = new InstanceRegistry();
     this.authority = new AuthorityService();
-    this.sleepService = new SleepService(this.bus, this.instanceRegistry);
-    this.sleepService.setDb(this.db);
     this.agents = new AgentDirectory(this.bus, opts?.agentDirectory);
     this.agents.attach();
     this.mcpBridge = new MCPBridge(this.bus);
@@ -137,7 +134,7 @@ export class BrainService extends EventEmitter {
     return {
       db: this.db, bus: this.bus, typeRegistry: this.typeRegistry,
       instanceRegistry: this.instanceRegistry, authority: this.authority,
-      sleepService: this.sleepService, runners: this.runners,
+      runners: this.runners,
       globalRunMode: this.globalRunMode, loadHandler: this.loadHandler.bind(this),
       remoteNodes: this.remoteNodes,
       llmRegistry: this.llm,
@@ -157,7 +154,6 @@ export class BrainService extends EventEmitter {
 
   stopNode(id: string, caller?: string, reason?: string, buf = false): boolean { return doStop(this.deps, id, caller, reason, buf); }
   async startNode(id: string, caller?: string, msg?: string): Promise<boolean> { return doStart(this.deps, id, caller, msg); }
-  wakeNode(id: string, caller?: string, msg?: string): boolean { return doWake(this.deps, id, caller, msg); }
 
   // === Network ===
 
@@ -238,9 +234,9 @@ export class BrainService extends EventEmitter {
   getDynamicScanner(): DynamicTypeScanner | null { return this.dynamicScanner; }
 
   async restore(): Promise<number> {
-    const restored = await restoreNodes({
+    return restoreNodes({
       db: this.db, bus: this.bus, typeRegistry: this.typeRegistry,
-      instanceRegistry: this.instanceRegistry, sleepService: this.sleepService,
+      instanceRegistry: this.instanceRegistry,
       runners: this.runners, globalRunMode: this.globalRunMode,
       loadHandler: this.loadHandler.bind(this),
       spawnNode: (c, caller) => this.spawnNode(c, caller),
@@ -248,8 +244,6 @@ export class BrainService extends EventEmitter {
       llmRegistry: this.llm,
       llmConfig: this.llmConfig,
     });
-    this.sleepService.restoreSleepStates((nodeId) => { logger.info({ nodeId }, "Runner wake after restore"); });
-    return restored;
   }
 
   // === Seed ===

@@ -10,7 +10,6 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { BusService } from "@brain/core";
 import { ServiceRunner } from "../packages/core/src/runner/service-runner";
 import { LLMRunner } from "../packages/core/src/runner/llm-runner";
-import { SleepService } from "../packages/core/src/runner/sleep.service";
 import { InstanceRegistry } from "../packages/core/src/registry/instance-registry";
 import type { NodeInfo, NodeHandler } from "@brain/sdk";
 import { NodeState } from "@brain/sdk";
@@ -44,14 +43,11 @@ async function waitFor(fn: () => boolean, ms = 5000): Promise<boolean> {
 describe("Runner resilience", () => {
   let bus: BusService;
   let registry: InstanceRegistry;
-  let sleep: SleepService;
 
   beforeEach(() => {
     bus = new BusService();
     registry = new InstanceRegistry();
-    sleep = new SleepService(bus, registry);
   });
-  afterEach(() => { sleep.destroy(); });
 
   // === Handler crash recovery ===
 
@@ -66,7 +62,7 @@ describe("Runner resilience", () => {
     registry.add(node);
     bus.subscribe(node.id, "test.input");
 
-    const runner = new ServiceRunner(node, handler, { bus, registry, sleepService: sleep });
+    const runner = new ServiceRunner(node, handler, { bus, registry });
     runner.start();
 
     // First message — handler throws
@@ -88,22 +84,30 @@ describe("Runner resilience", () => {
     runner.stop();
   });
 
-  it("LLMRunner survives a handler crash and force-sleeps", async () => {
-    const handler: NodeHandler = () => { throw new Error("llm crash"); };
+  it("LLMRunner survives a handler crash and parks", async () => {
+    let callCount = 0;
+    const handler: NodeHandler = () => {
+      callCount++;
+      throw new Error("llm crash");
+    };
     const node = makeNode({
       tags: ["llm"],
-      config_overrides: { max_iterations: 2, forced_sleep: "1s" },
+      config_overrides: { max_iterations: 2 },
     });
     registry.add(node);
     bus.subscribe(node.id, "test.input");
 
-    const runner = new LLMRunner(node, handler, { bus, registry, sleepService: sleep });
+    const runner = new LLMRunner(node, handler, { bus, registry });
     runner.start();
     publish(bus);
 
-    // Should eventually force-sleep despite crashes
-    const slept = await waitFor(() => registry.get(node.id)?.state === NodeState.SLEEPING, 10000);
-    expect(slept).toBe(true);
+    // Handler must have been invoked at least once and the runner
+    // must come to rest (no runaway loop, no thrown errors past
+    // the runHandler boundary). DLQ should accumulate the crash.
+    expect(await waitFor(() => callCount >= 1, 5000)).toBe(true);
+    await new Promise((r) => { setTimeout(r, 500); });
+    expect(callCount).toBeLessThanOrEqual(2);
+    expect(runner.getDeadLetters().length).toBeGreaterThanOrEqual(1);
 
     runner.stop();
   });
@@ -122,7 +126,7 @@ describe("Runner resilience", () => {
     registry.add(node);
     bus.subscribe(node.id, "test.input");
 
-    const runner = new ServiceRunner(node, handler, { bus, registry, sleepService: sleep });
+    const runner = new ServiceRunner(node, handler, { bus, registry });
     runner.start();
 
     // Send first — handler starts processing (200ms)
@@ -157,7 +161,7 @@ describe("Runner resilience", () => {
     registry.add(node);
     bus.subscribe(node.id, "test.input");
 
-    const runner = new ServiceRunner(node, handler, { bus, registry, sleepService: sleep });
+    const runner = new ServiceRunner(node, handler, { bus, registry });
     runner.start();
 
     publish(bus);
@@ -190,8 +194,8 @@ describe("Runner resilience", () => {
     bus.subscribe(node1.id, "test.input");
     bus.subscribe(node2.id, "test.input");
 
-    const r1 = new ServiceRunner(node1, makeHandler("fast", 100), { bus, registry, sleepService: sleep });
-    const r2 = new ServiceRunner(node2, makeHandler("slow", 500), { bus, registry, sleepService: sleep });
+    const r1 = new ServiceRunner(node1, makeHandler("fast", 100), { bus, registry });
+    const r2 = new ServiceRunner(node2, makeHandler("slow", 500), { bus, registry });
     r1.start();
     r2.start();
 

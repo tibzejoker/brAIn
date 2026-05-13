@@ -23,6 +23,7 @@
     "@ai-sdk/xai": "^3.0.89",
     "@brain/sdk": "workspace:*",
     "ai": "^6.0.158",
+    "ajv": "^8.20.0",
     "better-sqlite3": "^12.8.0",
     "eventemitter3": "^5.0.1",
     "nats": "^2.29.3",

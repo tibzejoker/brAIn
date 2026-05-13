@@ -20,7 +20,6 @@ import { existsSync } from "node:fs";
 import { setTimeout as wait } from "node:timers/promises";
 import { BusService } from "@brain/core";
 import { ServiceRunner } from "../packages/core/src/runner/service-runner";
-import { SleepService } from "../packages/core/src/runner/sleep.service";
 import { InstanceRegistry } from "../packages/core/src/registry/instance-registry";
 import type { NodeInfo, NodeHandler, NodeOnSpawn, NodeTeardown, Message } from "@brain/sdk";
 import { NodeState } from "@brain/sdk";
@@ -50,7 +49,6 @@ const SDK_AVAILABLE = existsSync(HANDLER_PATH);
 describe.skipIf(!SDK_AVAILABLE)("mcp-server node", () => {
   let bus: BusService;
   let registry: InstanceRegistry;
-  let sleep: SleepService;
   let runner: ServiceRunner;
   let handler: NodeHandler;
   let onSpawn: NodeOnSpawn | undefined;
@@ -65,12 +63,11 @@ describe.skipIf(!SDK_AVAILABLE)("mcp-server node", () => {
 
     bus = new BusService();
     registry = new InstanceRegistry();
-    sleep = new SleepService(bus, registry);
 
     nodeInfo = makeNode("test");
     registry.add(nodeInfo);
 
-    runner = new ServiceRunner(nodeInfo, handler, { bus, registry, sleepService: sleep }, "auto", teardown, onSpawn);
+    runner = new ServiceRunner(nodeInfo, handler, { bus, registry }, "auto", teardown, onSpawn);
     runner.start();
     // Give onSpawn + first-tick connect + listTools time to complete.
     await wait(2500);
@@ -79,7 +76,6 @@ describe.skipIf(!SDK_AVAILABLE)("mcp-server node", () => {
   afterAll(async () => {
     runner.stop();
     if (teardown) await teardown(nodeInfo);
-    sleep.destroy();
   });
 
   function collect(witnessId: string, topic: string, ms = 3000): Promise<Message[]> {
@@ -147,7 +143,7 @@ describe.skipIf(!SDK_AVAILABLE)("mcp-server node", () => {
     // confirm the other survives.
     const node2 = makeNode("test2");
     registry.add(node2);
-    const runner2 = new ServiceRunner(node2, handler, { bus, registry, sleepService: sleep }, "auto", teardown, onSpawn);
+    const runner2 = new ServiceRunner(node2, handler, { bus, registry }, "auto", teardown, onSpawn);
     runner2.start();
     await wait(2500);
 

@@ -4,16 +4,23 @@
  * Extracted from base-runner so the runner stays under the 300-line
  * lint cap and the context surface is reviewable in isolation.
  *
- * The handler-facing surface is intentionally narrow: bus IO, sleep,
- * lifecycle (spawn/kill — auth-gated), state, and a few stubs that
- * concrete runners override (LLM, tools, files).
+ * The handler-facing surface is intentionally narrow: bus IO, lifecycle
+ * (spawn/kill — auth-gated), state, and a few stubs that concrete
+ * runners override (LLM, tools, files). There is no `sleep` — the
+ * framework parks a node automatically after its handler returns and
+ * wakes it on the next subscribed message. Periodic work subscribes
+ * to a tick topic from `clock` / `cron`.
  */
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type {
-  NodeContext, NodeInfo, NodeInstanceConfig, Message, WakeCondition,
-  ReadMessagesOptions, MailboxConfig, LLMRequest, LLMResponse, LLMFacade as ILLMFacade,
-  FileOpts, FileRef, FileContent, FileFilter, FileInfo, PreemptionContext,
+import {
+  type NodeContext, type NodeInfo, type NodeInstanceConfig, type Message,
+  type ReadMessagesOptions, type MailboxConfig, type LLMRequest, type LLMResponse,
+  type LLMFacade as ILLMFacade,
+  type FileOpts, type FileRef, type FileContent, type FileFilter, type FileInfo,
+  type PreemptionContext, type SubscriptionConfig,
+  type ToolsFacade, type ToolDescriptor,
+  normaliseSubscription,
 } from "@brain/sdk";
 import type { IBusService } from "../bus/bus.interface";
 import type { NodeLog } from "./node-log";
@@ -45,6 +52,9 @@ export interface BuildContextDeps {
    *  throws a clear error so the missing dep is obvious. */
   llmRegistry?: LLMRegistry;
   llmConfig?: LLMConfigStore;
+  /** Live instance registry — powers `ctx.tools.list()` so the LLM
+   *  can discover every public subscription on the network. */
+  instanceRegistry?: { list(): NodeInfo[] };
 }
 
 export interface BuildContextRuntime {
@@ -52,8 +62,6 @@ export interface BuildContextRuntime {
   state: Record<string, unknown>;
   log: NodeLog;
   iteration: number;
-  /** Mutable hooks the runner uses to honour ctx.sleep(). */
-  requestSleep: (conditions: WakeCondition[]) => void;
 }
 
 export function buildNodeContext(
@@ -100,34 +108,40 @@ export function buildNodeContext(
     },
     subscribe(
       topic: string,
-      opts?: {
-        description?: string;
-        inputSchema?: Record<string, unknown>;
-        mailbox?: Partial<MailboxConfig>;
-      },
+      opts?:
+        | { description: string; inputSchema: Record<string, unknown>; mailbox?: Partial<MailboxConfig>; internal?: false }
+        | { internal: true; description?: string; mailbox?: Partial<MailboxConfig> },
     ): void {
       log.info(`+ subscribe ${topic}`);
       bus.subscribe(nodeId, topic, { mailbox: opts?.mailbox });
-      // When the caller declares the subscription's purpose, mirror it
-      // into NodeInfo.subscriptions so the framework MCP service (and
-      // anything else reading the static catalog) sees it as a
-      // first-class capability instead of a hidden bus listener.
-      if (opts?.description) {
-        const existing = rt.nodeInfo.subscriptions.findIndex((s) => s.topic === topic);
-        const entry = {
-          topic, description: opts.description,
-          inputSchema: opts.inputSchema, mailbox: opts.mailbox,
-        };
-        if (existing >= 0) rt.nodeInfo.subscriptions[existing] = entry;
-        else rt.nodeInfo.subscriptions.push(entry);
+      // No opts at all → pure bus listener, not surfaced as a tool. Same
+      // pre-discriminated-union semantics, just no hidden description.
+      if (!opts) return;
+      // Runtime guard — the TS types already forbid this combination at
+      // compile time, but JS callers (tests, dynamic agents) can still
+      // get here with malformed opts. Fail loud.
+      const optsLoose = opts as { internal?: unknown; inputSchema?: unknown };
+      const isInternal = optsLoose.internal === true;
+      const hasSchema = optsLoose.inputSchema !== undefined && optsLoose.inputSchema !== null;
+      if (!isInternal && !hasSchema) {
+        throw new Error(`ctx.subscribe("${topic}"): non-internal subscriptions must declare an inputSchema. Mark { internal: true } if this is private plumbing.`);
       }
+      const entry: SubscriptionConfig = normaliseSubscription({
+        topic,
+        description: opts.description,
+        inputSchema: "inputSchema" in opts ? opts.inputSchema : undefined,
+        mailbox: opts.mailbox,
+        internal: "internal" in opts ? opts.internal : false,
+      });
+      const existing = rt.nodeInfo.subscriptions.findIndex((s) => s.topic === topic);
+      if (existing >= 0) rt.nodeInfo.subscriptions[existing] = entry;
+      else rt.nodeInfo.subscriptions.push(entry);
     },
     unsubscribe: (topic: string): void => {
       bus.unsubscribe(nodeId, topic);
       const i = rt.nodeInfo.subscriptions.findIndex((s) => s.topic === topic);
       if (i >= 0) rt.nodeInfo.subscriptions.splice(i, 1);
     },
-    sleep: (conditions: WakeCondition[]): void => { rt.requestSleep(conditions); },
     spawn: (config: NodeInstanceConfig): Promise<NodeInfo> => {
       const fn = deps.spawnNode;
       if (!fn) return Promise.reject(new Error("ctx.spawn unavailable: runner has no spawnNode dep"));
@@ -140,6 +154,7 @@ export function buildNodeContext(
     },
     callLLM: (_o: LLMRequest): Promise<LLMResponse> => Promise.reject(new Error("not implemented")),
     llm: buildLLMFacade(deps, rt.nodeInfo, signal),
+    tools: buildToolsFacade(deps),
     callTool: (_s: string, _t: string, _p: unknown): Promise<unknown> => Promise.reject(new Error("not implemented")),
     readFile: (_id: string): Promise<FileContent> => Promise.reject(new Error("not implemented")),
     writeFile: (_n: string, _c: string, _o?: FileOpts): Promise<FileRef> => Promise.reject(new Error("not implemented")),
@@ -171,6 +186,7 @@ function buildLLMFacade(deps: BuildContextDeps, nodeInfo: NodeInfo, signal: Abor
     return {
       text: (): Promise<string> => { err(); return Promise.reject(new Error("unreachable")); },
       tool: (): Promise<never> => { err(); return Promise.reject(new Error("unreachable")); },
+      tools: (): Promise<never> => { err(); return Promise.reject(new Error("unreachable")); },
       resolveModel: (): never => err(),
       listModels: (): never => err(),
     };
@@ -185,4 +201,45 @@ function buildLLMFacade(deps: BuildContextDeps, nodeInfo: NodeInfo, signal: Abor
     nodeModel: nodeInfo.config_overrides?.model as string | undefined,
     signal,
   });
+}
+
+/** Build the tool-discovery facade.
+ *  Aggregates every public (non-`internal`) subscription across the live
+ *  network into the MCP-tool shape. Reads fresh on each call so newly-
+ *  spawned nodes show up immediately.
+ *
+ *  Falls back to a stub that returns `[]` when the runner has no
+ *  registry dep (test scaffolding) — handlers can still `.list()`
+ *  without null-checking. */
+function buildToolsFacade(deps: BuildContextDeps): ToolsFacade {
+  const empty: ToolsFacade = {
+    list: () => [],
+    listForNode: () => [],
+  };
+  const registry = deps.instanceRegistry;
+  if (!registry) return empty;
+  const collect = (filterNodeId?: string): ToolDescriptor[] => {
+    const out: ToolDescriptor[] = [];
+    for (const node of registry.list()) {
+      if (filterNodeId && node.id !== filterNodeId) continue;
+      for (const sub of node.subscriptions) {
+        if (sub.internal === true) continue;
+        // After the internal check, the union narrows to PublicSubscriptionConfig
+        // and inputSchema is statically guaranteed present — no defensive guard.
+        out.push({
+          node_id: node.id,
+          node_type: node.type,
+          node_name: node.name,
+          topic: sub.topic,
+          description: sub.description,
+          inputSchema: sub.inputSchema,
+        });
+      }
+    }
+    return out;
+  };
+  return {
+    list: () => collect(),
+    listForNode: (nodeId) => collect(nodeId),
+  };
 }

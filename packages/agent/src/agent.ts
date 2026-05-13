@@ -174,9 +174,6 @@ export class Agent {
         case "start":
           ok = await brain.startNode(nodeId, undefined, message);
           break;
-        case "wake":
-          ok = brain.wakeNode(nodeId, undefined, message);
-          break;
         default:
           logger.warn({ topic }, "agent: unknown control action");
           return;

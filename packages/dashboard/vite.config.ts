@@ -17,6 +17,7 @@ export default defineConfig({
       "/agents": PROXY_OPT,
       "/mcp": PROXY_OPT,
       "/llm": PROXY_OPT,
+      "/tools": PROXY_OPT,
       "/socket.io": { ...PROXY_OPT, ws: true },
     },
   },

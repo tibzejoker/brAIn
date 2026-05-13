@@ -120,8 +120,6 @@ respawn to apply changes.
   at spawn time. Sister-repo paths are auto-discovered (`brAIn-essentials`
   through `brAIn-perception`).
 - **InstanceRegistry** — running node instances, emits state changes.
-- **SleepService** — wake conditions (topic, timer, any). Safety-net tick
-  every 5s. Sleeping nodes consume zero CPU.
 - **AuthorityService** — 3 levels (BASIC=0, ELEVATED=1, ROOT=2). Targeted
   actions (kill/stop/rewire) require strictly higher authority.
 - **AgentDirectory** — tracks remote `brain-agent` announcements on
@@ -142,11 +140,17 @@ restart.
 `packages/core/src/runner/` — template method pattern + factory:
 
 ```
-BaseRunner (abstract)        — lifecycle, busy lock, sleep/wake, ctx builder
-  ├── ServiceRunner          — handler called once per message → auto-sleep [any]
+BaseRunner (abstract)        — lifecycle, busy lock, ctx builder
+  ├── ServiceRunner          — handler called once per batch of messages
   └── LLMRunner              — budget loop (default 5 iter), new messages reset
-                               the budget, exhausted → forced sleep
+                               the budget, exhausted → end of wake
 ```
+
+The framework is purely event-driven: a node sits idle until a
+matching bus message arrives, runs its handler, and parks again. There
+is no manual sleep / wake API. Periodic work subscribes to `time.tick`
+emitted by the always-running `clock` node (or a `cron` instance for
+custom cadences from `ms` to `y`).
 
 `createRunner()` picks based on tags (`"llm"` → LLMRunner, else
 ServiceRunner). Handler timeout 60s default, override via
@@ -172,8 +176,9 @@ A node is a directory with:
 `ctx.respond(content, metadata?)` publishes to `response_topic` (or
 `default_publishes[0]`). `ctx.publish(topic, msg)` for explicit routing.
 `ctx.state` is persistent KV across iterations. `ctx.dataDir` is a
-per-node SQLite-friendly directory (`data/<node-id>/`). `ctx.sleep()`
-voluntarily.
+per-node SQLite-friendly directory (`data/<node-id>/`). Return from the
+handler to park the node — the framework re-invokes it on the next
+matching message.
 
 Handlers without `await` must return `Promise.resolve()` (not be `async`)
 to satisfy `require-await`.
@@ -183,7 +188,7 @@ to satisfy `require-await`.
 Single `BrainService` instance + a `BrokerService` provider, injected
 into thin controllers:
 
-- `NodesController` — spawn/kill/stop/start/wake + `PATCH :id/config` +
+- `NodesController` — spawn/kill/stop/start + `PATCH :id/config` +
   `PATCH :id/position` + logs/mailboxes/dead-letters
 - `NodeUiController` — `POST :id/ui/send` + `GET :id/ui/messages` +
   static UI server

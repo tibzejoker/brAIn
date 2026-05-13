@@ -9,13 +9,11 @@ import { BrainService } from "@brain/core";
 
 /**
  * Trailing debounce window (ms) used to coalesce rapid node state
- * oscillations into a single emit. The ServiceRunner ends every
- * handler invocation with `autoSleep()`, which means a high-frequency
- * reactive node (one accel sample @ 10 Hz → ACTIVE → handler → SLEEPING)
- * floods the dashboard with 20 events/s and the node icon visibly
- * strobes. Holding for ~150 ms collapses the burst to one event with
- * the terminal state and is invisible to a human watching slower
- * transitions.
+ * oscillations into a single emit. High-frequency reactive nodes
+ * (e.g. one accel sample @ 10 Hz) can flip ACTIVE/STOPPED rapidly
+ * and flood the dashboard, making the node icon strobe. Holding for
+ * ~150 ms collapses the burst to one event with the terminal state
+ * and is invisible to a human watching slower transitions.
  */
 const STATE_DEBOUNCE_MS = 150;
 

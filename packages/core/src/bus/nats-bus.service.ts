@@ -44,6 +44,7 @@ import { connect, StringCodec, type NatsConnection, type Subscription as NatsSub
 import { logger } from "../logger";
 import { matchTopic } from "./bus.matcher";
 import { Mailbox } from "./mailbox";
+import { runPublishValidation } from "./publish-validator";
 import type {
   BusHistoryOptions, BusMailboxView, BusSubscription,
   IBusService, SubscribeOptions,
@@ -195,10 +196,7 @@ export class NatsBusService extends EventEmitter implements IBusService {
   unsubscribe(nodeId: string, topicOrSubId: string): boolean {
     const subs = this.subscriptions.get(nodeId);
     if (!subs) return false;
-    if (subs.has(topicOrSubId)) {
-      subs.delete(topicOrSubId);
-      return true;
-    }
+    if (subs.has(topicOrSubId)) { subs.delete(topicOrSubId); return true; }
     for (const [id, sub] of subs) {
       if (sub.pattern === topicOrSubId) { subs.delete(id); return true; }
     }
@@ -399,6 +397,7 @@ export class NatsBusService extends EventEmitter implements IBusService {
   private recordHistory(message: Message): void {
     this.messageHistory.push(message);
     if (this.messageHistory.length > this.historyMax) this.messageHistory.shift();
+    runPublishValidation(this, message);  // Phase 1: log-only, still delivers
   }
 
   /** Replace characters that NATS rejects in subjects (`*`, ` `, …). */

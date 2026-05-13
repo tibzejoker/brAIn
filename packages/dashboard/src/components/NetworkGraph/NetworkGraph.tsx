@@ -84,8 +84,8 @@ function snapshotToFlowNode(
       onOpenUi: () => { onOpenUi(n.id); },
       subscribes,
       publishes,
-      unreadCount: n.unread_count ?? 0,
-      authorityLevel: n.authority_level ?? 0,
+      unreadCount: n.unread_count,
+      authorityLevel: n.authority_level,
       showCapabilityLayer,
       // Hover is patched in by the `displayNodes` memo below so this
       // heavy build effect doesn't re-run on every mouse-over.
@@ -125,12 +125,12 @@ function buildAuthorityEdges(hoveredId: string | null, snapshots: NodeSnapshot[]
   if (!hoveredId) return [];
   const hovered = snapshots.find((n) => n.id === hoveredId);
   if (!hovered) return [];
-  const hoveredAuth = hovered.authority_level ?? 0;
+  const hoveredAuth = hovered.authority_level;
   const edges: Edge[] = [];
 
   for (const other of snapshots) {
     if (other.id === hovered.id) continue;
-    const otherAuth = other.authority_level ?? 0;
+    const otherAuth = other.authority_level;
 
     const pushEdge = (
       direction: "in" | "out",

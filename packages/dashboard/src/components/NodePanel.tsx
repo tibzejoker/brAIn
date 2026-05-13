@@ -1,6 +1,6 @@
 import { useCallback, useState, useEffect, useRef } from "react";
 import type { NodeSnapshot } from "../api/types";
-import { killNode, stopNode, startNode, wakeNode, getNodeLogs, getNodeMailboxes, getNodeDeadLetters, type NodeLogEntry, type MailboxInfo, type DeadLetterEntry } from "../api/client";
+import { killNode, stopNode, startNode, getNodeLogs, getNodeMailboxes, getNodeDeadLetters, type NodeLogEntry, type MailboxInfo, type DeadLetterEntry } from "../api/client";
 import { DeadLetterTab } from "./DeadLetterTab";
 import { NodeLLMTab } from "./NodeLLMTab";
 import { TabButton, InfoRow, ActionButton } from "./NodePanelHelpers";
@@ -282,9 +282,6 @@ export function NodePanel({
         )}
         {node.state === "stopped" && (
           <ActionButton label="Start" variant="success" loading={actionLoading} onClick={() => handleAction(() => startNode(node.id))} />
-        )}
-        {node.state === "sleeping" && (
-          <ActionButton label="Wake" variant="success" loading={actionLoading} onClick={() => handleAction(() => wakeNode(node.id))} />
         )}
         <ActionButton label="Kill" variant="danger" loading={actionLoading} onClick={() => handleAction(() => killNode(node.id))} />
       </div>

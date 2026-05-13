@@ -13,10 +13,9 @@
  * - Natural handler errors are still recorded in DLQ (preemption
  *   path mustn't swallow real failures).
  */
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach } from "vitest";
 import { BusService } from "@brain/core";
 import { ServiceRunner } from "../packages/core/src/runner/service-runner";
-import { SleepService } from "../packages/core/src/runner/sleep.service";
 import { InstanceRegistry } from "../packages/core/src/registry/instance-registry";
 import type { NodeInfo, NodeHandler } from "@brain/sdk";
 import { NodeState } from "@brain/sdk";
@@ -46,14 +45,11 @@ async function waitFor(fn: () => boolean, ms = 3000): Promise<boolean> {
 describe("Preemption", () => {
   let bus: BusService;
   let registry: InstanceRegistry;
-  let sleep: SleepService;
 
   beforeEach(() => {
     bus = new BusService();
     registry = new InstanceRegistry();
-    sleep = new SleepService(bus, registry);
   });
-  afterEach(() => { sleep.destroy(); });
 
   it("aborts an in-flight handler when a high-criticality msg lands", async () => {
     let abortedDuringHandler = false;
@@ -76,7 +72,7 @@ describe("Preemption", () => {
     registry.add(node);
     bus.subscribe(node.id, "test.input");
 
-    const runner = new ServiceRunner(node, handler, { bus, registry, sleepService: sleep });
+    const runner = new ServiceRunner(node, handler, { bus, registry });
     runner.start();
 
     // Iter 1: low criticality msg starts the handler
@@ -116,7 +112,7 @@ describe("Preemption", () => {
     registry.add(node);
     bus.subscribe(node.id, "test.input");
 
-    const runner = new ServiceRunner(node, handler, { bus, registry, sleepService: sleep });
+    const runner = new ServiceRunner(node, handler, { bus, registry });
     runner.start();
 
     bus.publish({ from: "low", topic: "test.input", type: "text", criticality: 2, payload: { content: "boring" } });
@@ -147,7 +143,7 @@ describe("Preemption", () => {
     registry.add(node);
     bus.subscribe(node.id, "test.input");
 
-    const runner = new ServiceRunner(node, handler, { bus, registry, sleepService: sleep });
+    const runner = new ServiceRunner(node, handler, { bus, registry });
     runner.start();
 
     // iter 1 starts at criticality 4
@@ -178,7 +174,7 @@ describe("Preemption", () => {
     registry.add(node);
     bus.subscribe(node.id, "test.input");
 
-    const runner = new ServiceRunner(node, handler, { bus, registry, sleepService: sleep });
+    const runner = new ServiceRunner(node, handler, { bus, registry });
     runner.start();
 
     bus.publish({ from: "a", topic: "test.input", type: "text", criticality: 3, payload: { content: "x" } });
@@ -197,7 +193,7 @@ describe("Preemption", () => {
     registry.add(node);
     bus.subscribe(node.id, "test.input");
 
-    const runner = new ServiceRunner(node, handler, { bus, registry, sleepService: sleep });
+    const runner = new ServiceRunner(node, handler, { bus, registry });
     runner.start();
 
     bus.publish({ from: "src", topic: "test.input", type: "text", criticality: 1, payload: { content: "x" } });

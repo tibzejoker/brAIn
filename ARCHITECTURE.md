@@ -80,7 +80,7 @@ A message published anywhere on the bus reaches every subscriber matching its to
 
 ## 4 · Core components
 
-**`@brain/sdk`** — Pure types, no runtime. `NodeHandler`, `NodeContext`, `Message`, `Subscription`, `WakeCondition`, `NodeOnSpawn`, `NodeTeardown`. The stable surface every other package depends on. Node authors import only this.
+**`@brain/sdk`** — Pure types, no runtime. `NodeHandler`, `NodeContext`, `Message`, `Subscription`, `NodeOnSpawn`, `NodeTeardown`. The stable surface every other package depends on. Node authors import only this.
 
 **`@brain/core`** — The engine.
 - **`BrokerService`** spawns the bundled `nats-server` Go binary or attaches to `BRAIN_NATS_URL`. Owns the broker token, persists bind address.
@@ -144,7 +144,7 @@ The framework is deliberately small. Most "integrations" are recurring patterns 
 
 A few things worth understanding before reading the source.
 
-- **Runner loop** — The runner registers per-subscription consumers on the bus. When a message lands matching a node's subscription, it goes into that node's mailbox. The runner schedules a handler invocation if the node is awake, or queues the wake otherwise. A handler returning yields control; a handler calling `ctx.sleep(conditions)` puts the node back to sleep until any condition fires.
+- **Runner loop** — The runner registers per-subscription consumers on the bus. When a message lands matching a node's subscription, it goes into that node's mailbox and the runner invokes the handler. A handler returning yields control and the node parks automatically until the next subscribed message arrives. There is no manual sleep API — periodic work subscribes to `time.tick` from the always-running `clock` node (or a `cron` instance for custom cadences from `ms` to `y`).
 - **Mailbox** — Bounded per (node, topic) with a retention policy: `latest` (drop oldest) or `lowest_priority` (drop the smallest-criticality message first). Anti-flood without dropping importance.
 - **Preemption** — When a higher-criticality message lands while a handler is mid-flight, the runner aborts `ctx.signal`. Long-running operations (LLM calls, fetch, child-process I/O) are expected to honour the signal. The next handler invocation gets `wasPreempted = true` plus the partial result in `ctx.preemptionContext`.
 - **Spawn / restore** — Spawned nodes are persisted in `brain.db`. On API boot, the registry replays them — their `onSpawn` hook runs again as if they were freshly created. Crash recovery is the same code path as cold start.

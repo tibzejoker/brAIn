@@ -63,12 +63,51 @@ export class TypeValidatorService {
 
     let typeName: string;
     try {
-      const cfg = JSON.parse(fs.readFileSync(configPath, "utf-8")) as { name?: string };
+      const cfg = JSON.parse(fs.readFileSync(configPath, "utf-8")) as {
+        name?: string;
+        default_subscriptions?: Array<{
+          topic?: string;
+          description?: string;
+          inputSchema?: unknown;
+          internal?: boolean;
+        }>;
+      };
       if (!cfg.name) {
         return this.finish(workspacePath, {
           ok: false, phase: "config", errors: "config.json missing 'name'",
           hashes, validated_at: now,
         });
+      }
+      // Tool-declaration discipline: every public subscription MUST carry
+      // an inputSchema, or be explicitly marked `internal: true`. Catches
+      // forgotten schemas at registration time so they never reach the
+      // network with a missing /tools entry or unvalidatable payloads.
+      for (const sub of cfg.default_subscriptions ?? []) {
+        if (!sub.topic) {
+          return this.finish(workspacePath, {
+            ok: false, phase: "config",
+            errors: `config.json: default_subscriptions entry without 'topic'`,
+            hashes, validated_at: now,
+          });
+        }
+        if (sub.internal === true) continue; // private plumbing, schema optional
+        if (!sub.inputSchema || typeof sub.inputSchema !== "object") {
+          return this.finish(workspacePath, {
+            ok: false, phase: "config",
+            errors:
+              `config.json: subscription "${sub.topic}" missing required \`inputSchema\` ` +
+              `(JSON Schema). Either add the schema describing accepted payloads, ` +
+              `or mark { "internal": true } if this is private plumbing not exposed as a tool.`,
+            hashes, validated_at: now,
+          });
+        }
+        if (!sub.description || typeof sub.description !== "string") {
+          return this.finish(workspacePath, {
+            ok: false, phase: "config",
+            errors: `config.json: subscription "${sub.topic}" missing required 'description'`,
+            hashes, validated_at: now,
+          });
+        }
       }
       typeName = cfg.name;
     } catch (err) {
