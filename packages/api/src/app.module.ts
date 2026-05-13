@@ -145,6 +145,10 @@ const brainServiceProvider = {
     // installed store-repo. Each store's templates become discoverable
     // automatically the moment the store is cloned locally.
     brain.setStoreprojectsRoot(path.resolve(MONOREPO_ROOT, "..", "storeprojects"));
+    // Personal seeds live next to the framework DB so they share the
+    // same backup / data-root surface as everything else. The folder
+    // is created lazily on the first save.
+    brain.setPersonalSeedsDir(path.resolve(MONOREPO_ROOT, "..", "data", "seeds"));
 
     return brain;
   },

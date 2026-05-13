@@ -53,6 +53,11 @@ export interface ValidationError {
   message: string;
 }
 
+/** Provenance of a seed file. `personal` seeds are user-saved
+ *  configurations and are the ONLY ones the API allows the user to
+ *  delete (store/root seeds are owned by their repo / framework). */
+export type SeedSource = "store" | "personal" | "root";
+
 export interface SeedInfo {
   name: string;
   filename: string;
@@ -61,8 +66,9 @@ export interface SeedInfo {
   errors: ValidationError[];
   node_count: number;
   nodes: Array<{ type: string; name: string }>;
-  /** `brAIn-<area>` when the seed is shipped by a store under
-   *  `storeprojects/<store>/seeds/`, otherwise `null` for root seeds. */
+  /** Where this seed comes from (filesystem layer). */
+  source: SeedSource;
+  /** `brAIn-<area>` when source === "store", otherwise null. */
   store: string | null;
   /** Unique node types this seed needs to spawn. Derived from
    *  `unique(nodes[].type)` — no separate `needs[]` declaration. */
@@ -262,7 +268,10 @@ export function loadSeedFile(filePath: string): LoadedSeed {
 
 export interface ScanOptions {
   knownTypes?: Set<string>;
-  /** Store-of-origin tagged onto every seed found in this directory. */
+  /** Where the seeds in this directory come from. */
+  source?: SeedSource;
+  /** Store-of-origin tagged onto every seed found in this directory.
+   *  Only meaningful when source === "store". */
   store?: string | null;
   /** Map type-name → owning store, used to fill SeedInfo.type_sources. */
   typeStoreMap?: Map<string, string>;
@@ -271,7 +280,7 @@ export interface ScanOptions {
 export function scanSeedsDirectory(seedsDir: string, opts: ScanOptions = {}): SeedInfo[] {
   if (!fs.existsSync(seedsDir)) return [];
 
-  const { knownTypes, store = null, typeStoreMap } = opts;
+  const { knownTypes, source = "root", store = null, typeStoreMap } = opts;
   const entries = fs.readdirSync(seedsDir, { withFileTypes: true });
   const seeds: SeedInfo[] = [];
 
@@ -306,6 +315,7 @@ export function scanSeedsDirectory(seedsDir: string, opts: ScanOptions = {}): Se
       errors,
       node_count: config?.nodes.length ?? 0,
       nodes: config?.nodes.map((n) => ({ type: n.type, name: n.name })) ?? [],
+      source,
       store,
       required_types,
       missing_types,
@@ -326,16 +336,142 @@ export function scanAllSeedSources(
   rootSeedsDir: string,
   storeprojectsRoot: string,
   knownTypes?: Set<string>,
+  personalSeedsDir?: string,
 ): SeedInfo[] {
   const typeStoreMap = buildTypeStoreMap(storeprojectsRoot);
-  const out: SeedInfo[] = scanSeedsDirectory(rootSeedsDir, { knownTypes, store: null, typeStoreMap });
+  const out: SeedInfo[] = scanSeedsDirectory(rootSeedsDir, { knownTypes, source: "root", store: null, typeStoreMap });
   if (fs.existsSync(storeprojectsRoot)) {
     for (const store of fs.readdirSync(storeprojectsRoot, { withFileTypes: true })) {
       if (!store.isDirectory()) continue;
       if (!/^brAIn-/i.test(store.name)) continue;
       const seedsDir = path.join(storeprojectsRoot, store.name, "seeds");
-      out.push(...scanSeedsDirectory(seedsDir, { knownTypes, store: store.name, typeStoreMap }));
+      out.push(...scanSeedsDirectory(seedsDir, { knownTypes, source: "store", store: store.name, typeStoreMap }));
     }
   }
+  if (personalSeedsDir) {
+    out.push(...scanSeedsDirectory(personalSeedsDir, { knownTypes, source: "personal", store: null, typeStoreMap }));
+  }
   return out;
+}
+
+// === Personal seeds (user-saved configurations) ===============================
+
+/** Slug a user-supplied display name into a filename-safe stem.
+ *  Used so "My Cool Setup #2" maps to "my-cool-setup-2.yaml". */
+export function slugifySeedName(raw: string): string {
+  const slug = raw
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 64);
+  return slug || "seed";
+}
+
+/** Subset of NodeInfo we need to round-trip a running node into a
+ *  seed YAML. Defined locally so seed.ts doesn't depend on the SDK
+ *  beyond NodeInstanceConfig. */
+export interface SerializableNode {
+  type: string;
+  name: string;
+  description?: string;
+  tags?: string[];
+  subscriptions?: Array<{
+    topic?: string;
+    pattern?: string;
+    description?: string;
+    inputSchema?: Record<string, unknown>;
+    min_criticality?: number;
+    mailbox?: Partial<MailboxConfig>;
+  }>;
+  priority?: number;
+  authority_level?: number;
+  transport?: string;
+  position?: { x: number; y: number };
+  config_overrides?: Record<string, unknown>;
+}
+
+export interface SavePersonalSeedOptions {
+  /** Optional human-readable comment written at the top of the YAML. */
+  description?: string;
+  /** When true, overwrite an existing seed with the same slug.
+   *  Defaults to false — caller gets an error on collision so the
+   *  dashboard can prompt the user for a different name. */
+  overwrite?: boolean;
+}
+
+/**
+ * Write a list of running nodes out as a personal seed YAML.
+ * Throws if `<dir>/<slug>.yaml` exists and `overwrite` is false.
+ */
+export function savePersonalSeed(
+  dir: string,
+  displayName: string,
+  nodes: SerializableNode[],
+  opts: SavePersonalSeedOptions = {},
+): { slug: string; path: string } {
+  fs.mkdirSync(dir, { recursive: true });
+  const slug = slugifySeedName(displayName);
+  const filePath = path.join(dir, `${slug}.yaml`);
+  if (fs.existsSync(filePath) && !opts.overwrite) {
+    throw new Error(`A personal seed named "${slug}" already exists`);
+  }
+
+  // Strip undefined and runtime-only fields so the YAML stays clean.
+  const cleanNodes = nodes.map((n) => {
+    const subs = n.subscriptions
+      ?.map((s) => {
+        // Stored network state uses `topic` for the literal subscribed
+        // string; bus-level patterns can also live under `pattern`.
+        // Always emit `topic` so the loader's SeedSubscription parser
+        // accepts it without ambiguity.
+        const topic = s.topic ?? s.pattern;
+        if (!topic) return null;
+        const out: Record<string, unknown> = { topic };
+        if (s.description) out.description = s.description;
+        if (s.inputSchema) out.inputSchema = s.inputSchema;
+        if (s.min_criticality !== undefined) out.min_criticality = s.min_criticality;
+        if (s.mailbox) out.mailbox = s.mailbox;
+        return out;
+      })
+      .filter((s): s is Record<string, unknown> => s !== null);
+
+    const out: Record<string, unknown> = { type: n.type, name: n.name };
+    if (n.description) out.description = n.description;
+    if (n.tags?.length) out.tags = n.tags;
+    if (subs && subs.length > 0) out.subscriptions = subs;
+    if (n.priority !== undefined) out.priority = n.priority;
+    if (n.authority_level !== undefined) out.authority_level = n.authority_level;
+    if (n.transport && n.transport !== "process") out.transport = n.transport;
+    if (n.position) out.position = n.position;
+    if (n.config_overrides && Object.keys(n.config_overrides).length > 0) {
+      out.config_overrides = n.config_overrides;
+    }
+    return out;
+  });
+
+  const header = [
+    `# ${displayName} — personal seed.`,
+    `# Saved from the running network on ${new Date().toISOString()}.`,
+    opts.description ? `# ${opts.description}` : null,
+    "",
+  ].filter((l) => l !== null).join("\n");
+
+  const yaml = YAML.stringify({ nodes: cleanNodes });
+  fs.writeFileSync(filePath, header + yaml, { mode: 0o600 });
+  return { slug, path: filePath };
+}
+
+/**
+ * Remove a personal seed from disk by its slug. Throws if the file
+ * doesn't exist (caller can ignore the 404 case if it wants idempotent
+ * delete). Never touches store/root seeds — the controller layer is
+ * responsible for refusing such requests before reaching this fn.
+ */
+export function deletePersonalSeed(dir: string, slug: string): void {
+  const filePath = path.join(dir, `${slug}.yaml`);
+  if (!fs.existsSync(filePath)) {
+    throw new Error(`Personal seed "${slug}" not found`);
+  }
+  fs.unlinkSync(filePath);
 }

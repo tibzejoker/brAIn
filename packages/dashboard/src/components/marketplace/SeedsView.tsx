@@ -1,5 +1,10 @@
 import { useCallback, useMemo, useState } from "react";
-import { applySeed, type SeedInfo } from "../../api/client";
+import {
+  applySeed,
+  deletePersonalSeed,
+  savePersonalSeed,
+  type SeedInfo,
+} from "../../api/client";
 import { installMarketplaceSeed, type MarketplaceSeed } from "../../api/store";
 import { useMarketplace } from "../../hooks/useMarketplace";
 
@@ -43,8 +48,56 @@ export function SeedsView({ onChanged }: { onChanged: () => void }): React.React
   const { data, loading, refetch } = useMarketplace();
   const [applying, setApplying] = useState<string | null>(null);
   const [installing, setInstalling] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
   const [query, setQuery] = useState("");
   const [banner, setBanner] = useState<{ type: "success" | "error"; message: string } | null>(null);
+
+  const handleSaveCurrent = useCallback((): void => {
+    // Native prompt keeps the new feature truly minimal — no modal
+    // component to maintain. We can swap to a styled dialog later.
+    const raw = window.prompt("Name this personal seed:");
+    if (!raw) return;
+    const name = raw.trim();
+    if (!name) return;
+    setSaving(true); setBanner(null);
+    savePersonalSeed(name)
+      .then((res) => {
+        setBanner({ type: "success", message: `Saved as personal seed "${res.slug}"` });
+        void refetch();
+      })
+      .catch((err: unknown) => {
+        const message = err instanceof Error ? err.message : String(err);
+        // Collision: offer overwrite in a follow-up confirm — keeps
+        // the UI single-flow without a custom dialog.
+        if (/already exists/i.test(message)) {
+          if (window.confirm(`"${name}" already exists. Overwrite?`)) {
+            savePersonalSeed(name, { overwrite: true })
+              .then((res) => {
+                setBanner({ type: "success", message: `Overwrote personal seed "${res.slug}"` });
+                void refetch();
+              })
+              .catch((err2: unknown) => setBanner({
+                type: "error", message: err2 instanceof Error ? err2.message : String(err2),
+              }));
+            return;
+          }
+        }
+        setBanner({ type: "error", message });
+      })
+      .finally(() => setSaving(false));
+  }, [refetch]);
+
+  const handleDelete = useCallback((name: string): void => {
+    if (!window.confirm(`Delete personal seed "${name}"? This is permanent.`)) return;
+    setDeleting(name); setBanner(null);
+    deletePersonalSeed(name)
+      .then(() => { setBanner({ type: "success", message: `Deleted "${name}"` }); void refetch(); })
+      .catch((err: unknown) => setBanner({
+        type: "error", message: err instanceof Error ? err.message : String(err),
+      }))
+      .finally(() => setDeleting(null));
+  }, [refetch]);
 
   const handleApply = useCallback((name: string, merge: boolean): void => {
     setApplying(name); setBanner(null);
@@ -105,6 +158,14 @@ export function SeedsView({ onChanged }: { onChanged: () => void }): React.React
           onChange={(e) => setQuery(e.target.value)}
           className="flex-1 max-w-md ml-auto px-2 py-1 text-xs rounded bg-surface-overlay border border-border focus:border-accent focus:outline-none text-text"
         />
+        <button
+          onClick={handleSaveCurrent}
+          disabled={saving}
+          title="Snapshot the running network as a new personal seed"
+          className="px-2 py-1 text-xs rounded bg-accent text-bg hover:bg-accent/90 disabled:opacity-50"
+        >
+          {saving ? "Saving…" : "Save current"}
+        </button>
         <button onClick={() => void refetch()} className="text-xs text-text-muted hover:text-text">Refresh view</button>
       </div>
 
@@ -120,7 +181,9 @@ export function SeedsView({ onChanged }: { onChanged: () => void }): React.React
           <SeedCard
             key={`${s.source}-${s.name}`} seed={s}
             applying={applying === s.name} installing={installing === s.name}
+            deleting={deleting === s.name}
             onApply={(merge) => handleApply(s.name, merge)} onInstall={() => handleInstall(s.name)}
+            onDelete={() => handleDelete(s.name)}
           />
         ))}
         {!loading && data && filtered.length === 0 && (
@@ -133,13 +196,14 @@ export function SeedsView({ onChanged }: { onChanged: () => void }): React.React
   );
 }
 
-function SeedCard({ seed, applying, installing, onApply, onInstall }: {
-  seed: UnifiedSeed; applying: boolean; installing: boolean;
-  onApply: (merge: boolean) => void; onInstall: () => void;
+function SeedCard({ seed, applying, installing, deleting, onApply, onInstall, onDelete }: {
+  seed: UnifiedSeed; applying: boolean; installing: boolean; deleting: boolean;
+  onApply: (merge: boolean) => void; onInstall: () => void; onDelete: () => void;
 }): React.ReactElement {
   const valid = seed.local?.valid ?? true;
   const missing = seed.local?.missing_types ?? [];
   const hasMissing = missing.length > 0;
+  const isPersonal = seed.local?.source === "personal";
   // The "ready to spawn" state requires:
   //   - the seed lives on disk locally,
   //   - the YAML is syntactically valid,
@@ -166,6 +230,14 @@ function SeedCard({ seed, applying, installing, onApply, onInstall }: {
         }`}>
           {seed.onDisk ? "installed" : "marketplace"}
         </span>
+        {isPersonal && (
+          <span
+            className="px-1.5 py-0.5 text-[10px] rounded bg-amber-500/20 text-amber-400"
+            title="Saved by you from the running network — deletable from this dashboard."
+          >
+            personal
+          </span>
+        )}
         {seed.local?.store && (
           <span
             className="px-1.5 py-0.5 text-[10px] rounded bg-accent/15 text-accent font-mono"
@@ -198,6 +270,16 @@ function SeedCard({ seed, applying, installing, onApply, onInstall }: {
               >
                 {applying ? "Applying…" : "Apply (replace)"}
               </button>
+              {isPersonal && (
+                <button
+                  onClick={onDelete}
+                  disabled={deleting}
+                  title="Delete this personal seed from disk."
+                  className="px-2 py-1 text-xs rounded text-node-stopped hover:bg-node-stopped/10 disabled:opacity-50"
+                >
+                  {deleting ? "Deleting…" : "Delete"}
+                </button>
+              )}
             </>
           ) : (
             <button

@@ -186,6 +186,8 @@ export interface SeedValidationError {
   message: string;
 }
 
+export type SeedSource = "store" | "personal" | "root";
+
 export interface SeedInfo {
   name: string;
   filename: string;
@@ -193,7 +195,10 @@ export interface SeedInfo {
   errors: SeedValidationError[];
   node_count: number;
   nodes: Array<{ type: string; name: string }>;
-  /** `brAIn-<area>` for store-shipped seeds, null for root seeds. */
+  /** Where the seed comes from on disk. Only "personal" seeds are
+   *  deletable through the dashboard. */
+  source: SeedSource;
+  /** `brAIn-<area>` for store-shipped seeds, null for root/personal. */
   store: string | null;
   /** Unique node types this seed needs to spawn — derived from
    *  nodes[].type. The dashboard renders one chip per entry. */
@@ -228,6 +233,24 @@ export interface SeedApplyResult {
 export function applySeed(name: string, opts?: { merge?: boolean }): Promise<SeedApplyResult> {
   const qs = opts?.merge ? "?merge=true" : "";
   return request(`/network/seeds/${name}/apply${qs}`, { method: "POST" });
+}
+
+/**
+ * Snapshot the running network as a new personal seed. Returns the
+ * slug the file was saved under (display name → kebab-case). 409
+ * collides on duplicate slug; pass `overwrite: true` to replace.
+ */
+export function savePersonalSeed(name: string, opts?: { description?: string; overwrite?: boolean }): Promise<{ slug: string; path: string }> {
+  return request("/network/seeds", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name, description: opts?.description, overwrite: opts?.overwrite }),
+  });
+}
+
+/** Delete a personal seed by slug. 403 on store/root seeds. */
+export function deletePersonalSeed(slug: string): Promise<{ deleted: string }> {
+  return request(`/network/seeds/${slug}`, { method: "DELETE" });
 }
 
 // === Agents (distributed runtime) ===

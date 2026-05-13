@@ -22,7 +22,15 @@ import {
   getDb, clearAll, updateNodePosition, recordHistory, getHistory,
   type HistoryEntry, type HistoryAction,
 } from "./db";
-import { applySeed, scanAllSeedSources, scanSeedsDirectory, type SeedInfo, type SeedResult } from "./seed";
+import {
+  applySeed,
+  scanAllSeedSources,
+  scanSeedsDirectory,
+  savePersonalSeed as doSavePersonalSeed,
+  deletePersonalSeed as doDeletePersonalSeed,
+  type SeedInfo,
+  type SeedResult,
+} from "./seed";
 import { restoreNodes } from "./brain-restore";
 import {
   spawnNode as doSpawn, killNode as doKill, stopNode as doStop,
@@ -55,6 +63,10 @@ export class BrainService extends EventEmitter {
    *  When set, getSeeds() unions root seeds + every store's seeds and
    *  attributes each required type to its source store. */
   private storeprojectsRoot?: string;
+  /** Where user-saved "personal" seeds live (one YAML per saved
+   *  configuration). Writeable via savePersonalSeed / deletable via
+   *  deletePersonalSeed; nothing else gets touched here. */
+  private personalSeedsDir?: string;
   private globalRunMode: "auto" | "manual" = "auto";
   readonly llm = LLMRegistry.getInstance();
   readonly cli = CLIRegistry.getInstance();
@@ -283,12 +295,43 @@ export class BrainService extends EventEmitter {
   getNetworkHistory(o?: { last?: number; action?: HistoryAction; node_id?: string; since?: number }): HistoryEntry[] { return getHistory(this.db, o); }
   setSeedsDir(dir: string): void { this.seedsDir = dir; }
   setStoreprojectsRoot(dir: string): void { this.storeprojectsRoot = dir; }
+  setPersonalSeedsDir(dir: string): void { this.personalSeedsDir = dir; }
   getSeeds(): SeedInfo[] {
     const known = new Set(this.typeRegistry.list().map((t) => t.name));
     if (this.storeprojectsRoot) {
-      return scanAllSeedSources(this.seedsDir ?? "", this.storeprojectsRoot, known);
+      return scanAllSeedSources(this.seedsDir ?? "", this.storeprojectsRoot, known, this.personalSeedsDir);
     }
     return this.seedsDir ? scanSeedsDirectory(this.seedsDir, { knownTypes: known }) : [];
+  }
+
+  /**
+   * Snapshot the running network and persist it as a personal seed
+   * under `<personalSeedsDir>/<slug>.yaml`. Defaults to refusing on
+   * name collision; pass `overwrite: true` to clobber.
+   */
+  savePersonalSeed(displayName: string, opts?: { description?: string; overwrite?: boolean }): { slug: string; path: string } {
+    if (!this.personalSeedsDir) {
+      throw new Error("Personal seeds directory is not configured");
+    }
+    const snapshot = this.getNetworkSnapshot();
+    return doSavePersonalSeed(this.personalSeedsDir, displayName, snapshot, opts);
+  }
+
+  /**
+   * Remove a personal seed by its slug. Validates the target really
+   * is a personal seed before unlinking — store/root seeds must not
+   * be deletable through this surface.
+   */
+  deletePersonalSeed(slug: string): void {
+    if (!this.personalSeedsDir) {
+      throw new Error("Personal seeds directory is not configured");
+    }
+    const target = this.getSeeds().find((s) => s.name === slug);
+    if (!target) throw new Error(`Personal seed "${slug}" not found`);
+    if (target.source !== "personal") {
+      throw new Error(`Refusing to delete "${slug}": only personal seeds can be removed (this one is from ${target.source})`);
+    }
+    doDeletePersonalSeed(this.personalSeedsDir, slug);
   }
   async initializeProviders(): Promise<void> { await Promise.allSettled([this.llm.initialize(), this.cli.initialize()]); }
   getProviderStatuses(): { llm: ProviderStatus[]; cli: CLIStatus[] } { return { llm: this.llm.getStatuses(), cli: this.cli.getStatuses() }; }
