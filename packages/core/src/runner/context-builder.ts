@@ -170,6 +170,7 @@ function buildLLMFacade(deps: BuildContextDeps, nodeInfo: NodeInfo, signal: Abor
     const err = (): never => { throw new Error("ctx.llm unavailable: runner has no llmRegistry/llmConfig dep"); };
     return {
       text: (): Promise<string> => { err(); return Promise.reject(new Error("unreachable")); },
+      tool: (): Promise<never> => { err(); return Promise.reject(new Error("unreachable")); },
       resolveModel: (): never => err(),
       listModels: (): never => err(),
     };

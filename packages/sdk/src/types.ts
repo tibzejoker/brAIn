@@ -228,6 +228,11 @@ export interface LLMTextOptions {
   maxTokens?: number;
   /** Strip `<think>` / `<thinking>` blocks from the answer. Default true. */
   stripReasoning?: boolean;
+  /** Override the abort signal for this call. Defaults to `ctx.signal`
+   *  which lives for one handler iteration — pass a fresh signal here
+   *  if the call fires from a background task that outlives the
+   *  current iteration. */
+  signal?: AbortSignal;
 }
 
 export interface LLMResolutionTrace {
@@ -238,9 +243,37 @@ export interface LLMResolutionTrace {
   fallback_reason?: string;
 }
 
+export interface LLMToolOptions<Args> {
+  /** The tool the model is forced to invoke. `inputSchema` is a zod
+   *  schema; the resolved args are returned typed via `z.infer`. */
+  tool: {
+    name: string;
+    description: string;
+    inputSchema: unknown;
+  };
+  prompt: string | Array<{ role: "system" | "user" | "assistant"; content: string }>;
+  system?: string;
+  model?: string;
+  fallback?: string[];
+  maxTokens?: number;
+  /** Retry once with a stricter "you MUST call the tool" system prompt
+   *  if the model emits text without a tool call. Default 1. */
+  retries?: number;
+  /** Optional callback to inspect the raw ai-sdk result before we
+   *  return the input. Useful for telemetry / debugging. */
+  onResult?: (result: unknown) => void;
+  /** Marker only — when set, the return type narrows via `Args`. */
+  _argsType?: Args;
+}
+
 export interface LLMFacade {
   /** Plain text generation. Returns the extracted answer. */
   text(opts: LLMTextOptions): Promise<string>;
+  /** Forced tool call — the model MUST emit a structured `inputSchema`-
+   *  validated object. No client-side JSON parsing needed; the ai-sdk
+   *  schema-validates the result. Returns the tool args. Throws if every
+   *  provider in the chain fails to produce a valid call. */
+  tool<Args = Record<string, unknown>>(opts: LLMToolOptions<Args>): Promise<Args>;
   /** Resolution-only — returns what model this node would use without
    *  making a call. Powers dashboard previews. */
   resolveModel(explicit?: string, fallbackOverride?: string[]): LLMResolutionTrace;

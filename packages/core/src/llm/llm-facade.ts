@@ -12,7 +12,7 @@
  * anymore — go through ctx.llm. That keeps the boilerplate centralised
  * and means provider swaps don't ripple into nodes.
  */
-import { generateText } from "ai";
+import { generateText, tool as aiTool } from "ai";
 import type { IBusService } from "../bus/bus.interface";
 import type { LLMRegistry } from "./llm-registry";
 import type { LLMConfigStore } from "./llm-config";
@@ -41,9 +41,14 @@ export interface TextOptions {
   fallback?: string[];
   maxTokens?: number;
   stripReasoning?: boolean;
+  /** Override the abort signal for this call. Defaults to `ctx.signal`
+   *  which lives for one handler iteration — pass a fresh signal here
+   *  if you fire LLM calls from a background task that outlives the
+   *  current iteration (e.g. a cache refill loop). */
+  signal?: AbortSignal;
 }
 
-export interface ToolOptions<Schema> {
+export interface ToolOptions<Schema = unknown> {
   tool: {
     name: string;
     description: string;
@@ -57,6 +62,11 @@ export interface ToolOptions<Schema> {
   /** Retries with a stricter "you MUST call the tool" prompt if the
    *  model emits text without a tool call. Default 1. */
   retries?: number;
+  /** Optional observer of the raw ai-sdk result — handy for telemetry
+   *  / debugging without monkey-patching the facade. */
+  onResult?: (result: unknown) => void;
+  /** Override the abort signal — see TextOptions.signal. */
+  signal?: AbortSignal;
 }
 
 export interface ResolutionTrace {
@@ -132,12 +142,13 @@ export class LLMFacade {
       const start = Date.now();
       try {
         const model = this.deps.registry.getModel(candidate.spec);
+        const callSignal = opts.signal ?? this.deps.signal;
         const result = await generateText({
           model,
           system: opts.system,
           messages,
           maxOutputTokens: opts.maxTokens ?? 1024,
-          abortSignal: this.deps.signal,
+          abortSignal: callSignal,
         });
         const text = extractReasoningText(result, { stripReasoning: opts.stripReasoning ?? true }) ?? "";
         const usage = (result as { usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number } }).usage;
@@ -153,7 +164,7 @@ export class LLMFacade {
           error: lastError.message,
         });
         // User cancelled — propagate immediately, don't keep retrying.
-        if (this.deps.signal.aborted) throw lastError;
+        if ((opts.signal ?? this.deps.signal).aborted) throw lastError;
         // Provider-level error (auth, billing, network, server crash, rate
         // limit, …) — other models on the same provider will fail with
         // the same error, so blacklist it and walk to the next provider.
@@ -163,6 +174,122 @@ export class LLMFacade {
     }
 
     throw lastError ?? new Error("ctx.llm.text: every candidate failed");
+  }
+
+  /** Forced tool call — the model MUST emit a structured args object
+   *  matching the supplied zod schema. Same chain + failover semantics
+   *  as text(). If the first attempt at a candidate doesn't return a
+   *  tool call, we retry up to `retries` times with a stricter system
+   *  prompt before moving to the next provider. The ai-sdk validates
+   *  the args against the schema; callers get them typed.
+   */
+  async tool<Args = Record<string, unknown>>(opts: ToolOptions): Promise<Args> {
+    const candidates = this.buildCandidates(opts.model, opts.fallback);
+    if (candidates.length === 0) {
+      throw new Error("ctx.llm.tool: no candidate models available");
+    }
+    const top = candidates[0].spec;
+    const failedProviders = new Set<string>();
+    let lastError: Error | undefined;
+    const messages = this.normaliseMessages(opts.prompt);
+    // `inputSchema` comes in as `unknown` because the public types in
+    // @brain/sdk can't pull in a `z.ZodTypeAny` dependency. ai-sdk's
+    // `tool()` accepts either a zod schema or a JSON-schema object; we
+    // hand whatever the caller gave us through as a typed parameter.
+    const wrappedTool = aiTool({
+      description: opts.tool.description,
+      inputSchema: opts.tool.inputSchema as Parameters<typeof aiTool>[0]["inputSchema"],
+    });
+    const maxRetries = Math.max(0, opts.retries ?? 1);
+
+    for (const candidate of candidates) {
+      const provider = candidate.spec.split("/")[0];
+      if (failedProviders.has(provider)) continue;
+      if (!this.deps.registry.isSpecAvailable(candidate.spec)) {
+        failedProviders.add(provider);
+        continue;
+      }
+
+      const resolution: ResolutionTrace = {
+        requested: top,
+        resolved: candidate.spec,
+        layer: candidate.layer,
+        fell_back: candidate.spec !== top,
+        fallback_reason: candidate.spec !== top ? (lastError?.message ?? `${top} unavailable`) : undefined,
+      };
+
+      // Within a single candidate, we retry on "model emitted text but
+      // no tool call". A different error (network, auth, etc.) escapes
+      // this loop and the outer one moves to the next provider.
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        const start = Date.now();
+        try {
+          const model = this.deps.registry.getModel(candidate.spec);
+          const system = attempt === 0
+            ? opts.system
+            : `${opts.system ?? ""}\n\n>>> Previous attempt did not call the tool. You MUST call \`${opts.tool.name}\` exactly once. Do not reply in plain text.`;
+          const result = await generateText({
+            model,
+            system,
+            messages,
+            tools: { [opts.tool.name]: wrappedTool },
+            toolChoice: "required",
+            maxOutputTokens: opts.maxTokens ?? 2048,
+            abortSignal: opts.signal ?? this.deps.signal,
+          });
+          if (opts.onResult) {
+            try { opts.onResult(result); } catch { /* ignore observer bugs */ }
+          }
+          const input = this.extractToolInput(result, opts.tool.name);
+          const usage = (result as { usage?: { inputTokens?: number; outputTokens?: number; totalTokens?: number } }).usage;
+          if (input) {
+            this.emitUsage({
+              call_kind: "tool", resolution, latency_ms: Date.now() - start,
+              tokens: usage ? { input: usage.inputTokens, output: usage.outputTokens, total: usage.totalTokens } : undefined,
+            });
+            return input as Args;
+          }
+          // Tool wasn't called: count this attempt as "wasted" and either
+          // retry-with-stricter-prompt or give up on this provider.
+          this.emitUsage({
+            call_kind: "tool", resolution, latency_ms: Date.now() - start,
+            tokens: usage ? { input: usage.inputTokens, output: usage.outputTokens, total: usage.totalTokens } : undefined,
+            error: "no tool call emitted",
+          });
+          lastError = new Error(`${candidate.spec}: no tool call emitted`);
+          if (attempt === maxRetries) {
+            failedProviders.add(provider);
+            break; // out of attempts on this candidate — try the next provider
+          }
+        } catch (err) {
+          lastError = err instanceof Error ? err : new Error(String(err));
+          this.emitUsage({
+            call_kind: "tool", resolution, latency_ms: Date.now() - start,
+            error: lastError.message,
+          });
+          if ((opts.signal ?? this.deps.signal).aborted) throw lastError;
+          // Real provider error: skip to the next provider (no retries on this one).
+          failedProviders.add(provider);
+          break;
+        }
+      }
+    }
+
+    throw lastError ?? new Error("ctx.llm.tool: every candidate failed");
+  }
+
+  /** Pull the first matching tool call out of a generateText result.
+   *  ai-sdk surfaces tool calls in two places depending on whether the
+   *  model went through internal steps — we check both. */
+  private extractToolInput(result: unknown, toolName: string): Record<string, unknown> | null {
+    const r = result as {
+      toolCalls?: Array<{ toolName?: string; input?: unknown }>;
+      steps?: Array<{ toolCalls?: Array<{ toolName?: string; input?: unknown }> }>;
+    };
+    const fromTop = r.toolCalls?.find((c) => c.toolName === toolName);
+    const call = fromTop ?? r.steps?.flatMap((s) => s.toolCalls ?? []).find((c) => c.toolName === toolName);
+    if (!call || typeof call.input !== "object" || call.input === null) return null;
+    return call.input as Record<string, unknown>;
   }
 
   /** Build the ordered candidate list, deduped across layers. Public for
