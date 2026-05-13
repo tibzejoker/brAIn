@@ -104,28 +104,33 @@ export function NodeBlock({ data, selected }: NodeProps<NodeBlockData>): React.R
         </div>
       )}
 
-      {/* Capability legend at the hovered node — labels above/below
-          double as a colour legend for the red/cyan authority edges.
-          Hidden for cases that don't apply: ROOT can't be controlled,
-          BASIC has no outgoing capabilities. */}
+      {/* Capability legend — one chip per (handle x, relationship type)
+          so each label sits directly above/below its corresponding line
+          anchor. Arrows are all "↓" because the visual flow of the line
+          always points toward / away from the node downward: lines from
+          ABOVE descend into the node, lines from the BOTTOM continue
+          descending away. Same direction = same arrow. */}
       {data.showCapabilityLayer && data.isHovered && (
         <>
+          {/* Top — incoming */}
           {data.authorityLevel < 2 && (
-            <div className="absolute left-1/2 -translate-x-1/2 -top-12 flex flex-col items-center gap-0.5 text-[10px] font-bold whitespace-nowrap pointer-events-none leading-tight">
-              <span style={{ color: AUTH_CONTROL_COLOR }}>↑ controlled by</span>
-              <span style={{ color: AUTH_INSPECT_COLOR }}>↑ inspected by</span>
+            <div className="absolute -top-5 text-[10px] font-bold whitespace-nowrap pointer-events-none leading-tight -translate-x-1/2" style={{ left: "35%", color: AUTH_CONTROL_COLOR }}>
+              ↓ controlled by
             </div>
           )}
-          {data.authorityLevel === 2 && (
-            <div className="absolute left-1/2 -translate-x-1/2 -top-7 flex items-center text-[10px] font-bold whitespace-nowrap pointer-events-none leading-tight">
-              <span style={{ color: AUTH_INSPECT_COLOR }}>↑ inspected by</span>
-            </div>
-          )}
+          <div className="absolute -top-5 text-[10px] font-bold whitespace-nowrap pointer-events-none leading-tight -translate-x-1/2" style={{ left: "65%", color: AUTH_INSPECT_COLOR }}>
+            ↓ inspected by
+          </div>
+          {/* Bottom — outgoing (only meaningful for ELEVATED+) */}
           {data.authorityLevel >= 1 && (
-            <div className="absolute left-1/2 -translate-x-1/2 -bottom-12 flex flex-col items-center gap-0.5 text-[10px] font-bold whitespace-nowrap pointer-events-none leading-tight">
-              <span style={{ color: AUTH_CONTROL_COLOR }}>↓ controls</span>
-              <span style={{ color: AUTH_INSPECT_COLOR }}>↓ inspects</span>
-            </div>
+            <>
+              <div className="absolute -bottom-5 text-[10px] font-bold whitespace-nowrap pointer-events-none leading-tight -translate-x-1/2" style={{ left: "35%", color: AUTH_CONTROL_COLOR }}>
+                ↓ controls
+              </div>
+              <div className="absolute -bottom-5 text-[10px] font-bold whitespace-nowrap pointer-events-none leading-tight -translate-x-1/2" style={{ left: "65%", color: AUTH_INSPECT_COLOR }}>
+                ↓ inspects
+              </div>
+            </>
           )}
         </>
       )}
@@ -246,14 +251,16 @@ export function NodeBlock({ data, selected }: NodeProps<NodeBlockData>): React.R
         <Handle type="source" position={Position.Right} id="out-default" className="opacity-0" />
       )}
 
-      {/* Authority handles (top = incoming, bottom = outgoing). Always
-          mounted when the capability layer is on so the graph can route
-          edges through them without an extra re-render dance. The dots
-          themselves stay invisible — only the edge stroke is visible. */}
+      {/* Authority handles — 4 anchors so red (control) and cyan
+          (inspect) don't sit on top of each other when both relations
+          exist with the same peer. Layout: control left (35%),
+          inspect right (65%), top = incoming, bottom = outgoing. */}
       {data.showCapabilityLayer && (
         <>
-          <Handle type="target" position={Position.Top}    id="auth-in"  className="opacity-0" />
-          <Handle type="source" position={Position.Bottom} id="auth-out" className="opacity-0" />
+          <Handle type="target" position={Position.Top}    id="auth-in-control"   className="opacity-0" style={{ left: "35%" }} />
+          <Handle type="target" position={Position.Top}    id="auth-in-inspect"   className="opacity-0" style={{ left: "65%" }} />
+          <Handle type="source" position={Position.Bottom} id="auth-out-control"  className="opacity-0" style={{ left: "35%" }} />
+          <Handle type="source" position={Position.Bottom} id="auth-out-inspect"  className="opacity-0" style={{ left: "65%" }} />
         </>
       )}
     </div>

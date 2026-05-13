@@ -113,6 +113,9 @@ function snapshotToFlowNode(
 const AUTH_CONTROL_COLOR = "#dc2626"; // strong red — kill/stop/rewire
 const AUTH_INSPECT_COLOR = "#0891b2"; // strong cyan — read-only
 const AUTH_STROKE_WIDTH = 3;
+// Edges are animated (flowing dashes) so direction is unambiguous;
+// opacity is dropped so they don't fight the pub/sub layer on hover.
+const AUTH_STROKE_OPACITY = 0.55;
 
 function buildAuthorityEdges(hoveredId: string | null, snapshots: NodeSnapshot[]): Edge[] {
   if (!hoveredId) return [];
@@ -128,17 +131,19 @@ function buildAuthorityEdges(hoveredId: string | null, snapshots: NodeSnapshot[]
     // Incoming to hovered: what can `other` do TO `hovered`?
     if (otherAuth >= 1) {
       const isControl = otherAuth > hoveredAuth;
+      const kind = isControl ? "control" : "inspect";
       edges.push({
-        id: `auth:in:${other.id}->${hovered.id}`,
+        id: `auth:in:${kind}:${other.id}->${hovered.id}`,
         source: other.id,
         target: hovered.id,
-        sourceHandle: "auth-out",
-        targetHandle: "auth-in",
+        sourceHandle: `auth-out-${kind}`,
+        targetHandle: `auth-in-${kind}`,
         type: "smoothstep" as const,
-        animated: false,
+        animated: true,
         style: {
           stroke: isControl ? AUTH_CONTROL_COLOR : AUTH_INSPECT_COLOR,
           strokeWidth: AUTH_STROKE_WIDTH,
+          opacity: AUTH_STROKE_OPACITY,
         },
       });
     }
@@ -146,17 +151,19 @@ function buildAuthorityEdges(hoveredId: string | null, snapshots: NodeSnapshot[]
     // Outgoing from hovered: what can `hovered` do TO `other`?
     if (hoveredAuth >= 1) {
       const isControl = hoveredAuth > otherAuth;
+      const kind = isControl ? "control" : "inspect";
       edges.push({
-        id: `auth:out:${hovered.id}->${other.id}`,
+        id: `auth:out:${kind}:${hovered.id}->${other.id}`,
         source: hovered.id,
         target: other.id,
-        sourceHandle: "auth-out",
-        targetHandle: "auth-in",
+        sourceHandle: `auth-out-${kind}`,
+        targetHandle: `auth-in-${kind}`,
         type: "smoothstep" as const,
-        animated: false,
+        animated: true,
         style: {
           stroke: isControl ? AUTH_CONTROL_COLOR : AUTH_INSPECT_COLOR,
           strokeWidth: AUTH_STROKE_WIDTH,
+          opacity: AUTH_STROKE_OPACITY,
         },
       });
     }
