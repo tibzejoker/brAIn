@@ -1,15 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { BrainService, LLMRegistry } from "@brain/core";
 import type { Message } from "@brain/sdk";
-import * as path from "path";
+import { allStoreprojectNodeDirs } from "./_helpers/storeprojects-dirs";
 
 describe("Integration: BrainService end-to-end", () => {
   let brain: BrainService;
 
   beforeAll(async () => {
     brain = new BrainService(":memory:");
-    const nodesDir = path.resolve(__dirname, "../nodes");
-    brain.bootstrap(nodesDir);
+    brain.bootstrap(allStoreprojectNodeDirs());
     await LLMRegistry.getInstance().initialize();
   }, 60000);
 

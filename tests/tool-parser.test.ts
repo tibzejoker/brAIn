@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { parseToolCall, parseSleepRequest } from "../nodes/brain/src/tool-parser";
+import { parseToolCall, parseSleepRequest } from "../../storeprojects/brAIn-essentials/nodes/brain/src/tool-parser";
 
 describe("parseToolCall", () => {
   it("parses clean JSON", () => {

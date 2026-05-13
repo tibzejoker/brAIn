@@ -4,6 +4,7 @@ import type { Message } from "@brain/sdk";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
+import { allStoreprojectNodeDirs } from "./_helpers/storeprojects-dirs";
 
 /**
  * End-to-end of the new developer-node topics that don't require a code-
@@ -19,13 +20,12 @@ describe("developer node — query topics", () => {
 
   beforeAll(async () => {
     brain = new BrainService(":memory:");
-    // Bootstrap with the sister repo so `developer` is registered.
-    const essentialsNodes = path.resolve(
-      __dirname,
-      "../../storeprojects/brAIn-essentials/nodes",
-    );
+    // Bootstrap every storeproject so `developer` (essentials) is
+    // registered. brAInNodes is kept around as a writable scratch path
+    // for the dynamic-workspace fixture below — the dir may not exist
+    // anymore in the post-split layout, so mkdirSync recreates it.
     const brAInNodes = path.resolve(__dirname, "../nodes");
-    brain.bootstrap([brAInNodes, essentialsNodes]);
+    brain.bootstrap(allStoreprojectNodeDirs());
 
     // Stage a fake authored workspace so `dev.workspaces.list` has
     // something to scan. We layer it under brAIn/nodes/_dynamic — that's

@@ -90,7 +90,7 @@ describe("http-bridge handler", () => {
   let handler: (ctx: NodeContext) => Promise<void>;
 
   beforeEach(async () => {
-    const mod = await import("../nodes/http-bridge/src/handler");
+    const mod = await import("../../storeprojects/brAIn-tools/nodes/http-bridge/src/handler");
     handler = mod.handler;
   });
 

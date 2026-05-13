@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveRoute } from "../nodes/brain/src/message-formatter";
+import { resolveRoute } from "../../storeprojects/brAIn-essentials/nodes/brain/src/message-formatter";
 
 describe("resolveRoute", () => {
   // Topic aliasing

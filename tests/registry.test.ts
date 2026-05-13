@@ -4,14 +4,19 @@ import { NodeState, AuthorityLevel } from "@brain/sdk";
 import * as fs from "fs";
 import * as os from "os";
 import * as path from "path";
+import { allStoreprojectNodeDirs } from "./_helpers/storeprojects-dirs";
+
+function scanAll(reg: TypeRegistry): void {
+  for (const dir of allStoreprojectNodeDirs()) reg.scanDirectory(dir);
+}
 
 describe("TypeRegistry", () => {
   it("scans and registers node types from directory", () => {
     const reg = new TypeRegistry();
-    const nodesDir = path.resolve(__dirname, "../nodes");
-    const types = reg.scanDirectory(nodesDir);
+    scanAll(reg);
 
-    expect(types.length).toBeGreaterThanOrEqual(5);
+    // Across all storeprojects, well over 5 types are registered.
+    expect(reg.list().length).toBeGreaterThanOrEqual(5);
     expect(reg.has("clock")).toBe(true);
     expect(reg.has("echo")).toBe(true);
     expect(reg.has("cron")).toBe(true);
@@ -21,8 +26,7 @@ describe("TypeRegistry", () => {
 
   it("returns type config with description", () => {
     const reg = new TypeRegistry();
-    const nodesDir = path.resolve(__dirname, "../nodes");
-    reg.scanDirectory(nodesDir);
+    scanAll(reg);
 
     const clock = reg.get("clock");
     expect(clock).toBeDefined();
@@ -32,8 +36,7 @@ describe("TypeRegistry", () => {
 
   it("filters by tags", () => {
     const reg = new TypeRegistry();
-    const nodesDir = path.resolve(__dirname, "../nodes");
-    reg.scanDirectory(nodesDir);
+    scanAll(reg);
 
     const llmTypes = reg.list({ tags: ["llm"] });
     expect(llmTypes.length).toBeGreaterThanOrEqual(1);

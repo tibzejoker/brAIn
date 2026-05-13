@@ -15,9 +15,9 @@ import { describe, it, expect, afterAll, afterEach } from "vitest";
 import { BrainService, LLMRegistry } from "@brain/core";
 import * as fs from "fs";
 import * as path from "path";
+import { allStoreprojectNodeDirs } from "./_helpers/storeprojects-dirs";
 
 const TEST_MODEL = "ollama/gemma4:e4b";
-const NODES_DIR = path.resolve(__dirname, "..", "nodes");
 const DATA_DIR = path.resolve(__dirname, "..", "data");
 const MEM_PATH = path.join(DATA_DIR, "memory.json");
 const MAX_WAIT = 90_000;
@@ -144,7 +144,7 @@ describe("e2e: memory consolidator", async () => {
       console.log(`\n  Attempt ${attempt + 1}: ${keysBefore.length} entries before consolidation`);
 
       brain = new BrainService(":memory:");
-      brain.bootstrap(NODES_DIR);
+      brain.bootstrap(allStoreprojectNodeDirs());
       await LLMRegistry.getInstance().initialize();
 
       // Spawn memory KV (needed for the consolidator to talk to)

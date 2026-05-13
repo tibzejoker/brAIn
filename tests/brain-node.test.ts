@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { BrainService, LLMRegistry } from "@brain/core";
 import type { Message } from "@brain/sdk";
-import * as path from "path";
+import { allStoreprojectNodeDirs } from "./_helpers/storeprojects-dirs";
 
 describe("Brain node: central consciousness", () => {
   let brain: BrainService;
@@ -9,8 +9,7 @@ describe("Brain node: central consciousness", () => {
   beforeAll(async () => {
     LLMRegistry.resetInstance();
     brain = new BrainService(":memory:");
-    const nodesDir = path.resolve(__dirname, "../nodes");
-    brain.bootstrap(nodesDir);
+    brain.bootstrap(allStoreprojectNodeDirs());
     await LLMRegistry.getInstance().initialize();
   }, 60000);
 

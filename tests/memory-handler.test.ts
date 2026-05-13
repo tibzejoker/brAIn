@@ -98,7 +98,7 @@ describe("memory handler", () => {
       },
     }));
 
-    const mod = await import("../nodes/memory/src/handler");
+    const mod = await import("../../storeprojects/brAIn-memory/nodes/memory/src/handler");
     handler = mod.handler;
   });
 

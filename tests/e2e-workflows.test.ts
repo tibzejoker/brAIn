@@ -13,11 +13,11 @@ import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
 import * as os from "os";
+import { allStoreprojectNodeDirs } from "./_helpers/storeprojects-dirs";
 
 const TEST_MODEL = "ollama/gemma4:e4b";
 const TIMEOUT_PER_ATTEMPT = 90_000;
 const MAX_ATTEMPTS = 2;
-const NODES_DIR = path.resolve(__dirname, "..", "nodes");
 const DATA_DIR = path.resolve(__dirname, "..", "data");
 const MEM_PATH = path.join(DATA_DIR, "memory.json");
 
@@ -80,7 +80,7 @@ function resetMemory(seed?: Record<string, unknown>): void {
 
 async function freshNetwork(extraNodes: string[] = []): Promise<BrainService> {
   const brain = new BrainService(":memory:");
-  brain.bootstrap(NODES_DIR);
+  brain.bootstrap(allStoreprojectNodeDirs());
   await LLMRegistry.getInstance().initialize();
 
   await brain.spawnNode({ type: "memory", name: "memory" });

@@ -10,6 +10,17 @@ export default defineConfig({
     testTimeout: 30000,
     fileParallelism: false,
     globalSetup: ["./tests/_setup/nats-broker.ts"],
+    // Tests dynamically import node handlers from the sibling
+    // `storeprojects/` directory (`brain.service.ts` -> `loadHandler`
+    // -> `import(require.resolve(typePath))`). Vite restricts dynamic
+    // imports to the project root by default; widen the allow-list to
+    // include the workspace parent so handlers in storeprojects load.
+    server: {
+      deps: { external: [/\/storeprojects\//] },
+    },
+  },
+  server: {
+    fs: { allow: [path.resolve(__dirname, "..")] },
   },
   resolve: {
     alias: {

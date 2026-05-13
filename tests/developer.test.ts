@@ -3,6 +3,7 @@ import { BrainService, CLIRegistry } from "@brain/core";
 import type { Message } from "@brain/sdk";
 import * as path from "path";
 import * as fs from "fs";
+import { allStoreprojectNodeDirs } from "./_helpers/storeprojects-dirs";
 
 describe("Developer node: creates a new node type", () => {
   let brain: BrainService;
@@ -10,9 +11,7 @@ describe("Developer node: creates a new node type", () => {
 
   beforeAll(async () => {
     brain = new BrainService(":memory:");
-    const nodesDir = path.resolve(__dirname, "../nodes");
-    const essentialsDir = path.resolve(__dirname, "../../storeprojects/brAIn-essentials/nodes");
-    brain.bootstrap([nodesDir, essentialsDir]);
+    brain.bootstrap(allStoreprojectNodeDirs());
 
     await CLIRegistry.getInstance().initialize();
   }, 60000);

@@ -15,9 +15,9 @@ import { BrainService, LLMRegistry } from "@brain/core";
 import { NodeState } from "@brain/sdk";
 import * as fs from "fs";
 import * as path from "path";
+import { allStoreprojectNodeDirs } from "./_helpers/storeprojects-dirs";
 
 const TEST_MODEL = "ollama/gemma4:e4b";
-const NODES_DIR = path.resolve(__dirname, "..", "nodes");
 const DATA_DIR = path.resolve(__dirname, "..", "data");
 const MEM_PATH = path.join(DATA_DIR, "memory.json");
 const MAX_WAIT = 60_000;
@@ -72,7 +72,7 @@ describe("e2e: LLM budget system", async () => {
     fs.writeFileSync(MEM_PATH, "{}");
 
     brain = new BrainService(":memory:");
-    brain.bootstrap(NODES_DIR);
+    brain.bootstrap(allStoreprojectNodeDirs());
     await LLMRegistry.getInstance().initialize();
 
     const BUDGET = 3;
@@ -129,7 +129,7 @@ describe("e2e: LLM budget system", async () => {
     fs.writeFileSync(MEM_PATH, "{}");
 
     brain = new BrainService(":memory:");
-    brain.bootstrap(NODES_DIR);
+    brain.bootstrap(allStoreprojectNodeDirs());
     await LLMRegistry.getInstance().initialize();
 
     const node = await brain.spawnNode({

@@ -13,12 +13,12 @@ import { BrainService, LLMRegistry } from "@brain/core";
 import * as fs from "fs";
 import * as path from "path";
 import * as crypto from "crypto";
+import { allStoreprojectNodeDirs } from "./_helpers/storeprojects-dirs";
 
 const TEST_MODEL = "ollama/gemma4:e4b";
 const TIMEOUT_PER_ATTEMPT = 60_000;
 const MAX_ATTEMPTS = 3;
 const SECRET = `CODE-${crypto.randomBytes(8).toString("hex").toUpperCase()}`;
-const NODES_DIR = path.resolve(__dirname, "..", "nodes");
 const DATA_DIR = path.resolve(__dirname, "..", "data");
 const MEM_PATH = path.join(DATA_DIR, "memory.json");
 
@@ -75,7 +75,7 @@ describe("e2e: secret retrieval through full network", async () => {
     }, null, 2));
 
     const b = new BrainService(":memory:");
-    b.bootstrap(NODES_DIR);
+    b.bootstrap(allStoreprojectNodeDirs());
     await LLMRegistry.getInstance().initialize();
 
     await b.spawnNode({ type: "memory", name: "memory" });

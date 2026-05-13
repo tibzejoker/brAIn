@@ -133,7 +133,7 @@ describe("memory-vector handler", () => {
     }
 
     // Import handler fresh
-    const mod = await import("../nodes/memory-vector/src/handler");
+    const mod = await import("../../storeprojects/brAIn-memory/nodes/memory-vector/src/handler");
     handler = mod.handler;
   });
 
