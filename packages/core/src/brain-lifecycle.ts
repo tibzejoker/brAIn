@@ -136,11 +136,12 @@ export async function spawnNode(
     saveSubscription(deps.db, {
       node_id: nodeInfo.id,
       topic: sub.topic,
-      // SubscriptionConfig requires `description` at the type level
-      // already; the bus / DB column would also reject a NULL. The
-      // framework will fall back to the type's default_subscriptions
-      // description on restore if a stored row was migrated empty.
-      description: sub.description,
+      // `description` is declared NOT NULL DEFAULT '' on the column,
+      // but better-sqlite3 binds an undefined JS value as NULL (not as
+      // "use the default"), which trips the constraint. Coerce to ""
+      // here so the default really is empty-string when the caller
+      // hasn't supplied one.
+      description: sub.description ?? "",
       input_schema: sub.inputSchema ? JSON.stringify(sub.inputSchema) : null,
       min_criticality: sub.min_criticality ?? null,
       mailbox_max_size: sub.mailbox?.max_size ?? 100,
