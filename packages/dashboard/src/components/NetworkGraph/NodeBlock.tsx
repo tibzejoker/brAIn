@@ -104,33 +104,28 @@ export function NodeBlock({ data, selected }: NodeProps<NodeBlockData>): React.R
         </div>
       )}
 
-      {/* Capability legend — one chip per (handle x, relationship type)
-          so each label sits directly above/below its corresponding line
-          anchor. Arrows are all "↓" because the visual flow of the line
-          always points toward / away from the node downward: lines from
-          ABOVE descend into the node, lines from the BOTTOM continue
-          descending away. Same direction = same arrow. */}
+      {/* Capability legend — stacked vertically, centred above and
+          below the node. Handles are split (35% / 65%) so the actual
+          lines don't collide, but the labels would overlap horizontally
+          at that spacing so we keep them in a colour-coded column.
+          All arrows point ↓ because the visual flow of every line
+          descends: incoming descends INTO the node from above,
+          outgoing descends AWAY beneath it. */}
       {data.showCapabilityLayer && data.isHovered && (
         <>
-          {/* Top — incoming */}
-          {data.authorityLevel < 2 && (
-            <div className="absolute -top-5 text-[10px] font-bold whitespace-nowrap pointer-events-none leading-tight -translate-x-1/2" style={{ left: "35%", color: AUTH_CONTROL_COLOR }}>
-              ↓ can be controlled by
-            </div>
-          )}
-          <div className="absolute -top-5 text-[10px] font-bold whitespace-nowrap pointer-events-none leading-tight -translate-x-1/2" style={{ left: "65%", color: AUTH_INSPECT_COLOR }}>
-            ↓ can be inspected by
+          {/* Top — incoming. ROOT never has "controlled by". */}
+          <div className="absolute left-1/2 -translate-x-1/2 -top-12 flex flex-col items-center gap-0.5 text-[10px] font-bold whitespace-nowrap pointer-events-none leading-tight">
+            {data.authorityLevel < 2 && (
+              <span style={{ color: AUTH_CONTROL_COLOR }}>↓ can be controlled by</span>
+            )}
+            <span style={{ color: AUTH_INSPECT_COLOR }}>↓ can be inspected by</span>
           </div>
-          {/* Bottom — outgoing (only meaningful for ELEVATED+) */}
+          {/* Bottom — outgoing. Only meaningful for ELEVATED+. */}
           {data.authorityLevel >= 1 && (
-            <>
-              <div className="absolute -bottom-5 text-[10px] font-bold whitespace-nowrap pointer-events-none leading-tight -translate-x-1/2" style={{ left: "35%", color: AUTH_CONTROL_COLOR }}>
-                ↓ can control
-              </div>
-              <div className="absolute -bottom-5 text-[10px] font-bold whitespace-nowrap pointer-events-none leading-tight -translate-x-1/2" style={{ left: "65%", color: AUTH_INSPECT_COLOR }}>
-                ↓ can inspect
-              </div>
-            </>
+            <div className="absolute left-1/2 -translate-x-1/2 -bottom-12 flex flex-col items-center gap-0.5 text-[10px] font-bold whitespace-nowrap pointer-events-none leading-tight">
+              <span style={{ color: AUTH_CONTROL_COLOR }}>↓ can control</span>
+              <span style={{ color: AUTH_INSPECT_COLOR }}>↓ can inspect</span>
+            </div>
           )}
         </>
       )}
