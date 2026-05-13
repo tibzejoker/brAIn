@@ -1,15 +1,15 @@
 import { useCallback, useState, useEffect, useRef } from "react";
 import type { NodeSnapshot } from "../api/types";
-import { killNode, stopNode, startNode, wakeNode, tickNode, getNodeLogs, getNodeMailboxes, getNodeDeadLetters, type NodeLogEntry, type MailboxInfo, type DeadLetterEntry } from "../api/client";
+import { killNode, stopNode, startNode, wakeNode, getNodeLogs, getNodeMailboxes, getNodeDeadLetters, type NodeLogEntry, type MailboxInfo, type DeadLetterEntry } from "../api/client";
 import { DeadLetterTab } from "./DeadLetterTab";
+import { NodeLLMTab } from "./NodeLLMTab";
 import { TabButton, InfoRow, ActionButton } from "./NodePanelHelpers";
 
 function noop(): void { /* best-effort */ }
-type PanelTab = "info" | "logs" | "mailbox" | "dlq";
+type PanelTab = "info" | "logs" | "mailbox" | "dlq" | "llm";
 
 interface NodePanelProps {
   node: NodeSnapshot;
-  devMode: boolean;
   hasUi?: boolean;
   onOpenUi?: () => void;
   onClose: () => void;
@@ -33,7 +33,6 @@ function formatLogTime(ts: number): string {
 
 export function NodePanel({
   node,
-  devMode,
   hasUi,
   onOpenUi,
   onClose,
@@ -142,6 +141,9 @@ export function NodePanel({
           onClick={() => setTab("dlq")}
           warn={deadLetters.length > 0}
         />
+        {node.tags.includes("llm") && (
+          <TabButton label="LLM" active={tab === "llm"} onClick={() => setTab("llm")} />
+        )}
       </div>
 
       {/* Tab content */}
@@ -263,6 +265,16 @@ export function NodePanel({
 
       {tab === "dlq" && <DeadLetterTab entries={deadLetters} />}
 
+      {tab === "llm" && (
+        <div className="flex-1 overflow-y-auto p-4">
+          <NodeLLMTab
+            nodeId={node.id}
+            currentModelOverride={node.config_overrides?.model as string | undefined}
+            onAction={onAction}
+          />
+        </div>
+      )}
+
       {/* Actions */}
       <div className="p-4 border-t border-border flex flex-wrap gap-2">
         {node.state === "active" && (
@@ -275,9 +287,6 @@ export function NodePanel({
           <ActionButton label="Wake" variant="success" loading={actionLoading} onClick={() => handleAction(() => wakeNode(node.id))} />
         )}
         <ActionButton label="Kill" variant="danger" loading={actionLoading} onClick={() => handleAction(() => killNode(node.id))} />
-        {devMode && node.state === "active" && (
-          <ActionButton label="Step" variant="success" loading={actionLoading} onClick={() => handleAction(() => tickNode(node.id))} />
-        )}
       </div>
     </div>
   );

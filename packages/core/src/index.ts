@@ -20,8 +20,16 @@ export { getDb, closeDb, getSetting, setSetting, deleteSetting } from "./db";
 export type { HistoryEntry, HistoryAction } from "./db";
 export { loadSeedFile, scanSeedsDirectory } from "./seed";
 export type { SeedInfo, ValidationError } from "./seed";
-export { LLMRegistry, CLIRegistry, generateText } from "./llm";
-export type { ProviderStatus, CLIStatus } from "./llm";
+export {
+  LLMRegistry, CLIRegistry, generateText,
+  LLMConfigStore, LLMFacade,
+  stripReasoningTags, extractReasoningText,
+  parseTolerantJson, repairTruncatedJson,
+} from "./llm";
+export type {
+  ProviderStatus, CLIStatus, LLMConfig, ProviderCredentials,
+  TextOptions, ToolOptions, ResolutionTrace, UsageEvent,
+} from "./llm";
 export { startChildServer } from "./child-server";
 export type { ChildServerOptions, ChildServerHandle } from "./child-server";
 export {

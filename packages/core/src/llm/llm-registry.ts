@@ -1,8 +1,8 @@
 import { generateText, type LanguageModel } from "ai";
-import { createAnthropic } from "@ai-sdk/anthropic";
 import { createOpenAI } from "@ai-sdk/openai";
-import { createGoogleGenerativeAI } from "@ai-sdk/google";
 import { logger } from "../logger";
+import type { LLMConfigStore } from "./llm-config";
+import { PROVIDER_DEFS } from "./provider-defs";
 
 export interface ProviderStatus {
   name: string;
@@ -29,6 +29,13 @@ export class LLMRegistry {
   private readonly providers = new Map<string, ProviderEntry>();
   private readonly statuses = new Map<string, ProviderStatus>();
   private initialized = false;
+  /** Optional config store: when set, credentials come from here
+   *  (with env vars as a built-in fallback merged inside the store). */
+  private configStore?: LLMConfigStore;
+  private unsubscribeConfig?: () => void;
+  /** When init / re-init is in flight, this resolves once it lands. UI
+   *  endpoints can await it to ensure they read fresh statuses. */
+  private pendingInit: Promise<void> | null = null;
 
   static getInstance(): LLMRegistry {
     if (!instance) {
@@ -38,78 +45,83 @@ export class LLMRegistry {
   }
 
   static resetInstance(): void {
+    if (instance) instance.unsubscribeConfig?.();
     instance = null;
   }
 
+  /** Wire a config store. The registry subscribes to changes and
+   *  re-probes providers whenever credentials change. The returned
+   *  promise stays settled — to know when the latest re-probe is done,
+   *  call `awaitReady()`. */
+  setConfigStore(store: LLMConfigStore): void {
+    this.unsubscribeConfig?.();
+    this.configStore = store;
+    this.unsubscribeConfig = store.onChange(() => {
+      this.pendingInit = this.reinit();
+    });
+  }
+
+  private async reinit(): Promise<void> {
+    this.initialized = false;
+    this.providers.clear();
+    this.statuses.clear();
+    await this.initialize();
+  }
+
+  /** Wait for any in-flight init / re-init to settle. Cheap when idle. */
+  async awaitReady(): Promise<void> {
+    if (this.pendingInit) await this.pendingInit;
+  }
+
+  private credFor(provider: string, envKey: string): string | undefined {
+    return this.configStore?.get().providers[provider]?.apiKey ?? process.env[envKey];
+  }
+
+  private baseURLFor(provider: string): string | undefined {
+    // Custom base URLs are useful for: OpenAI-compatible servers (vLLM,
+    // LM Studio, LocalAI, OpenRouter), Anthropic via a gateway, regional
+    // Google endpoints, etc. Empty string is treated as "use the SDK
+    // default" — same as undefined.
+    const url = this.configStore?.get().providers[provider]?.baseURL;
+    return url && url.length > 0 ? url : undefined;
+  }
 
   private registerBuiltinProviders(): void {
-    // Anthropic
-    if (process.env.ANTHROPIC_API_KEY) {
-      const anthropic = createAnthropic({ apiKey: process.env.ANTHROPIC_API_KEY });
-      this.providers.set("anthropic", {
-        name: "anthropic",
-        factory: (model) => anthropic(model),
-        envKey: "ANTHROPIC_API_KEY",
-        testModel: "claude-haiku-4-5-20251001",
-        models: [
-          "claude-opus-4-6",
-          "claude-sonnet-4-6",
-          "claude-haiku-4-5-20251001",
-        ],
+    // Iterate over the curated provider catalog. Each entry is either
+    // registered (key present OR no key required) or skipped silently.
+    for (const def of PROVIDER_DEFS) {
+      const apiKey = this.credFor(def.name, def.envKey);
+      if (def.requireKey && !apiKey) continue;
+      const baseURL = this.baseURLFor(def.name) ?? def.defaultBaseURL;
+      const client = def.factory(apiKey ?? "none", baseURL);
+      const key = apiKey ?? "none";
+      const url = baseURL ?? def.defaultBaseURL ?? "";
+      const listModels = def.listModels;
+      this.providers.set(def.name, {
+        name: def.name,
+        factory: (m) => client(m),
+        envKey: def.envKey,
+        testModel: def.testModel,
+        models: def.defaultModels,
+        check: listModels ? () => listModels(url, key) : undefined,
       });
     }
 
-    // OpenAI
-    if (process.env.OPENAI_API_KEY) {
-      const openai = createOpenAI({ apiKey: process.env.OPENAI_API_KEY });
-      this.providers.set("openai", {
-        name: "openai",
-        factory: (model) => openai(model),
-        envKey: "OPENAI_API_KEY",
-        testModel: "gpt-4o-mini",
-        models: [
-          "gpt-4o",
-          "gpt-4o-mini",
-          "o3-mini",
-        ],
-      });
-    }
-
-    // Google
-    if (process.env.GOOGLE_GENERATIVE_AI_API_KEY) {
-      const google = createGoogleGenerativeAI({ apiKey: process.env.GOOGLE_GENERATIVE_AI_API_KEY });
-      this.providers.set("google", {
-        name: "google",
-        factory: (model) => google(model),
-        envKey: "GOOGLE_GENERATIVE_AI_API_KEY",
-        testModel: "gemini-2.0-flash",
-        models: [
-          "gemini-2.5-pro",
-          "gemini-2.5-flash",
-          "gemini-2.0-flash",
-        ],
-      });
-    }
-
-    // Ollama (via OpenAI-compatible API, no key needed)
-    const ollamaUrl = process.env.OLLAMA_BASE_URL ?? "http://localhost:11434";
-    const ollama = createOpenAI({
-      baseURL: `${ollamaUrl}/v1`,
-      apiKey: "ollama",
-    });
+    // Ollama is a special case: always registered (no key, just a
+    // reachability probe via /api/tags) — that's the cheap path we use
+    // instead of generateText since loading a multi-GB model on cold
+    // boot would time out the SDK's internal probe budget.
+    const ollamaUrl = this.configStore?.get().providers.ollama.baseURL
+      ?? process.env.OLLAMA_BASE_URL
+      ?? "http://localhost:11434";
+    const ollamaClient = createOpenAI({ baseURL: `${ollamaUrl}/v1`, apiKey: "ollama" });
     this.providers.set("ollama", {
       name: "ollama",
-      factory: (model) => ollama(model),
+      factory: (model) => ollamaClient(model),
       envKey: "OLLAMA_BASE_URL",
       testModel: process.env.OLLAMA_TEST_MODEL ?? "gemma4:e4b",
       models: [],
       check: async () => {
-        // /api/tags is the cheap probe: confirms the daemon is up and
-        // returns the list of pulled models without loading any of them.
-        // Doing a `generateText` instead would force Ollama to load the
-        // test model into RAM/VRAM (multi-GB, can take >30s on cold
-        // boot), which the AI SDK's internal timeout misreports as
-        // "Cannot connect to API".
         const ctrl = new AbortController();
         const timer = setTimeout(() => ctrl.abort(), 3000);
         try {
@@ -140,10 +152,13 @@ export class LLMRegistry {
             const result = await provider.check();
             discoveredModels = result.models;
           } else {
+            // OpenAI now rejects maxOutputTokens < 16 (response is invalid
+            // with "Expected a value >= 16, but got 5"). Bumping to 16 keeps
+            // the probe cheap while staying within every provider's bounds.
             await generateText({
               model: provider.factory(provider.testModel),
               prompt: "Say OK",
-              maxOutputTokens: 5,
+              maxOutputTokens: 16,
             });
           }
 
@@ -209,4 +224,23 @@ export class LLMRegistry {
   isAvailable(provider: string): boolean {
     return this.statuses.get(provider)?.available ?? false;
   }
+
+  /** True iff the given "provider/model" spec is reachable in the
+   *  registry (provider was probed successfully). Doesn't verify the
+   *  specific model exists — that surfaces when we call generateText. */
+  isSpecAvailable(spec: string): boolean {
+    const provider = spec.split("/")[0];
+    return this.isAvailable(provider);
+  }
+
+  /** Walk a list of candidate specs and return the first one whose
+   *  provider is reachable. Returns null if nothing fits. The caller
+   *  can then use `getModel(resolved)` to actually run with it. */
+  resolveSpec(candidates: string[]): string | null {
+    for (const spec of candidates) {
+      if (this.isSpecAvailable(spec)) return spec;
+    }
+    return null;
+  }
 }
+

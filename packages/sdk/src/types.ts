@@ -210,6 +210,44 @@ export interface LLMResponse {
   tool_calls?: Array<{ tool: string; params: unknown }>;
 }
 
+/**
+ * Facade for any LLM operation a node wants to perform. Implementations
+ * live in @brain/core; nodes never reach for `ai-sdk` / `LLMRegistry`
+ * directly — that's what this interface is for.
+ *
+ * Resolution rules: `model` (per-call) > node `config_overrides.model` >
+ * project-wide global default > framework fallback chain. The first
+ * candidate whose provider is currently reachable wins. Every call
+ * automatically emits an `llm.usage` event with attribution.
+ */
+export interface LLMTextOptions {
+  prompt: string | Array<{ role: "system" | "user" | "assistant"; content: string }>;
+  system?: string;
+  model?: string;
+  fallback?: string[];
+  maxTokens?: number;
+  /** Strip `<think>` / `<thinking>` blocks from the answer. Default true. */
+  stripReasoning?: boolean;
+}
+
+export interface LLMResolutionTrace {
+  requested: string;
+  resolved: string;
+  layer: "node-override" | "global-default" | "fallback" | "explicit";
+  fell_back: boolean;
+  fallback_reason?: string;
+}
+
+export interface LLMFacade {
+  /** Plain text generation. Returns the extracted answer. */
+  text(opts: LLMTextOptions): Promise<string>;
+  /** Resolution-only — returns what model this node would use without
+   *  making a call. Powers dashboard previews. */
+  resolveModel(explicit?: string, fallbackOverride?: string[]): LLMResolutionTrace;
+  /** Currently-reachable models, grouped by provider. UI-friendly. */
+  listModels(): Array<{ spec: string; provider: string; model: string }>;
+}
+
 // === Files ===
 
 export interface FileOpts {
@@ -295,6 +333,14 @@ export interface NodeContext {
 
   // LLM (optional)
   callLLM(opts: LLMRequest): Promise<LLMResponse>;
+
+  /**
+   * Per-node LLM facade. Always present — even on runners that don't
+   * have an LLMRegistry wired (in which case calls throw a clear error
+   * pointing at the missing dep). Prefer this over `callLLM` for new
+   * code; `callLLM` is kept for backward compatibility but stubbed.
+   */
+  llm: LLMFacade;
 
   // External tools / MCP
   callTool(server: string, tool: string, params: unknown): Promise<unknown>;

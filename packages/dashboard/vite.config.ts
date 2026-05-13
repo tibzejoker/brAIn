@@ -16,6 +16,7 @@ export default defineConfig({
       "/store": PROXY_OPT,
       "/agents": PROXY_OPT,
       "/mcp": PROXY_OPT,
+      "/llm": PROXY_OPT,
       "/socket.io": { ...PROXY_OPT, ws: true },
     },
   },

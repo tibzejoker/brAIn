@@ -30,6 +30,7 @@ import {
 } from "./brain-lifecycle";
 import { LLMRegistry, type ProviderStatus } from "./llm/llm-registry";
 import { CLIRegistry, type CLIStatus } from "./llm/cli-registry";
+import { LLMConfigStore } from "./llm/llm-config";
 import { StoreService } from "./store";
 import { AgentDirectory, type AgentDirectoryOptions } from "./agents";
 import { MCPBridge } from "./mcp";
@@ -53,6 +54,7 @@ export class BrainService extends EventEmitter {
   private globalRunMode: "auto" | "manual" = "auto";
   readonly llm = LLMRegistry.getInstance();
   readonly cli = CLIRegistry.getInstance();
+  llmConfig!: LLMConfigStore;  // initialised in bootstrap() once nodeDataRoot is known
   store!: StoreService;  // wired in bootstrap() once we know siblingsRoot
   readonly agents: AgentDirectory;
   readonly mcpBridge: MCPBridge;
@@ -122,6 +124,8 @@ export class BrainService extends EventEmitter {
       sleepService: this.sleepService, runners: this.runners,
       globalRunMode: this.globalRunMode, loadHandler: this.loadHandler.bind(this),
       remoteNodes: this.remoteNodes,
+      llmRegistry: this.llm,
+      llmConfig: this.llmConfig,
     };
   }
 
@@ -173,6 +177,8 @@ export class BrainService extends EventEmitter {
       ?? path.resolve(siblingsRoot, "data", "nodes");
     setNodeDataRoot(nodeDataRoot);
 
+    this.llm.setConfigStore(this.llmConfig = new LLMConfigStore(path.resolve(siblingsRoot, "data")));
+
     // Discover nodes installed as npm packages under @brain/node-*. Once
     // the perception/memory/etc. domains ship via `pnpm add @brain/node-foo`,
     // they surface here. Default lookup walks up from the framework's own
@@ -223,6 +229,8 @@ export class BrainService extends EventEmitter {
       loadHandler: this.loadHandler.bind(this),
       spawnNode: (c, caller) => this.spawnNode(c, caller),
       killNode: (id, caller, reason) => this.killNode(id, caller, reason),
+      llmRegistry: this.llm,
+      llmConfig: this.llmConfig,
     });
     this.sleepService.restoreSleepStates((nodeId) => { logger.info({ nodeId }, "Runner wake after restore"); });
     return restored;

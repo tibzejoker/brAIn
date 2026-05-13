@@ -5,6 +5,8 @@ import { logger } from "./logger";
 import { createRunner, type BaseRunner, type SleepService } from "./runner";
 import type { IBusService } from "./bus";
 import type { TypeRegistry, InstanceRegistry } from "./registry";
+import type { LLMRegistry } from "./llm/llm-registry";
+import type { LLMConfigStore } from "./llm/llm-config";
 
 type HandlerLoader = (typeName: string, typePath: string) => Promise<NodeModule>;
 
@@ -19,6 +21,8 @@ export async function restoreNodes(opts: {
   loadHandler: HandlerLoader;
   spawnNode?: (config: NodeInstanceConfig, caller?: string) => Promise<NodeInfo>;
   killNode?: (id: string, caller?: string, reason?: string) => boolean;
+  llmRegistry?: LLMRegistry;
+  llmConfig?: LLMConfigStore;
 }): Promise<number> {
   const savedNodes = loadAllNodes(opts.db);
   let restored = 0;
@@ -110,6 +114,8 @@ export async function restoreNodes(opts: {
         bus: opts.bus, registry: opts.instanceRegistry, sleepService: opts.sleepService,
         spawnNode: opts.spawnNode,
         killNode: opts.killNode,
+        llmRegistry: opts.llmRegistry,
+        llmConfig: opts.llmConfig,
       },
       opts.globalRunMode,
       mod.teardown,

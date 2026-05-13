@@ -7,6 +7,12 @@ export interface CLIStatus {
   available: boolean;
   version?: string;
   error?: string;
+  /** Shell snippets the dashboard surfaces in the per-CLI card. Both
+   *  steps are user-run in their own terminal because auth opens a
+   *  browser — we can't drive it from the API. */
+  installCommand: string;
+  loginCommand: string;
+  homepage: string;
 }
 
 interface CLIEntry {
@@ -14,6 +20,9 @@ interface CLIEntry {
   command: string;
   versionFlag: string;
   execTemplate: string;
+  installCommand: string;
+  loginCommand: string;
+  homepage: string;
 }
 
 const BUILTIN_CLIS: CLIEntry[] = [
@@ -22,18 +31,27 @@ const BUILTIN_CLIS: CLIEntry[] = [
     command: "claude",
     versionFlag: "--version",
     execTemplate: "claude -p {prompt} --output-format json --max-turns 1",
+    installCommand: "npm install -g @anthropic-ai/claude-code",
+    loginCommand: "claude /login",
+    homepage: "https://docs.claude.com/en/docs/claude-code/quickstart",
   },
   {
     name: "codex",
     command: "codex",
     versionFlag: "--version",
     execTemplate: "codex exec {prompt}",
+    installCommand: "npm install -g @openai/codex",
+    loginCommand: "codex login",
+    homepage: "https://github.com/openai/codex",
   },
   {
     name: "gemini",
     command: "gemini",
     versionFlag: "--version",
     execTemplate: "gemini -p {prompt} --output-format json",
+    installCommand: "npm install -g @google/gemini-cli",
+    loginCommand: "gemini auth login",
+    homepage: "https://github.com/google-gemini/gemini-cli",
   },
 ];
 
@@ -85,6 +103,9 @@ export class CLIRegistry {
               command: cli.command,
               available: false,
               error: "Command not found in PATH",
+              installCommand: cli.installCommand,
+              loginCommand: cli.loginCommand,
+              homepage: cli.homepage,
             });
             logger.warn({ cli: key }, "CLI not found");
             return;
@@ -99,6 +120,9 @@ export class CLIRegistry {
             command: cli.command,
             available: true,
             version: version || undefined,
+            installCommand: cli.installCommand,
+            loginCommand: cli.loginCommand,
+            homepage: cli.homepage,
           });
           logger.info({ cli: key, version }, "CLI available");
         } catch (err) {
@@ -107,6 +131,9 @@ export class CLIRegistry {
             command: cli.command,
             available: false,
             error: err instanceof Error ? err.message : String(err),
+            installCommand: cli.installCommand,
+            loginCommand: cli.loginCommand,
+            homepage: cli.homepage,
           });
           logger.warn({ cli: key, error: String(err) }, "CLI check failed");
         }
@@ -150,5 +177,13 @@ export class CLIRegistry {
 
   isAvailable(name: string): boolean {
     return this.statuses.get(name)?.available ?? false;
+  }
+
+  /** Force a re-check — useful after the user installs / removes a CLI
+   *  and wants to see the change without restarting the API. */
+  async refresh(): Promise<void> {
+    this.initialized = false;
+    this.statuses.clear();
+    await this.initialize();
   }
 }

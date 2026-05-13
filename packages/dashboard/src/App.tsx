@@ -9,13 +9,13 @@ import { NodeCreator } from "./components/NodeCreator";
 import { HistoryPanel } from "./components/HistoryPanel";
 import { MarketplacePanel } from "./components/MarketplacePanel";
 import { AgentsPanel } from "./components/AgentsPanel";
+import { LLMSettingsPanel } from "./components/LLMSettingsPanel";
 import { NodeUiModal } from "./components/NodeUiModal";
 import { useNetwork } from "./hooks/useNetwork";
 import { useMessages } from "./hooks/useMessages";
 import { useNodeTypes } from "./hooks/useNodeTypes";
 import { useSelectedNode } from "./hooks/useSelectedNode";
 import { useMessageFlows } from "./hooks/useMessageFlows";
-import { getDevMode, setDevMode, tickAll } from "./api/client";
 import { getSocket } from "./api/socket";
 
 export function App(): React.ReactElement {
@@ -33,7 +33,6 @@ export function App(): React.ReactElement {
   const [creatorOpen, setCreatorOpen] = useState(false);
   const [selectedEdge, setSelectedEdge] = useState<EdgeSelection | null>(null);
   const [activeView, setActiveView] = useState<MenuView>("graph");
-  const [devMode, setDevModeState] = useState(false);
   const [uiNodeId, setUiNodeId] = useState<string | null>(null);
 
   const handleOpenNodeUi = useCallback((nodeId: string): void => {
@@ -45,27 +44,9 @@ export function App(): React.ReactElement {
   }, []);
 
   useEffect(() => {
-    getDevMode()
-      .then((r) => { setDevModeState(r.enabled); })
-      .catch(() => { /* silent */ });
-
-    const socket = getSocket();
-    const handler = (data: { enabled: boolean }): void => {
-      setDevModeState(data.enabled);
-    };
-    socket.on("devmode:changed", handler);
-    return (): void => { socket.off("devmode:changed", handler); };
-  }, []);
-
-  const handleDevModeToggle = useCallback((): void => {
-    const next = !devMode;
-    setDevMode(next)
-      .then((r) => { setDevModeState(r.enabled); })
-      .catch(() => { /* silent */ });
-  }, [devMode]);
-
-  const handleTickAll = useCallback((): void => {
-    tickAll().catch(() => { /* silent */ });
+    // Keep the socket warm even though we no longer subscribe to devmode
+    // here. Other panels still consume it.
+    getSocket();
   }, []);
 
   const handleSpawnClick = useCallback((): void => {
@@ -114,10 +95,7 @@ export function App(): React.ReactElement {
     <div className="h-screen flex flex-col">
       <Header
         nodes={nodes}
-        devMode={devMode}
         onSpawnClick={handleSpawnClick}
-        onDevModeToggle={handleDevModeToggle}
-        onTickAll={handleTickAll}
       />
 
       <div className="flex-1 flex overflow-hidden">
@@ -140,7 +118,6 @@ export function App(): React.ReactElement {
             {selectedNode && (
               <NodePanel
                 node={selectedNode}
-                devMode={devMode}
                 hasUi={types.find((t) => t.name === selectedNode.type)?.has_ui ?? false}
                 onOpenUi={() => { handleOpenNodeUi(selectedNode.id); }}
                 onClose={handleNodeClose}
@@ -165,6 +142,8 @@ export function App(): React.ReactElement {
         {activeView === "marketplace" && <MarketplacePanel onChanged={handleSeedApplied} />}
 
         {activeView === "agents" && <AgentsPanel />}
+
+        {activeView === "llm" && <LLMSettingsPanel />}
       </div>
 
       {activeView === "graph" && (

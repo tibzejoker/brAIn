@@ -331,3 +331,16 @@ export function tickNode(id: string): Promise<{ ticked: boolean }> {
 export function tickAll(): Promise<{ ticked: number }> {
   return request("/network/tick", { method: "POST" });
 }
+
+// === LLM config + CLI agents ===
+// Re-exported from ./llm so existing callers (NodePanel, NodeLLMTab, …)
+// keep working without changing their imports.
+export {
+  getLLMConfig, patchLLMConfig,
+  getLLMModels, getLLMProviders, getLLMResolutionForNode,
+  getCLIAgents, refreshCLIAgents,
+} from "./llm";
+export type {
+  LLMModelChoice, LLMProviderStatus, LLMResolutionPreview,
+  LLMGlobalConfig, CLIAgentStatus,
+} from "./llm";

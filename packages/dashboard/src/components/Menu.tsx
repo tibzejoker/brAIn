@@ -1,4 +1,4 @@
-export type MenuView = "graph" | "history" | "marketplace" | "agents";
+export type MenuView = "graph" | "history" | "marketplace" | "agents" | "llm";
 
 interface MenuProps {
   active: MenuView;
@@ -10,6 +10,7 @@ const ITEMS: Array<{ key: MenuView; label: string; icon: string }> = [
   { key: "history", label: "History", icon: "◷" },
   { key: "marketplace", label: "Marketplace", icon: "⊞" },
   { key: "agents", label: "Distributed", icon: "⚯" },
+  { key: "llm", label: "LLM Providers", icon: "✦" },
 ];
 
 export function Menu({ active, onChange }: MenuProps): React.ReactElement {

@@ -16,6 +16,8 @@ import type { IBusService } from "./bus";
 import type { TypeRegistry, InstanceRegistry } from "./registry";
 import type { AuthorityService } from "./authority";
 import { dispatchRemoteSpawn, dispatchRemoteAction } from "./brain-remote";
+import type { LLMRegistry } from "./llm/llm-registry";
+import type { LLMConfigStore } from "./llm/llm-config";
 
 type HandlerLoader = (typeName: string, typePath: string) => Promise<NodeModule>;
 
@@ -35,6 +37,10 @@ export interface LifecycleDeps {
    * route the kill request to the right agent.
    */
   remoteNodes: Map<string, string>;
+  /** Forwarded into every runner so `ctx.llm.*` resolves models against
+   *  the live registry + config. */
+  llmRegistry?: LLMRegistry;
+  llmConfig?: LLMConfigStore;
 }
 
 export async function spawnNode(
@@ -155,6 +161,8 @@ export async function spawnNode(
       bus: deps.bus, registry: deps.instanceRegistry, sleepService: deps.sleepService,
       spawnNode: (c, caller) => spawnNode(deps, c, caller),
       killNode: (id, caller, reason) => killNode(deps, id, caller, reason),
+      llmRegistry: deps.llmRegistry,
+      llmConfig: deps.llmConfig,
     },
     deps.globalRunMode,
     teardown,
@@ -288,6 +296,8 @@ export async function startNode(
       bus: deps.bus, registry: deps.instanceRegistry, sleepService: deps.sleepService,
       spawnNode: (c, caller) => spawnNode(deps, c, caller),
       killNode: (id, caller, reason) => killNode(deps, id, caller, reason),
+      llmRegistry: deps.llmRegistry,
+      llmConfig: deps.llmConfig,
     },
     deps.globalRunMode,
     teardown,

@@ -10,6 +10,7 @@ import { StoreController } from "./rest/store.controller";
 import { AgentsController } from "./rest/agents.controller";
 import { MCPOAuthController } from "./rest/mcp-oauth.controller";
 import { MCPController } from "./rest/mcp.controller";
+import { LLMController } from "./rest/llm.controller";
 import { DashboardGateway } from "./ws/dashboard.gateway";
 import * as path from "path";
 import * as fs from "fs";
@@ -145,7 +146,7 @@ const brainServiceProvider = {
 };
 
 @Module({
-  controllers: [NodesController, TypesController, NetworkController, SeedsController, NodeUiController, StoreController, AgentsController, MCPOAuthController, MCPController],
+  controllers: [NodesController, TypesController, NetworkController, SeedsController, NodeUiController, StoreController, AgentsController, MCPOAuthController, MCPController, LLMController],
   providers: [brokerProvider, brainServiceProvider, DashboardGateway],
 })
 export class AppModule implements OnModuleInit, OnModuleDestroy {

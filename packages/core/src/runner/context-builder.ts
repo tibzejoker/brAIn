@@ -12,11 +12,14 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type {
   NodeContext, NodeInfo, NodeInstanceConfig, Message, WakeCondition,
-  ReadMessagesOptions, MailboxConfig, LLMRequest, LLMResponse,
+  ReadMessagesOptions, MailboxConfig, LLMRequest, LLMResponse, LLMFacade as ILLMFacade,
   FileOpts, FileRef, FileContent, FileFilter, FileInfo, PreemptionContext,
 } from "@brain/sdk";
 import type { IBusService } from "../bus/bus.interface";
 import type { NodeLog } from "./node-log";
+import { LLMFacade } from "../llm/llm-facade";
+import type { LLMRegistry } from "../llm/llm-registry";
+import type { LLMConfigStore } from "../llm/llm-config";
 
 /**
  * Root under which every node's per-instance dataDir lives. Set at
@@ -37,6 +40,11 @@ export interface BuildContextDeps {
   bus: IBusService;
   spawnNode?: (c: NodeInstanceConfig, caller?: string) => Promise<NodeInfo>;
   killNode?: (id: string, caller?: string, reason?: string) => boolean;
+  /** Optional — when present, ctx.llm.* uses the real registry/config.
+   *  When absent (older test scaffolding), ctx.llm becomes a stub that
+   *  throws a clear error so the missing dep is obvious. */
+  llmRegistry?: LLMRegistry;
+  llmConfig?: LLMConfigStore;
 }
 
 export interface BuildContextRuntime {
@@ -131,6 +139,7 @@ export function buildNodeContext(
       return fn(targetId, nodeId, reason);
     },
     callLLM: (_o: LLMRequest): Promise<LLMResponse> => Promise.reject(new Error("not implemented")),
+    llm: buildLLMFacade(deps, rt.nodeInfo, signal),
     callTool: (_s: string, _t: string, _p: unknown): Promise<unknown> => Promise.reject(new Error("not implemented")),
     readFile: (_id: string): Promise<FileContent> => Promise.reject(new Error("not implemented")),
     writeFile: (_n: string, _c: string, _o?: FileOpts): Promise<FileRef> => Promise.reject(new Error("not implemented")),
@@ -151,4 +160,28 @@ export function buildNodeContext(
     preemptionContext: preemption ?? undefined,
     signal,
   };
+}
+
+/** Either wire a real LLMFacade or return a stub that throws on use.
+ *  The stub keeps `ctx.llm` typed-present even on runners that don't
+ *  inject the deps, so handler code doesn't have to null-check. */
+function buildLLMFacade(deps: BuildContextDeps, nodeInfo: NodeInfo, signal: AbortSignal): ILLMFacade {
+  if (!deps.llmRegistry || !deps.llmConfig) {
+    const err = (): never => { throw new Error("ctx.llm unavailable: runner has no llmRegistry/llmConfig dep"); };
+    return {
+      text: (): Promise<string> => { err(); return Promise.reject(new Error("unreachable")); },
+      resolveModel: (): never => err(),
+      listModels: (): never => err(),
+    };
+  }
+  return new LLMFacade({
+    registry: deps.llmRegistry,
+    config: deps.llmConfig,
+    bus: deps.bus,
+    nodeId: nodeInfo.id,
+    nodeName: nodeInfo.name,
+    nodeType: nodeInfo.type,
+    nodeModel: nodeInfo.config_overrides?.model as string | undefined,
+    signal,
+  });
 }

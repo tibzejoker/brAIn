@@ -18,6 +18,8 @@ import type { SleepService } from "./sleep.service";
 import { NodeLog, type LogEntry } from "./node-log";
 import { PreemptionMonitor } from "./preemption";
 import { logger } from "../logger";
+import type { LLMRegistry } from "../llm/llm-registry";
+import type { LLMConfigStore } from "../llm/llm-config";
 
 export const DEFAULT_HANDLER_TIMEOUT_MS = 60_000;
 const WATCHER_INTERVAL_MS = 1_000;
@@ -36,6 +38,10 @@ export interface RunnerDeps {
    */
   spawnNode?: (config: NodeInstanceConfig, caller?: string) => Promise<NodeInfo>;
   killNode?: (id: string, caller?: string, reason?: string) => boolean;
+  /** Optional LLM plumbing. When both are present `ctx.llm.*` works;
+   *  when absent `ctx.llm` is a stub that throws on use. */
+  llmRegistry?: LLMRegistry;
+  llmConfig?: LLMConfigStore;
 }
 
 /**
@@ -345,7 +351,13 @@ export abstract class BaseRunner {
           this.pendingSleepConditions = conditions;
         },
       },
-      { bus: this.deps.bus, spawnNode: this.deps.spawnNode, killNode: this.deps.killNode },
+      {
+        bus: this.deps.bus,
+        spawnNode: this.deps.spawnNode,
+        killNode: this.deps.killNode,
+        llmRegistry: this.deps.llmRegistry,
+        llmConfig: this.deps.llmConfig,
+      },
       messages, signal, preemption,
     );
   }
