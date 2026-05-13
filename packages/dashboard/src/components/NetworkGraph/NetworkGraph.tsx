@@ -241,6 +241,14 @@ function inferPublishTopics(n: NodeSnapshot, typeMap: Map<string, NodeTypeConfig
   return [...topics];
 }
 
+// Edges that the static config doesn't predict but the bus has actually
+// carried — e.g. a brain LLM publishing through its `publish_message`
+// tool to `game.hangman.command`. These render in violet so they read
+// as "they're connected because they've interacted" rather than
+// "they're connected by config." Persistent across the session: a
+// single past interaction is enough to keep the line drawn.
+const DYNAMIC_EDGE_COLOR = "#a855f7";
+
 function buildEdges(snapshots: NodeSnapshot[], flows: Flow[], types: NodeTypeConfig[]): Edge[] {
   const typeMap = new Map(types.map((t) => [t.name, t]));
   const edges: Edge[] = [];
@@ -292,6 +300,49 @@ function buildEdges(snapshots: NodeSnapshot[], flows: Flow[], types: NodeTypeCon
         }
       }
     }
+  }
+
+  // Dynamic edges — any flow whose topic the publisher didn't declare
+  // statically counts as a tool-call / dynamic publish. Drawn in violet,
+  // dedup'd per (publisher, subscriber, topic). Static edges always win
+  // (no double-line for the same pair on the same topic).
+  const snapshotById = new Map(snapshots.map((n) => [n.id, n]));
+  const dynamicSeen = new Set<string>();
+  for (const flow of flows) {
+    const publisher = snapshotById.get(flow.sourceId);
+    const subscriber = snapshotById.get(flow.targetId);
+    if (!publisher || !subscriber) continue;
+
+    const declaredPublishes = inferPublishTopics(publisher, typeMap);
+    // If the publisher declared this topic, the static loop above
+    // already drew it (or skipped it because no subscriber pattern
+    // matched). Either way, not a dynamic case.
+    if (declaredPublishes.includes(flow.topic)) continue;
+
+    const dynamicId = `dyn:${publisher.id}:${flow.topic}->${subscriber.id}`;
+    if (dynamicSeen.has(dynamicId)) continue;
+    dynamicSeen.add(dynamicId);
+
+    const active = activeFlows.has(`${publisher.id}->${subscriber.id}`);
+    edges.push({
+      id: dynamicId,
+      source: publisher.id,
+      target: subscriber.id,
+      sourceHandle: "out-default",
+      targetHandle: "in-default",
+      type: "smoothstep" as const,
+      animated: active,
+      style: {
+        stroke: DYNAMIC_EDGE_COLOR,
+        strokeWidth: active ? 2 : 1.5,
+        strokeDasharray: "3 3",
+        opacity: active ? 1 : 0.7,
+      },
+      label: flow.topic,
+      labelStyle: { fill: DYNAMIC_EDGE_COLOR, fontSize: 10, fontWeight: 600 },
+      labelBgStyle: { fill: "var(--color-surface-overlay, #1f2937)" },
+      labelBgPadding: [4, 2],
+    });
   }
 
   return edges;
