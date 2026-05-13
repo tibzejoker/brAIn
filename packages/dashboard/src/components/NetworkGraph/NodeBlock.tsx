@@ -12,7 +12,19 @@ type NodeBlockData = Node<{
   subscribes: string[];
   publishes: string[];
   unreadCount: number;
+  /** AuthorityLevel value (0=BASIC, 1=ELEVATED, 2=ROOT). */
+  authorityLevel: number;
+  /** When true, render the authority chip + top/bottom capability
+   *  handles so authority edges can attach. Driven by the dashboard's
+   *  capability-hover toggle, not by hover state. */
+  showCapabilityLayer: boolean;
 }>;
+
+const AUTHORITY_CHIP: Record<number, { label: string; cls: string }> = {
+  0: { label: "BASIC",     cls: "bg-slate-600 text-white" },
+  1: { label: "ELEVATED",  cls: "bg-amber-600 text-white" },
+  2: { label: "ROOT",      cls: "bg-red-700  text-white" },
+};
 
 const STATE_COLORS: Record<string, string> = {
   active: "border-node-active",
@@ -71,6 +83,15 @@ export function NodeBlock({ data, selected }: NodeProps<NodeBlockData>): React.R
       {data.unreadCount > 0 && (
         <div className="absolute -top-2 -right-2 min-w-[20px] h-5 px-1.5 rounded-full bg-node-stopped text-white text-[10px] font-bold flex items-center justify-center shadow-lg z-10">
           {data.unreadCount}
+        </div>
+      )}
+
+      {/* Authority chip — only when the capability layer is toggled on. */}
+      {data.showCapabilityLayer && (
+        <div
+          className={`absolute -top-2 -left-2 px-1.5 h-5 rounded text-[10px] font-bold flex items-center shadow-lg z-10 ${AUTHORITY_CHIP[data.authorityLevel]?.cls ?? AUTHORITY_CHIP[0].cls}`}
+        >
+          {AUTHORITY_CHIP[data.authorityLevel]?.label ?? "BASIC"}
         </div>
       )}
 
@@ -188,6 +209,17 @@ export function NodeBlock({ data, selected }: NodeProps<NodeBlockData>): React.R
       ))}
       {data.publishes.length === 0 && (
         <Handle type="source" position={Position.Right} id="out-default" className="opacity-0" />
+      )}
+
+      {/* Authority handles (top = incoming, bottom = outgoing). Always
+          mounted when the capability layer is on so the graph can route
+          edges through them without an extra re-render dance. The dots
+          themselves stay invisible — only the edge stroke is visible. */}
+      {data.showCapabilityLayer && (
+        <>
+          <Handle type="target" position={Position.Top}    id="auth-in"  className="opacity-0" />
+          <Handle type="source" position={Position.Bottom} id="auth-out" className="opacity-0" />
+        </>
       )}
     </div>
   );

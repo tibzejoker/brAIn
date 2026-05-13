@@ -1,14 +1,16 @@
-import { useMemo, useCallback, useEffect } from "react";
+import { useMemo, useCallback, useEffect, useState } from "react";
 import {
   ReactFlow,
   Background,
   Controls,
+  ControlButton,
   MiniMap,
   useNodesState,
   useEdgesState,
   type Node,
   type Edge,
   type EdgeMouseHandler,
+  type NodeMouseHandler,
   type NodeTypes,
   BackgroundVariant,
 } from "@xyflow/react";
@@ -52,6 +54,7 @@ function snapshotToFlowNode(
   n: NodeSnapshot,
   typeMap: Map<string, NodeTypeConfig>,
   onOpenUi: (id: string) => void,
+  showCapabilityLayer: boolean,
 ): Node {
   const typeConfig = typeMap.get(n.type);
 
@@ -82,8 +85,100 @@ function snapshotToFlowNode(
       subscribes,
       publishes,
       unreadCount: n.unread_count ?? 0,
+      authorityLevel: n.authority_level ?? 0,
+      showCapabilityLayer,
     },
   };
+}
+
+// === Authority (capability) overlay ===========================================
+//
+// Authority is not bus traffic — it's a per-call permission check on the
+// framework's AuthorityService. The overlay below draws it as a SEPARATE
+// edge layer on top of the pub/sub graph, only when the user toggles the
+// capability layer ON and is hovering a node. See AuthorityService for
+// the source-of-truth rules; we mirror them here for visualisation:
+//
+//   - Y can CONTROL X (kill/stop/start/wake/rewire) iff Y.authority_level
+//     > X.authority_level  AND  Y.authority_level >= 1.
+//   - Y can INSPECT X (read-only network/node introspection) iff
+//     Y.authority_level >= 1.
+//
+// We only draw the strongest relationship per pair — control implies
+// inspect, so a single red line is enough.
+
+const AUTH_CONTROL_COLOR = "#dc2626"; // strong red — kill/stop/rewire
+const AUTH_INSPECT_COLOR = "#0891b2"; // strong cyan — read-only
+const AUTH_STROKE_WIDTH = 3;
+
+function buildAuthorityEdges(hoveredId: string | null, snapshots: NodeSnapshot[]): Edge[] {
+  if (!hoveredId) return [];
+  const hovered = snapshots.find((n) => n.id === hoveredId);
+  if (!hovered) return [];
+  const hoveredAuth = hovered.authority_level ?? 0;
+  const edges: Edge[] = [];
+
+  for (const other of snapshots) {
+    if (other.id === hovered.id) continue;
+    const otherAuth = other.authority_level ?? 0;
+
+    // Incoming to hovered: what can `other` do TO `hovered`?
+    if (otherAuth >= 1) {
+      const isControl = otherAuth > hoveredAuth;
+      edges.push({
+        id: `auth:in:${other.id}->${hovered.id}`,
+        source: other.id,
+        target: hovered.id,
+        sourceHandle: "auth-out",
+        targetHandle: "auth-in",
+        type: "smoothstep" as const,
+        animated: false,
+        style: {
+          stroke: isControl ? AUTH_CONTROL_COLOR : AUTH_INSPECT_COLOR,
+          strokeWidth: AUTH_STROKE_WIDTH,
+        },
+      });
+    }
+
+    // Outgoing from hovered: what can `hovered` do TO `other`?
+    if (hoveredAuth >= 1) {
+      const isControl = hoveredAuth > otherAuth;
+      edges.push({
+        id: `auth:out:${hovered.id}->${other.id}`,
+        source: hovered.id,
+        target: other.id,
+        sourceHandle: "auth-out",
+        targetHandle: "auth-in",
+        type: "smoothstep" as const,
+        animated: false,
+        style: {
+          stroke: isControl ? AUTH_CONTROL_COLOR : AUTH_INSPECT_COLOR,
+          strokeWidth: AUTH_STROKE_WIDTH,
+        },
+      });
+    }
+  }
+
+  return edges;
+}
+
+const CAPABILITY_TOGGLE_KEY = "brain.dashboard.capabilityHoverEnabled";
+
+function loadCapabilityToggle(): boolean {
+  try {
+    return window.localStorage.getItem(CAPABILITY_TOGGLE_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
+function persistCapabilityToggle(enabled: boolean): void {
+  try {
+    window.localStorage.setItem(CAPABILITY_TOGGLE_KEY, enabled ? "1" : "0");
+  } catch {
+    // localStorage can be blocked in private mode / sandboxed iframes —
+    // we lose persistence but the in-session toggle still works.
+  }
 }
 
 function topicColor(topic: string): string {
@@ -207,11 +302,34 @@ export function NetworkGraph({
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([] as Node[]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([] as Edge[]);
 
+  // Capability layer state — persisted across sessions. When ON: nodes
+  // sprout an authority chip + top/bottom handles, and hovering a node
+  // reveals its incoming/outgoing authority edges.
+  const [capabilityHoverEnabled, setCapabilityHoverEnabled] = useState<boolean>(loadCapabilityToggle);
+  const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
+
+  useEffect(() => { persistCapabilityToggle(capabilityHoverEnabled); }, [capabilityHoverEnabled]);
+
+  // Press `C` to toggle the capability layer. Skip when the user is
+  // typing in an input/textarea/contenteditable so it doesn't fight with
+  // text entry anywhere on the page.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key !== "c" && e.key !== "C") return;
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const t = e.target as HTMLElement | null;
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+      setCapabilityHoverEnabled((v) => !v);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => { window.removeEventListener("keydown", onKey); };
+  }, []);
+
   useEffect(() => {
     setNodes((prev) => {
       const posMap = new Map(prev.map((n) => [n.id, n.position]));
       const newNodes = snapshots.map((snap) => {
-        const flowNode = snapshotToFlowNode(snap, typeMap, onOpenNodeUi);
+        const flowNode = snapshotToFlowNode(snap, typeMap, onOpenNodeUi, capabilityHoverEnabled);
         // Preserve existing positions — only layout truly new nodes
         const existing = posMap.get(snap.id);
         if (existing && (existing.x !== 0 || existing.y !== 0)) {
@@ -223,11 +341,13 @@ export function NetworkGraph({
       const needsLayout = newNodes.some((n) => n.position.x === 0 && n.position.y === 0);
       return needsLayout ? layoutGraph(newNodes, []).nodes : newNodes;
     });
-  }, [snapshots, typeMap, onOpenNodeUi, setNodes]);
+  }, [snapshots, typeMap, onOpenNodeUi, setNodes, capabilityHoverEnabled]);
 
   useEffect(() => {
-    setEdges(buildEdges(snapshots, flows, types));
-  }, [snapshots, flows, types, setEdges]);
+    const pubSub = buildEdges(snapshots, flows, types);
+    const auth = capabilityHoverEnabled ? buildAuthorityEdges(hoveredNodeId, snapshots) : [];
+    setEdges([...pubSub, ...auth]);
+  }, [snapshots, flows, types, setEdges, capabilityHoverEnabled, hoveredNodeId]);
 
   const displayNodes = useMemo(
     () => nodes.map((n) => ({ ...n, selected: n.id === selectedNodeId })),
@@ -262,6 +382,18 @@ export function NetworkGraph({
     onEdgeSelect(null);
   }, [onNodeSelect, onEdgeSelect]);
 
+  // Track hovered node only when the capability layer is on — otherwise
+  // we'd be re-rendering the edges array on every mouse-over for no gain.
+  const handleNodeMouseEnter: NodeMouseHandler = useCallback((_event, node) => {
+    if (!capabilityHoverEnabled) return;
+    setHoveredNodeId(node.id);
+  }, [capabilityHoverEnabled]);
+
+  const handleNodeMouseLeave: NodeMouseHandler = useCallback(() => {
+    if (!capabilityHoverEnabled) return;
+    setHoveredNodeId(null);
+  }, [capabilityHoverEnabled]);
+
   return (
     <ReactFlow
       nodes={displayNodes}
@@ -271,13 +403,23 @@ export function NetworkGraph({
       onEdgesChange={onEdgesChange}
       onNodeDragStop={handleNodeDragStop}
       onNodeClick={handleNodeClick}
+      onNodeMouseEnter={handleNodeMouseEnter}
+      onNodeMouseLeave={handleNodeMouseLeave}
       onEdgeClick={handleEdgeClick}
       onPaneClick={handlePaneClick}
       fitView
       proOptions={{ hideAttribution: true }}
     >
       <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="var(--color-border)" />
-      <Controls />
+      <Controls>
+        <ControlButton
+          onClick={() => { setCapabilityHoverEnabled((v) => !v); }}
+          title={`${capabilityHoverEnabled ? "Hide" : "Show"} authority overlay (C). Hover a node to see who can control/inspect it.`}
+          style={capabilityHoverEnabled ? { background: "var(--color-accent, #2563eb)", color: "white" } : undefined}
+        >
+          <span className="text-[10px] font-bold tracking-tight">CAP</span>
+        </ControlButton>
+      </Controls>
       <MiniMap
         nodeStrokeWidth={2}
         nodeColor={(n) => {
