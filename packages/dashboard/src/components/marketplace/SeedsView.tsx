@@ -138,11 +138,26 @@ function SeedCard({ seed, applying, installing, onApply, onInstall }: {
   onApply: (merge: boolean) => void; onInstall: () => void;
 }): React.ReactElement {
   const valid = seed.local?.valid ?? true;
+  const missing = seed.local?.missing_types ?? [];
+  const hasMissing = missing.length > 0;
+  // The "ready to spawn" state requires:
+  //   - the seed lives on disk locally,
+  //   - the YAML is syntactically valid,
+  //   - and every node type it references is registered. Missing
+  //     types don't make the seed invalid, but they DO make it
+  //     unspawnable, so we gate the Apply buttons here too.
+  const canApply = seed.onDisk && valid && !hasMissing;
+  const applyTitle = !valid
+    ? `Invalid seed — fix YAML errors first`
+    : hasMissing
+      ? `Missing node types: ${missing.join(", ")} — install the project(s) that ship them, then retry.`
+      : undefined;
+
   return (
     <div className="px-5 py-4 border-b border-border/50">
       <div className="flex items-center gap-2 mb-1">
         <span className={`w-2 h-2 rounded-full ${
-          seed.onDisk && valid ? "bg-node-active"
+          canApply ? "bg-node-active"
           : seed.onDisk ? "bg-node-stopped" : "bg-text-muted/40"
         }`} />
         <span className="text-sm font-medium text-text">{seed.name}</span>
@@ -151,6 +166,14 @@ function SeedCard({ seed, applying, installing, onApply, onInstall }: {
         }`}>
           {seed.onDisk ? "installed" : "marketplace"}
         </span>
+        {seed.local?.store && (
+          <span
+            className="px-1.5 py-0.5 text-[10px] rounded bg-accent/15 text-accent font-mono"
+            title={`Ships with the ${seed.local.store} store`}
+          >
+            {seed.local.store}
+          </span>
+        )}
         {seed.tags.map((t) => (
           <span key={t} className="px-1.5 py-0.5 text-[10px] rounded bg-surface-overlay text-text-muted">{t}</span>
         ))}
@@ -159,18 +182,18 @@ function SeedCard({ seed, applying, installing, onApply, onInstall }: {
             <>
               <button
                 onClick={() => onApply(true)}
-                disabled={!valid || applying}
-                title="Spawn this seed's nodes alongside the running network — names that already exist are skipped."
-                className="px-2 py-1 text-xs rounded text-text-muted hover:text-text disabled:opacity-50"
+                disabled={!canApply || applying}
+                title={applyTitle ?? "Spawn this seed's nodes alongside the running network — names that already exist are skipped."}
+                className="px-2 py-1 text-xs rounded text-text-muted hover:text-text disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Add only
               </button>
               <button
                 onClick={() => onApply(false)}
-                disabled={!valid || applying}
-                title="Replace the running network with this seed's nodes (DB tables survive)."
+                disabled={!canApply || applying}
+                title={applyTitle ?? "Replace the running network with this seed's nodes (DB tables survive)."}
                 className={`px-3 py-1 text-xs rounded ${
-                  valid ? "bg-accent text-bg hover:bg-accent/90" : "bg-surface-overlay text-text-muted cursor-not-allowed"
+                  canApply ? "bg-accent text-bg hover:bg-accent/90" : "bg-surface-overlay text-text-muted cursor-not-allowed"
                 } disabled:opacity-50`}
               >
                 {applying ? "Applying…" : "Apply (replace)"}
@@ -209,20 +232,38 @@ function SeedNodes({ seed }: { seed: UnifiedSeed }): React.ReactElement | null {
   // available, with a hint that what's shown is just the dependency
   // declaration, not the actual spawn list.
   const realNodes = seed.local?.nodes ?? seed.market?.nodes ?? [];
+  const missing = new Set(seed.local?.missing_types ?? []);
+  const sources = seed.local?.type_sources ?? {};
+
   if (realNodes.length > 0) {
     return (
       <div className="flex flex-wrap items-center gap-1 mt-1.5 text-[11px]">
         <span className="text-text-muted">spawns:</span>
-        {realNodes.map((n) => (
-          <span
-            key={`${n.name}-${n.type}`}
-            className="px-1.5 py-0.5 rounded bg-surface-overlay text-text"
-            title={`type: ${n.type}`}
-          >
-            <span className="font-medium">{n.name}</span>
-            <span className="text-text-muted"> · {n.type}</span>
-          </span>
-        ))}
+        {realNodes.map((n) => {
+          const isMissing = missing.has(n.type);
+          const fromStore = sources[n.type];
+          const title = isMissing
+            ? fromStore
+              ? `type: ${n.type} — missing (ships with ${fromStore} — install it to enable this seed)`
+              : `type: ${n.type} — missing (source store unknown locally)`
+            : fromStore
+              ? `type: ${n.type} — part of ${fromStore}`
+              : `type: ${n.type}`;
+          return (
+            <span
+              key={`${n.name}-${n.type}`}
+              className={`px-1.5 py-0.5 rounded ${
+                isMissing
+                  ? "bg-node-stopped/15 text-node-stopped ring-1 ring-node-stopped/30"
+                  : "bg-surface-overlay text-text"
+              }`}
+              title={title}
+            >
+              <span className="font-medium">{n.name}</span>
+              <span className={isMissing ? "text-node-stopped/80" : "text-text-muted"}> · {n.type}</span>
+            </span>
+          );
+        })}
       </div>
     );
   }

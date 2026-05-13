@@ -140,6 +140,11 @@ const brainServiceProvider = {
 
     const seedsDir = resolveFromRoot(process.env.BRAIN_SEEDS_DIR, "seeds");
     brain.setSeedsDir(seedsDir);
+    // Pointer to the storeprojects root so getSeeds() can union the
+    // root seeds/ dir with every <store>/seeds/ that ships with an
+    // installed store-repo. Each store's templates become discoverable
+    // automatically the moment the store is cloned locally.
+    brain.setStoreprojectsRoot(path.resolve(MONOREPO_ROOT, "..", "storeprojects"));
 
     return brain;
   },

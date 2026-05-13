@@ -61,6 +61,48 @@ export interface SeedInfo {
   errors: ValidationError[];
   node_count: number;
   nodes: Array<{ type: string; name: string }>;
+  /** `brAIn-<area>` when the seed is shipped by a store under
+   *  `storeprojects/<store>/seeds/`, otherwise `null` for root seeds. */
+  store: string | null;
+  /** Unique node types this seed needs to spawn. Derived from
+   *  `unique(nodes[].type)` — no separate `needs[]` declaration. */
+  required_types: string[];
+  /** Subset of `required_types` not currently registered. The seed
+   *  stays `valid` (YAML is well-formed); the dashboard uses this to
+   *  red-flag missing types and disable the Apply button. */
+  missing_types: string[];
+  /** For every type referenced by this seed, the store-repo it ships
+   *  from (e.g. `brAIn-essentials`), or null when we couldn't locate
+   *  it under any storeprojects/<store>/nodes/<type>/ folder.
+   *  Computed dynamically — no per-seed declaration. Powers the
+   *  "part of project X" tooltip in the dashboard. */
+  type_sources: Record<string, string | null>;
+}
+
+/**
+ * Scan every `storeprojects/<store>/nodes/<type>/` and return a map
+ * from node-type-name → owning store name. Used to answer
+ * "which project does type X come from?" for both installed and
+ * missing types — as long as the providing store is cloned locally,
+ * we can attribute the type, whether or not it's currently loaded
+ * into the type registry.
+ */
+export function buildTypeStoreMap(storeprojectsRoot: string): Map<string, string> {
+  const out = new Map<string, string>();
+  if (!fs.existsSync(storeprojectsRoot)) return out;
+  for (const store of fs.readdirSync(storeprojectsRoot, { withFileTypes: true })) {
+    if (!store.isDirectory()) continue;
+    if (!/^brAIn-/i.test(store.name)) continue;
+    const nodesDir = path.join(storeprojectsRoot, store.name, "nodes");
+    if (!fs.existsSync(nodesDir)) continue;
+    for (const typeDir of fs.readdirSync(nodesDir, { withFileTypes: true })) {
+      if (!typeDir.isDirectory()) continue;
+      // First store to claim a type wins. Types are globally unique by
+      // convention so a collision would already be a registration bug.
+      if (!out.has(typeDir.name)) out.set(typeDir.name, store.name);
+    }
+  }
+  return out;
 }
 
 function validateSeedContent(raw: string, knownTypes?: Set<string>): {
@@ -122,11 +164,13 @@ function validateSeedContent(raw: string, knownTypes?: Set<string>): {
 
   const names = new Set<string>();
 
-  // Types that the seed promises to install via `needs[]` are
-  // valid even if not currently in `knownTypes` — the orchestrator
-  // will pull them from the marketplace before spawning. This makes
-  // the validator agree with the runtime contract.
-  const promisedTypes = new Set((config.needs ?? []).map((n) => n.type));
+  // Unknown node types are NOT a validation error — the seed YAML can
+  // be perfectly well-formed while still referencing types the local
+  // registry doesn't have yet. The scanner surfaces those as
+  // `missing_types` so the dashboard can grey out the Apply button
+  // without hiding the seed entirely. `needs[]` (legacy) is still
+  // parsed for back-compat but no longer drives validation; required
+  // types are derived from `nodes[].type` instead.
 
   for (let i = 0; i < config.nodes.length; i++) {
     const node = config.nodes[i];
@@ -134,8 +178,6 @@ function validateSeedContent(raw: string, knownTypes?: Set<string>): {
 
     if (!node.type || typeof node.type !== "string") {
       errors.push({ message: `${prefix}: missing or invalid 'type'` });
-    } else if (knownTypes && !knownTypes.has(node.type) && !promisedTypes.has(node.type)) {
-      errors.push({ message: `${prefix}: unknown type '${node.type}' (not registered locally and not declared in needs[])` });
     }
 
     if (!node.name || typeof node.name !== "string") {
@@ -218,9 +260,18 @@ export function loadSeedFile(filePath: string): LoadedSeed {
   return { needs: config.needs ?? [], nodes };
 }
 
-export function scanSeedsDirectory(seedsDir: string, knownTypes?: Set<string>): SeedInfo[] {
+export interface ScanOptions {
+  knownTypes?: Set<string>;
+  /** Store-of-origin tagged onto every seed found in this directory. */
+  store?: string | null;
+  /** Map type-name → owning store, used to fill SeedInfo.type_sources. */
+  typeStoreMap?: Map<string, string>;
+}
+
+export function scanSeedsDirectory(seedsDir: string, opts: ScanOptions = {}): SeedInfo[] {
   if (!fs.existsSync(seedsDir)) return [];
 
+  const { knownTypes, store = null, typeStoreMap } = opts;
   const entries = fs.readdirSync(seedsDir, { withFileTypes: true });
   const seeds: SeedInfo[] = [];
 
@@ -234,6 +285,19 @@ export function scanSeedsDirectory(seedsDir: string, knownTypes?: Set<string>): 
 
     const { valid, errors, config } = validateSeedContent(raw, knownTypes);
 
+    // Required types are derived from the actual spawn list — no
+    // separate `needs[]` declaration. Missing types are surfaced as a
+    // capability gap, not a validation error (the YAML is well-formed).
+    const usedTypes = new Set((config?.nodes ?? []).map((n) => n.type).filter((t): t is string => typeof t === "string"));
+    const required_types = [...usedTypes].sort();
+    const missing_types = knownTypes
+      ? required_types.filter((t) => !knownTypes.has(t))
+      : [];
+    const type_sources: Record<string, string | null> = {};
+    for (const t of required_types) {
+      type_sources[t] = typeStoreMap?.get(t) ?? null;
+    }
+
     seeds.push({
       name,
       filename: entry.name,
@@ -242,8 +306,36 @@ export function scanSeedsDirectory(seedsDir: string, knownTypes?: Set<string>): 
       errors,
       node_count: config?.nodes.length ?? 0,
       nodes: config?.nodes.map((n) => ({ type: n.type, name: n.name })) ?? [],
+      store,
+      required_types,
+      missing_types,
+      type_sources,
     });
   }
 
   return seeds;
+}
+
+/**
+ * Walk every `storeprojects/<store>/seeds/` and merge with the root
+ * `seedsDir`. Each store's seeds are tagged with their owning store
+ * so the dashboard can group / badge them. Types referenced by any
+ * seed are attributed to their source store via `buildTypeStoreMap`.
+ */
+export function scanAllSeedSources(
+  rootSeedsDir: string,
+  storeprojectsRoot: string,
+  knownTypes?: Set<string>,
+): SeedInfo[] {
+  const typeStoreMap = buildTypeStoreMap(storeprojectsRoot);
+  const out: SeedInfo[] = scanSeedsDirectory(rootSeedsDir, { knownTypes, store: null, typeStoreMap });
+  if (fs.existsSync(storeprojectsRoot)) {
+    for (const store of fs.readdirSync(storeprojectsRoot, { withFileTypes: true })) {
+      if (!store.isDirectory()) continue;
+      if (!/^brAIn-/i.test(store.name)) continue;
+      const seedsDir = path.join(storeprojectsRoot, store.name, "seeds");
+      out.push(...scanSeedsDirectory(seedsDir, { knownTypes, store: store.name, typeStoreMap }));
+    }
+  }
+  return out;
 }

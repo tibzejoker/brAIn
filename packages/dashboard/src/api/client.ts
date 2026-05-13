@@ -193,6 +193,18 @@ export interface SeedInfo {
   errors: SeedValidationError[];
   node_count: number;
   nodes: Array<{ type: string; name: string }>;
+  /** `brAIn-<area>` for store-shipped seeds, null for root seeds. */
+  store: string | null;
+  /** Unique node types this seed needs to spawn — derived from
+   *  nodes[].type. The dashboard renders one chip per entry. */
+  required_types: string[];
+  /** Subset of required_types not currently in the type registry.
+   *  Renders red in the UI and gates the Apply button. */
+  missing_types: string[];
+  /** For every entry in required_types: the store that ships it
+   *  (e.g. brAIn-essentials) or null when unknown locally. Drives
+   *  the "part of project X" tooltip. */
+  type_sources: Record<string, string | null>;
 }
 
 export function getSeeds(): Promise<SeedInfo[]> {

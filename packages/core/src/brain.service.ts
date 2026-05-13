@@ -22,7 +22,7 @@ import {
   getDb, clearAll, updateNodePosition, recordHistory, getHistory,
   type HistoryEntry, type HistoryAction,
 } from "./db";
-import { applySeed, scanSeedsDirectory, type SeedInfo, type SeedResult } from "./seed";
+import { applySeed, scanAllSeedSources, scanSeedsDirectory, type SeedInfo, type SeedResult } from "./seed";
 import { restoreNodes } from "./brain-restore";
 import {
   spawnNode as doSpawn, killNode as doKill, stopNode as doStop,
@@ -51,6 +51,10 @@ export class BrainService extends EventEmitter {
   private readonly remoteNodes = new Map<string, string>();
   private readonly db: Database.Database;
   private seedsDir?: string;
+  /** Root that contains per-store seed dirs (`storeprojects/<store>/seeds/`).
+   *  When set, getSeeds() unions root seeds + every store's seeds and
+   *  attributes each required type to its source store. */
+  private storeprojectsRoot?: string;
   private globalRunMode: "auto" | "manual" = "auto";
   readonly llm = LLMRegistry.getInstance();
   readonly cli = CLIRegistry.getInstance();
@@ -278,7 +282,14 @@ export class BrainService extends EventEmitter {
 
   getNetworkHistory(o?: { last?: number; action?: HistoryAction; node_id?: string; since?: number }): HistoryEntry[] { return getHistory(this.db, o); }
   setSeedsDir(dir: string): void { this.seedsDir = dir; }
-  getSeeds(): SeedInfo[] { return this.seedsDir ? scanSeedsDirectory(this.seedsDir, new Set(this.typeRegistry.list().map((t) => t.name))) : []; }
+  setStoreprojectsRoot(dir: string): void { this.storeprojectsRoot = dir; }
+  getSeeds(): SeedInfo[] {
+    const known = new Set(this.typeRegistry.list().map((t) => t.name));
+    if (this.storeprojectsRoot) {
+      return scanAllSeedSources(this.seedsDir ?? "", this.storeprojectsRoot, known);
+    }
+    return this.seedsDir ? scanSeedsDirectory(this.seedsDir, { knownTypes: known }) : [];
+  }
   async initializeProviders(): Promise<void> { await Promise.allSettled([this.llm.initialize(), this.cli.initialize()]); }
   getProviderStatuses(): { llm: ProviderStatus[]; cli: CLIStatus[] } { return { llm: this.llm.getStatuses(), cli: this.cli.getStatuses() }; }
 
