@@ -177,9 +177,12 @@ export class BrainService extends EventEmitter {
     }
 
     // Initialise the store service once. The siblings root is where the
-    // store will clone parent repos (default: parent of the first nodesDir).
+    // store will clone parent repos. Default: parent of the first nodesDir
+    // — but when nodesDir is empty (fresh agent on a workspace with no
+    // node libs pulled yet) we fall back to the process cwd so we still
+    // boot rather than crashing on `path.resolve(undefined, ...)`.
     const siblingsRoot = opts?.siblingsRoot
-      ?? path.resolve(dirs[0], "..", "..");
+      ?? (dirs[0] ? path.resolve(dirs[0], "..", "..") : process.cwd());
     this.store = new StoreService(this.typeRegistry, siblingsRoot);
 
     // Wire the per-node data root. Defaults to <siblingsRoot>/data/nodes

@@ -39,7 +39,7 @@ export function AgentsPanel(): React.ReactElement {
       <div className="flex items-center gap-3 px-5 py-3 border-b border-border">
         <h2 className="text-sm font-semibold text-text">Distributed</h2>
         <span className="text-xs text-text-muted">
-          {agents.length} remote node{agents.length === 1 ? "" : "s"} connected
+          {agents.length} remote agent{agents.length === 1 ? "" : "s"} connected
         </span>
         <button
           onClick={refresh}
@@ -63,8 +63,9 @@ export function AgentsPanel(): React.ReactElement {
         )}
 
         {!loading && agents.length === 0 && !error && (
-          <div className="text-text-muted text-[11px] py-4 px-5 text-center">
-            Waiting for remote nodes…
+          <div className="text-text-muted text-[11px] py-6 px-5 text-center space-y-1">
+            <div>No remote agents connected yet.</div>
+            <div className="text-text-muted/70">Copy the snippet above and run it on the machine you want to join.</div>
           </div>
         )}
 
@@ -73,25 +74,32 @@ export function AgentsPanel(): React.ReactElement {
             key={a.agent_id}
             className="px-5 py-4 border-b border-border/50 hover:bg-surface-overlay/50 transition-colors"
           >
-            <div className="flex items-center gap-2 mb-2">
-              <span className="w-2 h-2 rounded-full bg-node-active" />
-              <span className="text-sm font-medium text-text">{a.host}</span>
-              <span className="text-xs text-text-muted font-mono">{a.agent_id}</span>
-              <span className="ml-auto text-xs text-text-muted">
+            <div className="flex flex-wrap items-center gap-2 mb-2">
+              <span className="shrink-0 w-2 h-2 rounded-full bg-node-active" />
+              <span className="text-sm font-medium text-text mr-1">{a.host}</span>
+              <span className="text-xs text-text-muted font-mono break-all">{a.agent_id}</span>
+              <span className="ml-auto shrink-0 text-xs text-text-muted whitespace-nowrap">
                 pid {a.pid} · up {formatUptime(Date.now() - a.started_at)}
               </span>
             </div>
 
-            <div className="flex flex-wrap gap-1 mb-1">
-              {a.types.map((t) => (
-                <span
-                  key={t}
-                  className="px-2 py-0.5 text-[11px] rounded bg-surface-overlay text-text-muted"
-                >
-                  {t}
-                </span>
-              ))}
-            </div>
+            {a.types.length > 0 ? (
+              <div className="flex flex-wrap gap-1 mb-1">
+                {a.types.map((t) => (
+                  <span
+                    key={t}
+                    title={`This agent can host a "${t}" node — spawn with transport: remote, target_agent_id: ${a.agent_id}`}
+                    className="px-2 py-0.5 text-[11px] rounded bg-surface-overlay text-text-muted font-mono"
+                  >
+                    {t}
+                  </span>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-text-muted italic mb-1">
+                This remote announces no installable types — it's a passive bus client (e.g. brAIn-mobile). Publish to its topics directly instead of spawning here.
+              </p>
+            )}
 
             <p className="text-[11px] text-text-muted font-mono">
               last seen {Math.round((Date.now() - a.ts) / 1000)} s ago
@@ -126,45 +134,35 @@ function TransportInfoView({ transport, onChanged }: {
   });
 
   // Only meaningful when bus is open AND we know an IP — otherwise no
-  // snippet to copy.
+  // snippets to copy.
   const reachableUrl = open && transport.url && ip ? transport.url.replace("0.0.0.0", ip) : "";
-  // Two-step snippet:
-  //   1. Bootstrap a brAIn workspace via the published `create-brain`
-  //      scaffolder. It clones tibzejoker/brAIn + tibzejoker/brAIn-store
-  //      side-by-side under ./brain/, runs pnpm install (which builds
-  //      @brain/sdk, @brain/core, @brain/agent + the nats binary) and
-  //      auto-launches the API. Pass --no-start when you only want the
-  //      agent, since this remote host doesn't need the full framework.
-  //   2. Run the agent against THIS broker with the env vars.
+  // Two-step setup is split into TWO snippets (one copy button each)
+  // so the user can pick "I already have the workspace" and skip the
+  // first line.
+  //   step 1: bootstrap a brAIn workspace via the published `create-brain`
+  //     scaffolder — clones tibzejoker/brAIn + brAIn-store, runs pnpm
+  //     install (builds @brain/sdk/core/agent + the nats binary).
+  //     `--no-start` keeps it from launching the API on this remote
+  //     host (only the agent CLI is needed there).
+  //   step 2: run the agent against THIS broker with the env vars.
   // The CLI lives at brain/brAIn/packages/agent/dist/cli.js after the
-  // scaffolder's pnpm install finishes building it. Shell-specific env
-  // syntax: bash inlines `KEY=val cmd`, PowerShell needs `$env:KEY=...`
-  // statements before the call.
-  const snippet = ((): string => {
+  // scaffolder's pnpm install. Shell-specific env syntax: bash inlines
+  // `KEY=val cmd`, PowerShell uses `;`-joined `$env:KEY=...` statements
+  // so the whole thing stays on ONE line (much easier to copy/paste
+  // into a Windows prompt than three separate statements).
+  const bootstrapCmd = "npm create brain -- --no-start";
+  const runCmd = ((): string => {
     if (!reachableUrl) return "";
     const url = reachableUrl;
     const tok = transport.token;
     if (shell === "powershell") {
-      const lines = [
-        "# 1. Bootstrap a brAIn workspace (skip if already done)",
-        "npm create brain -- --no-start",
-        "",
-        "# 2. Run the agent against this broker",
-        `$env:BRAIN_NATS_URL = "${url}"`,
-      ];
-      if (tok) lines.push(`$env:BRAIN_NATS_TOKEN = "${tok}"`);
-      lines.push("node brain/brAIn/packages/agent/dist/cli.js");
-      return lines.join("\n");
+      const parts = [`$env:BRAIN_NATS_URL="${url}"`];
+      if (tok) parts.push(`$env:BRAIN_NATS_TOKEN="${tok}"`);
+      parts.push("node brain/brAIn/packages/agent/dist/cli.js");
+      return parts.join("; ");
     }
-    // bash / zsh / sh — KEY=val inline prefix
     const envInline = `BRAIN_NATS_URL=${url}${tok ? ` BRAIN_NATS_TOKEN=${tok}` : ""}`;
-    return [
-      "# 1. Bootstrap a brAIn workspace (skip if already done)",
-      "npm create brain -- --no-start",
-      "",
-      "# 2. Run the agent against this broker",
-      `${envInline} node brain/brAIn/packages/agent/dist/cli.js`,
-    ].join("\n");
+    return `${envInline} node brain/brAIn/packages/agent/dist/cli.js`;
   })();
 
   // Mobile join URI — `brain://join?url=...&token=...`. Parseable by the
@@ -264,9 +262,11 @@ function TransportInfoView({ transport, onChanged }: {
         </div>
       )}
 
-      {snippet && (
-        <div className="space-y-1">
+      {runCmd && (
+        <div className="space-y-2 pt-1">
+          {/* Shell picker */}
           <div className="flex items-center gap-1">
+            <span className="text-[10px] text-text-muted uppercase tracking-wider mr-1">Shell</span>
             <button
               onClick={() => setShell("bash")}
               className={`px-2 py-0.5 text-[10px] rounded ${shell === "bash" ? "bg-accent text-accent-fg" : "bg-surface-overlay text-text-muted hover:text-text"}`}
@@ -283,17 +283,43 @@ function TransportInfoView({ transport, onChanged }: {
               {shell === "powershell" ? "Windows" : "macOS / Linux"}
             </span>
           </div>
-          <div className="flex items-start gap-2">
-            <pre className="flex-1 min-w-0 text-[11px] font-mono bg-surface-overlay px-2 py-1.5 rounded text-text whitespace-pre-wrap break-all">{snippet}</pre>
-            <button
-              onClick={() => copy("snippet", snippet)}
-              className="text-xs text-text-muted hover:text-text whitespace-nowrap pt-1.5"
-            >
-              {copied === "snippet" ? "copied" : "copy"}
-            </button>
+
+          {/* Step 1 — bootstrap */}
+          <div>
+            <div className="flex items-center justify-between mb-0.5">
+              <span className="text-[10px] text-text-muted">
+                <span className="inline-block w-4 h-4 mr-1 rounded-full bg-surface-overlay text-text text-[9px] leading-4 text-center font-semibold">1</span>
+                Bootstrap a brAIn workspace (skip if you already have one)
+              </span>
+              <button
+                onClick={() => copy("boot", bootstrapCmd)}
+                className="text-[10px] text-text-muted hover:text-text"
+              >
+                {copied === "boot" ? "copied" : "copy"}
+              </button>
+            </div>
+            <pre className="text-[11px] font-mono bg-surface-overlay px-2 py-1.5 rounded text-text whitespace-pre-wrap break-all">{bootstrapCmd}</pre>
           </div>
+
+          {/* Step 2 — run agent */}
+          <div>
+            <div className="flex items-center justify-between mb-0.5">
+              <span className="text-[10px] text-text-muted">
+                <span className="inline-block w-4 h-4 mr-1 rounded-full bg-surface-overlay text-text text-[9px] leading-4 text-center font-semibold">2</span>
+                Run the agent against this broker
+              </span>
+              <button
+                onClick={() => copy("run", runCmd)}
+                className="text-[10px] text-text-muted hover:text-text"
+              >
+                {copied === "run" ? "copied" : "copy"}
+              </button>
+            </div>
+            <pre className="text-[11px] font-mono bg-surface-overlay px-2 py-1.5 rounded text-text whitespace-pre-wrap break-all">{runCmd}</pre>
+          </div>
+
           <p className="text-[10px] text-text-muted">
-            <code className="font-mono">create-brain</code> sets up the full workspace (framework + marketplace + storeprojects) in one shot. <code className="font-mono">--no-start</code> stops it from launching the API on the remote host — only the agent CLI is needed there.
+            <code className="font-mono">create-brain</code> clones framework + marketplace + storeprojects, runs <code className="font-mono">pnpm install</code> (builds <code className="font-mono">@brain/agent</code>). The agent then auto-discovers every node type under the workspace and announces them here.
           </p>
         </div>
       )}
