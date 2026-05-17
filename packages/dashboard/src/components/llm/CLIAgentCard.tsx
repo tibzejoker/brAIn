@@ -105,7 +105,7 @@ function CommandRow({
         <button
           type="button"
           onClick={() => onCopy(copyKey, command)}
-          className="px-3 py-1 rounded bg-accent text-bg text-xs font-semibold"
+          className="px-3 py-1 rounded bg-accent text-accent-fg text-xs font-semibold"
         >
           {copied === copyKey ? "Copied!" : "Copy"}
         </button>

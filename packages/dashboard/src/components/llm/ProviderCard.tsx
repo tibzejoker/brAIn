@@ -28,22 +28,22 @@ export function ProviderCard({
   const dirty = draftKey !== undefined || draftBaseURL !== undefined;
 
   return (
-    <div className="rounded border border-border bg-surface-raised p-4 space-y-3">
-      <div className="flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <span className={`w-2 h-2 rounded-full ${provider.available ? "bg-node-active" : "bg-node-stopped"}`} />
-          <span className="font-semibold text-text capitalize">{provider.name}</span>
+    <div className="rounded border border-border bg-surface-raised p-4 space-y-3 min-w-0 overflow-hidden">
+      <div className="flex items-center justify-between gap-2 min-w-0">
+        <div className="flex items-center gap-2 min-w-0">
+          <span className={`shrink-0 w-2 h-2 rounded-full ${provider.available ? "bg-node-active" : "bg-node-stopped"}`} />
+          <span className="font-semibold text-text capitalize truncate">{provider.name}</span>
           {provider.available ? (
-            <span className="text-[10px] text-node-active uppercase tracking-wider">reachable</span>
+            <span className="shrink-0 text-[10px] text-node-active uppercase tracking-wider">reachable</span>
           ) : (
-            <span className="text-[10px] text-node-stopped uppercase tracking-wider">unavailable</span>
+            <span className="shrink-0 text-[10px] text-node-stopped uppercase tracking-wider">unavailable</span>
           )}
         </div>
-        <span className="text-[10px] text-text-muted">{provider.models.length} model(s)</span>
+        <span className="shrink-0 text-[10px] text-text-muted">{provider.models.length} model(s)</span>
       </div>
 
       {provider.error && !provider.available && (
-        <p className="text-[11px] text-node-stopped break-words">{provider.error}</p>
+        <p className="text-[11px] text-node-stopped break-all">{provider.error}</p>
       )}
 
       {requiresKey && (
@@ -59,10 +59,16 @@ export function ProviderCard({
             placeholder={provider.apiKey ?? "(no key set)"}
             className="w-full bg-bg border border-border rounded px-2 py-1 font-mono text-xs"
           />
-          <p className="text-[10px] text-text-muted mt-1">
-            {provider.apiKey
-              ? `Currently: ${provider.apiKey} — leave blank then Save to clear, or enter a new key to replace.`
-              : "Paste the API key. Stored locally in data/llm-config.json (mode 0o600)."}
+          <p className="text-[10px] text-text-muted mt-1 break-all">
+            {provider.apiKey ? (
+              <>
+                <span>Currently: </span>
+                <code className="font-mono text-[10px] break-all bg-bg/60 rounded px-1">{provider.apiKey}</code>
+                <span> — leave blank then Save to clear, or enter a new key to replace.</span>
+              </>
+            ) : (
+              "Paste the API key. Stored locally in data/llm-config.json (mode 0o600)."
+            )}
           </p>
         </div>
       )}
@@ -102,7 +108,7 @@ export function ProviderCard({
           type="button"
           onClick={onSave}
           disabled={saving || !dirty}
-          className="px-3 py-1 rounded bg-accent text-bg text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
+          className="px-3 py-1 rounded bg-accent text-accent-fg text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {saving ? "Saving…" : "Save"}
         </button>
@@ -110,10 +116,10 @@ export function ProviderCard({
       </div>
 
       {provider.available && provider.models.length > 0 && (
-        <details className="text-[11px] text-text-muted">
+        <details className="text-[11px] text-text-muted min-w-0">
           <summary className="cursor-pointer select-none">Available models</summary>
-          <ul className="mt-1 ml-3 list-disc list-inside font-mono">
-            {provider.models.map((m) => <li key={m}>{m}</li>)}
+          <ul className="mt-1 ml-3 list-disc list-inside font-mono break-all">
+            {provider.models.map((m) => <li key={m} className="break-all">{m}</li>)}
           </ul>
         </details>
       )}

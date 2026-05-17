@@ -54,6 +54,10 @@ function snapshotToFlowNode(
   n: NodeSnapshot,
   typeMap: Map<string, NodeTypeConfig>,
   onOpenUi: (id: string) => void,
+  onToggleExpand: (id: string) => void,
+  onResizeExpanded: (id: string, w: number, h: number) => void,
+  expandedNodeIds: Set<string>,
+  expandedSizes: Map<string, { w: number; h: number }>,
   showCapabilityLayer: boolean,
 ): Node {
   const typeConfig = typeMap.get(n.type);
@@ -82,6 +86,11 @@ function snapshotToFlowNode(
       tags: n.tags,
       hasUi: typeConfig?.has_ui ?? false,
       onOpenUi: () => { onOpenUi(n.id); },
+      onToggleExpand: () => { onToggleExpand(n.id); },
+      onResizeExpanded: (w: number, h: number) => { onResizeExpanded(n.id, w, h); },
+      isExpanded: expandedNodeIds.has(n.id),
+      expandedWidth: expandedSizes.get(n.id)?.w,
+      expandedHeight: expandedSizes.get(n.id)?.h,
       subscribes,
       publishes,
       unreadCount: n.unread_count,
@@ -367,6 +376,77 @@ export function NetworkGraph({
   const [capabilityHoverEnabled, setCapabilityHoverEnabled] = useState<boolean>(loadCapabilityToggle);
   const [hoveredNodeId, setHoveredNodeId] = useState<string | null>(null);
 
+  // === In-place node UI expansion ==========================================
+  // Any number of nodes may be expanded at once — each grows to a default
+  // 480x360 panel that renders an `<iframe src="/nodes/:id/ui/">` and
+  // exposes a NodeResizer handle on its right/bottom edges so the user
+  // can drag it to whatever size suits the embedded UI. Per-node sizes
+  // are kept in `expandedSizes` so collapsing then re-expanding restores
+  // the last size. On mobile (<768px) we skip in-place expansion and
+  // route straight to the fullscreen modal — a 480px-wide card has
+  // nowhere to live on a phone viewport.
+  const [expandedNodeIds, setExpandedNodeIds] = useState<Set<string>>(() => new Set());
+  const [expandedSizes, setExpandedSizes] = useState<Map<string, { w: number; h: number }>>(() => new Map());
+  const [isMobile, setIsMobile] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.matchMedia("(max-width: 767px)").matches;
+  });
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const mql = window.matchMedia("(max-width: 767px)");
+    const onChange = (e: MediaQueryListEvent): void => { setIsMobile(e.matches); };
+    // `addEventListener` is the modern API; Safari < 14 used
+    // `addListener`. We only target evergreen browsers in the
+    // dashboard, so the modern path is enough.
+    mql.addEventListener("change", onChange);
+    return () => { mql.removeEventListener("change", onChange); };
+  }, []);
+
+  const handleToggleExpand = useCallback((id: string): void => {
+    // Mobile bypass: ignore in-place toggling, jump straight to the
+    // fullscreen modal that App.tsx already owns.
+    if (isMobile) {
+      onOpenNodeUi(id);
+      return;
+    }
+    setExpandedNodeIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  }, [isMobile, onOpenNodeUi]);
+
+  const handleResizeExpanded = useCallback((id: string, w: number, h: number): void => {
+    setExpandedSizes((prev) => {
+      const existing = prev.get(id);
+      if (existing && existing.w === w && existing.h === h) return prev;
+      const next = new Map(prev);
+      next.set(id, { w, h });
+      return next;
+    });
+  }, []);
+
+  // If an expanded node disappears from the network (killed, renamed,
+  // agent dropped) drop the orphan expansion state — otherwise a freshly-
+  // spawned node with the same id would reappear pre-expanded.
+  useEffect(() => {
+    const live = new Set(snapshots.map((s) => s.id));
+    setExpandedNodeIds((prev) => {
+      let changed = false;
+      const next = new Set(prev);
+      for (const id of prev) if (!live.has(id)) { next.delete(id); changed = true; }
+      return changed ? next : prev;
+    });
+  }, [snapshots]);
+
+  // Likewise, if the viewport crosses the mobile breakpoint while any
+  // node is expanded in-place, collapse them all — the wide cards won't
+  // fit and the user would just see clipped iframes.
+  useEffect(() => {
+    if (isMobile && expandedNodeIds.size > 0) setExpandedNodeIds(new Set());
+  }, [isMobile, expandedNodeIds.size]);
+
   useEffect(() => { persistCapabilityToggle(capabilityHoverEnabled); }, [capabilityHoverEnabled]);
 
   // Press `C` to toggle the capability layer. Skip when the user is
@@ -388,7 +468,7 @@ export function NetworkGraph({
     setNodes((prev) => {
       const posMap = new Map(prev.map((n) => [n.id, n.position]));
       const newNodes = snapshots.map((snap) => {
-        const flowNode = snapshotToFlowNode(snap, typeMap, onOpenNodeUi, capabilityHoverEnabled);
+        const flowNode = snapshotToFlowNode(snap, typeMap, onOpenNodeUi, handleToggleExpand, handleResizeExpanded, expandedNodeIds, expandedSizes, capabilityHoverEnabled);
         // Preserve existing positions — only layout truly new nodes
         const existing = posMap.get(snap.id);
         if (existing && (existing.x !== 0 || existing.y !== 0)) {
@@ -400,7 +480,7 @@ export function NetworkGraph({
       const needsLayout = newNodes.some((n) => n.position.x === 0 && n.position.y === 0);
       return needsLayout ? layoutGraph(newNodes, []).nodes : newNodes;
     });
-  }, [snapshots, typeMap, onOpenNodeUi, setNodes, capabilityHoverEnabled]);
+  }, [snapshots, typeMap, onOpenNodeUi, handleToggleExpand, handleResizeExpanded, expandedNodeIds, expandedSizes, setNodes, capabilityHoverEnabled]);
 
   useEffect(() => {
     const pubSub = buildEdges(snapshots, flows, types);
@@ -478,7 +558,7 @@ export function NetworkGraph({
         <ControlButton
           onClick={() => { setCapabilityHoverEnabled((v) => !v); }}
           title={`${capabilityHoverEnabled ? "Hide" : "Show"} authority overlay (C). Hover a node to see who can control/inspect it.`}
-          style={capabilityHoverEnabled ? { background: "var(--color-accent, #2563eb)", color: "white" } : undefined}
+          style={capabilityHoverEnabled ? { background: "var(--color-accent)", color: "var(--color-accent-fg)" } : undefined}
         >
           <span className="text-[10px] font-bold tracking-tight">CAP</span>
         </ControlButton>
@@ -486,11 +566,15 @@ export function NetworkGraph({
       <MiniMap
         nodeStrokeWidth={2}
         nodeColor={(n) => {
+          // Mirror the --color-node-* tokens in app.css. Minimap is
+          // canvas-only, so it can't read CSS vars via Tailwind classes
+          // and we have to inline the hex values — keep these in sync
+          // with the @theme block.
           const state = n.data.state;
-          if (state === "active") return "#22c55e";
-          if (state === "sleeping") return "#f59e0b";
-          if (state === "stopped") return "#ef4444";
-          return "#6b7280";
+          if (state === "active") return "#4ade80";
+          if (state === "sleeping") return "#fbbf24";
+          if (state === "stopped") return "#f84e4e";
+          return "#707070";
         }}
       />
     </ReactFlow>

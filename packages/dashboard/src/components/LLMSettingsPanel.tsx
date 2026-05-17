@@ -165,7 +165,7 @@ export function LLMSettingsPanel(): React.ReactElement {
         <button
           type="button"
           onClick={() => void refresh()}
-          className="px-3 py-1 rounded bg-accent text-bg text-xs font-semibold"
+          className="px-3 py-1 rounded bg-accent text-accent-fg text-xs font-semibold"
         >
           Retry
         </button>
@@ -174,7 +174,7 @@ export function LLMSettingsPanel(): React.ReactElement {
   }
 
   return (
-    <div className="flex-1 overflow-y-auto p-6 space-y-6 text-sm">
+    <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6 space-y-6 text-sm min-w-0">
       <header className="space-y-3">
         <div>
           <h2 className="text-lg font-semibold text-text mb-1">LLM Providers</h2>

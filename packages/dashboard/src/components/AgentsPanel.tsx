@@ -189,7 +189,7 @@ function TransportInfoView({ transport, onChanged }: {
             className={`ml-auto px-2 py-0.5 text-[11px] rounded transition-colors ${
               restarting
                 ? "bg-surface-overlay text-text-muted cursor-wait"
-                : "bg-accent text-bg hover:bg-accent/90"
+                : "bg-accent text-accent-fg hover:bg-accent/90"
             }`}
             title={open
               ? "Close the broker to LAN — only this host can connect."

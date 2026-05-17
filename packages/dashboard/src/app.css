@@ -1,27 +1,79 @@
 @import "tailwindcss";
 
+/*
+ * Unified clean dark-mode palette — converges with the standalone node
+ * UIs (voice, gaze, etc.) on the Linear / Vercel / Raycast / Radix
+ * grayDark axis. Token names are preserved so existing utility classes
+ * (`bg-surface`, `bg-surface-raised`, `text-text-muted`, `bg-accent`…)
+ * keep working without component-level edits — this file is the single
+ * point of truth for the dashboard's chrome colours.
+ *
+ * Role mapping:
+ *   --color-surface         → canvas (page background, react-flow pane)
+ *   --color-surface-raised  → cards, panels, header, side menu
+ *   --color-surface-overlay → hover / active surfaces, inline chips
+ *   --color-border          → subtle dividers
+ *   --color-border-bright   → emphasised dividers, edge strokes
+ *   --color-text            → primary text
+ *   --color-text-muted      → secondary text
+ *   --color-accent          → primary CTA bg (sober off-white, ChatGPT/Anthropic look)
+ *   --color-accent-fg       → text/icon colour ON the accent bg
+ *   --color-accent-hover    → CTA bg on hover (slight lift, still neutral)
+ *   --color-focus           → focus ring / outline (white at low opacity)
+ *   --color-node-*          → status (active / stopped / terminated)
+ *   --color-crit-*          → log criticality (low / mid / high)
+ */
 @theme {
-  --color-surface: #0f1117;
-  --color-surface-raised: #1a1d27;
-  --color-surface-overlay: #232735;
-  --color-border: #2a2d3a;
-  --color-border-bright: #3d4155;
-  --color-text: #e2e4e9;
-  --color-text-muted: #8b8fa3;
-  --color-accent: #6366f1;
-  --color-accent-hover: #818cf8;
-  --color-node-active: #22c55e;
-  --color-node-sleeping: #f59e0b;
-  --color-node-stopped: #ef4444;
-  --color-node-terminated: #6b7280;
-  --color-crit-low: #64748b;
-  --color-crit-mid: #f59e0b;
-  --color-crit-high: #ef4444;
+  --color-surface: #0a0a0a;
+  --color-surface-raised: #111111;
+  --color-surface-overlay: #1a1a1a;
+  --color-border: #262626;
+  --color-border-bright: #333333;
+  --color-text: #ededed;
+  --color-text-muted: #a1a1a1;
+  /* Neutral accent — no chromatic brand colour on chrome.
+   * Primary CTAs are off-white on near-black, focus rings are white at
+   * low opacity (à la ChatGPT / claude.ai). */
+  --color-accent: #ededed;
+  --color-accent-fg: #0a0a0a;
+  --color-accent-hover: #ffffff;
+  --color-focus: rgba(255, 255, 255, 0.30);
+  --color-node-active: #4ade80;
+  --color-node-sleeping: #fbbf24;
+  --color-node-stopped: #f84e4e;
+  --color-node-terminated: #707070;
+  --color-crit-low: #707070;
+  --color-crit-mid: #fbbf24;
+  --color-crit-high: #f84e4e;
+
+  --radius-sm: 4px;
+  --radius: 6px;
+  --radius-lg: 10px;
 }
 
-body {
+html, body {
   margin: 0;
+  background: var(--color-surface);
+  color: var(--color-text);
   font-family: "Inter", system-ui, -apple-system, sans-serif;
+  /* Never allow horizontal scroll on the document — any overflow inside
+   * a panel must be its own concern (panel-level overflow-y-auto). On
+   * mobile a stray wide child would otherwise scroll the whole viewport
+   * sideways. Hard cap here. */
+  overflow-x: hidden;
+  max-width: 100vw;
+}
+
+/* Any long unbroken string (API keys, model ids, URLs, base64, UUIDs,
+ * bus topic patterns) must wrap inside its container — otherwise it
+ * forces a horizontal scroll on the panel and (on mobile) the viewport.
+ * Use `overflow-wrap: anywhere` only — DO NOT add `word-break: break-word`
+ * here: combined, the browser falls back to one-char-per-line on
+ * narrow columns ("brAIn-perception" rendered as a vertical letter
+ * tower in marketplace chips). overflow-wrap alone breaks only when
+ * the word genuinely can't fit. */
+code, kbd, samp, .font-mono {
+  overflow-wrap: anywhere;
 }
 
 /* React Flow dark theme overrides */

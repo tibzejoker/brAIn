@@ -58,7 +58,7 @@ export function MessageLog({
   }, [messages.length]);
 
   return (
-    <div className="flex flex-col border-t border-border bg-surface-raised h-48">
+    <div className="hidden md:flex flex-col border-t border-border bg-surface-raised h-48">
       {/* Filter bar */}
       <div className="flex items-center gap-3 px-4 py-2 border-b border-border text-xs">
         <span className="text-text-muted font-medium">Messages</span>

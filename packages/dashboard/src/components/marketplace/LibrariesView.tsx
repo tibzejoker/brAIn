@@ -101,12 +101,12 @@ export function LibrariesView({ onChanged }: { onChanged: () => void }): React.R
 
   return (
     <>
-      <div className="flex items-center gap-3 px-5 py-2 border-b border-border bg-surface-raised/50">
-        <span className="text-xs text-text-muted">
+      <div className="flex flex-wrap items-center gap-2 px-4 sm:px-5 py-2 border-b border-border bg-surface-raised/50">
+        <span className="text-xs text-text-muted shrink-0 whitespace-nowrap">
           {groups.length} libraries · {data?.nodes.length ?? 0} nodes
         </span>
         {data?.upstreamAhead && (
-          <span className="text-[10px] px-2 py-0.5 rounded bg-accent/20 text-accent font-semibold">
+          <span className="shrink-0 text-[10px] px-2 py-0.5 rounded bg-accent/20 text-accent font-semibold whitespace-nowrap">
             marketplace update available
           </span>
         )}
@@ -115,13 +115,13 @@ export function LibrariesView({ onChanged }: { onChanged: () => void }): React.R
           placeholder="Search libraries, nodes, tags…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="flex-1 max-w-md ml-auto px-2 py-1 text-xs rounded bg-surface-overlay border border-border focus:border-accent focus:outline-none text-text"
+          className="order-last sm:order-none basis-full sm:basis-auto sm:flex-1 sm:max-w-md sm:ml-auto px-2 py-1 text-xs rounded bg-surface-overlay border border-border focus:border-accent focus:outline-none text-text"
         />
         <button
           onClick={handlePull}
           disabled={pulling}
           title="git pull the local marketplace clone (network call)"
-          className={`text-xs px-2 py-1 rounded ${
+          className={`shrink-0 whitespace-nowrap text-xs px-2 py-1 rounded ${
             data?.upstreamAhead ? "bg-accent/20 text-accent hover:bg-accent/30" : "text-text-muted hover:text-text"
           }`}
         >
@@ -172,26 +172,26 @@ function LibCard({ group, installing, onInstall, onUpdate }: {
   const allInstalled = group.installedCount === group.totalCount;
   const someInstalled = group.installedCount > 0 && !allInstalled;
   return (
-    <div className="px-5 py-4 border-b border-border/50">
-      <div className="flex items-center gap-2 mb-1">
-        <span className={`w-2 h-2 rounded-full ${
+    <div className="px-4 sm:px-5 py-4 border-b border-border/50">
+      <div className="flex flex-wrap items-center gap-1.5 mb-1">
+        <span className={`shrink-0 w-2 h-2 rounded-full ${
           allInstalled ? "bg-node-active" : someInstalled ? "bg-node-sleeping" : "bg-text-muted/40"
         }`} />
-        <span className="text-sm font-medium text-text">{group.repo}</span>
-        <span className="text-xs text-text-muted">
+        <span className="text-sm font-medium text-text mr-1">{group.repo}</span>
+        <span className="text-xs text-text-muted shrink-0">
           {group.installedCount}/{group.totalCount} nodes installed
         </span>
         {group.hasUpdate && (
-          <span className="px-1.5 py-0.5 text-[10px] rounded bg-accent/20 text-accent font-semibold">
+          <span className="shrink-0 px-1.5 py-0.5 text-[10px] rounded bg-accent/20 text-accent font-semibold">
             update available
           </span>
         )}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="basis-full sm:basis-auto sm:ml-auto flex flex-wrap items-center gap-2 mt-1 sm:mt-0">
           {!allInstalled && (
             <button
               onClick={onInstall}
               disabled={installing}
-              className="px-3 py-1 text-xs rounded bg-node-active text-bg font-semibold disabled:opacity-40 hover:bg-node-active/80"
+              className="px-3 py-1 text-xs rounded bg-node-active text-accent-fg font-semibold disabled:opacity-40 hover:bg-node-active/80"
             >
               {installing ? "installing…" : someInstalled ? "Install missing" : "Install lib"}
             </button>

@@ -34,6 +34,11 @@ export function App(): React.ReactElement {
   const [selectedEdge, setSelectedEdge] = useState<EdgeSelection | null>(null);
   const [activeView, setActiveView] = useState<MenuView>("graph");
   const [uiNodeId, setUiNodeId] = useState<string | null>(null);
+  // Mobile-only: drawer state for the left Menu rail. Desktop ignores
+  // this — the Menu renders inline at md+.
+  const [menuOpen, setMenuOpen] = useState(false);
+  const handleMenuToggle = useCallback((): void => { setMenuOpen((v) => !v); }, []);
+  const handleMenuClose = useCallback((): void => { setMenuOpen(false); }, []);
 
   const handleOpenNodeUi = useCallback((nodeId: string): void => {
     setUiNodeId(nodeId);
@@ -91,19 +96,28 @@ export function App(): React.ReactElement {
     refreshNetwork();
   }, [refreshNetwork]);
 
+  // A node/edge panel is open on mobile → render it as a full-screen
+  // bottom-sheet over the graph. Desktop keeps the side-by-side layout.
+  const mobileOverlayOpen = activeView === "graph" && (selectedNode !== null || selectedEdge !== null);
+
   return (
     <div className="h-screen flex flex-col">
       <Header
-        nodes={nodes}
         onSpawnClick={handleSpawnClick}
+        onMenuToggle={handleMenuToggle}
       />
 
-      <div className="flex-1 flex overflow-hidden">
-        <Menu active={activeView} onChange={setActiveView} />
+      <div className="flex-1 flex overflow-hidden relative">
+        <Menu
+          active={activeView}
+          onChange={setActiveView}
+          mobileOpen={menuOpen}
+          onMobileClose={handleMenuClose}
+        />
 
         {activeView === "graph" && (
           <>
-            <div className="flex-1">
+            <div className="flex-1 min-w-0">
               <NetworkGraph
                 nodes={nodes}
                 flows={flows}
@@ -116,23 +130,39 @@ export function App(): React.ReactElement {
             </div>
 
             {selectedNode && (
-              <NodePanel
-                node={selectedNode}
-                hasUi={types.find((t) => t.name === selectedNode.type)?.has_ui ?? false}
-                onOpenUi={() => { handleOpenNodeUi(selectedNode.id); }}
-                onClose={handleNodeClose}
-                onAction={handleNodeAction}
-              />
+              <div
+                className={`
+                  ${mobileOverlayOpen ? "fixed inset-0 z-30" : ""}
+                  md:static md:inset-auto md:z-auto
+                  flex
+                `}
+              >
+                <NodePanel
+                  node={selectedNode}
+                  hasUi={types.find((t) => t.name === selectedNode.type)?.has_ui ?? false}
+                  onOpenUi={() => { handleOpenNodeUi(selectedNode.id); }}
+                  onClose={handleNodeClose}
+                  onAction={handleNodeAction}
+                />
+              </div>
             )}
 
             {selectedEdge && (
-              <EdgePanel
-                sourceId={selectedEdge.sourceId}
-                targetId={selectedEdge.targetId}
-                topics={selectedEdge.topics}
-                nodes={nodes}
-                onClose={handleEdgeClose}
-              />
+              <div
+                className={`
+                  ${mobileOverlayOpen ? "fixed inset-0 z-30" : ""}
+                  md:static md:inset-auto md:z-auto
+                  flex
+                `}
+              >
+                <EdgePanel
+                  sourceId={selectedEdge.sourceId}
+                  targetId={selectedEdge.targetId}
+                  topics={selectedEdge.topics}
+                  nodes={nodes}
+                  onClose={handleEdgeClose}
+                />
+              </div>
             )}
           </>
         )}

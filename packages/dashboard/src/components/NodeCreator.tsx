@@ -274,7 +274,7 @@ export function NodeCreator({
           <button
             onClick={handleSubmit}
             disabled={loading || !selection || !name}
-            className="px-4 py-2 text-sm font-medium rounded-md bg-accent text-white hover:bg-accent-hover transition-colors disabled:opacity-50"
+            className="px-4 py-2 text-sm font-medium rounded-md bg-accent text-accent-fg hover:bg-accent-hover transition-colors disabled:opacity-50"
           >
             {loading ? "Spawning..." : "Spawn"}
           </button>

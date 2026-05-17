@@ -100,7 +100,7 @@ export function NodePanel({
   }, [logs.length]);
 
   return (
-    <div className="w-96 border-l border-border bg-surface-raised flex flex-col overflow-hidden">
+    <div className="w-full md:w-96 border-l border-border bg-surface-raised flex flex-col overflow-hidden h-full">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-border gap-2">
         <div className="flex items-center gap-2 min-w-0">

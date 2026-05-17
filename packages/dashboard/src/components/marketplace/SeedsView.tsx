@@ -147,8 +147,8 @@ export function SeedsView({ onChanged }: { onChanged: () => void }): React.React
 
   return (
     <>
-      <div className="flex items-center gap-3 px-5 py-2 border-b border-border bg-surface-raised/50">
-        <span className="text-xs text-text-muted">
+      <div className="flex flex-wrap items-center gap-2 px-4 sm:px-5 py-2 border-b border-border bg-surface-raised/50">
+        <span className="text-xs text-text-muted shrink-0 whitespace-nowrap">
           {localCount} installed · {marketCount} available
         </span>
         <input
@@ -156,17 +156,17 @@ export function SeedsView({ onChanged }: { onChanged: () => void }): React.React
           placeholder="Search seeds, tags, needs…"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          className="flex-1 max-w-md ml-auto px-2 py-1 text-xs rounded bg-surface-overlay border border-border focus:border-accent focus:outline-none text-text"
+          className="order-last sm:order-none basis-full sm:basis-auto sm:flex-1 sm:max-w-md sm:ml-auto px-2 py-1 text-xs rounded bg-surface-overlay border border-border focus:border-accent focus:outline-none text-text"
         />
         <button
           onClick={handleSaveCurrent}
           disabled={saving}
           title="Snapshot the running network as a new personal seed"
-          className="px-2 py-1 text-xs rounded bg-accent text-bg hover:bg-accent/90 disabled:opacity-50"
+          className="shrink-0 px-2 py-1 text-xs rounded bg-accent text-accent-fg hover:bg-accent/90 disabled:opacity-50 whitespace-nowrap"
         >
           {saving ? "Saving…" : "Save current"}
         </button>
-        <button onClick={() => void refetch()} className="text-xs text-text-muted hover:text-text">Refresh view</button>
+        <button onClick={() => void refetch()} className="shrink-0 text-xs text-text-muted hover:text-text whitespace-nowrap">Refresh view</button>
       </div>
 
       {banner && (
@@ -218,21 +218,21 @@ function SeedCard({ seed, applying, installing, deleting, onApply, onInstall, on
       : undefined;
 
   return (
-    <div className="px-5 py-4 border-b border-border/50">
-      <div className="flex items-center gap-2 mb-1">
-        <span className={`w-2 h-2 rounded-full ${
+    <div className="px-4 sm:px-5 py-4 border-b border-border/50">
+      <div className="flex flex-wrap items-center gap-1.5 mb-1">
+        <span className={`shrink-0 w-2 h-2 rounded-full ${
           canApply ? "bg-node-active"
           : seed.onDisk ? "bg-node-stopped" : "bg-text-muted/40"
         }`} />
-        <span className="text-sm font-medium text-text">{seed.name}</span>
-        <span className={`px-1.5 py-0.5 text-[10px] rounded ${
+        <span className="text-sm font-medium text-text mr-1">{seed.name}</span>
+        <span className={`shrink-0 px-1.5 py-0.5 text-[10px] rounded ${
           seed.onDisk ? "bg-node-active/10 text-node-active" : "bg-accent/15 text-accent"
         }`}>
           {seed.onDisk ? "installed" : "marketplace"}
         </span>
         {isPersonal && (
           <span
-            className="px-1.5 py-0.5 text-[10px] rounded bg-amber-500/20 text-amber-400"
+            className="shrink-0 px-1.5 py-0.5 text-[10px] rounded bg-amber-500/20 text-amber-400"
             title="Saved by you from the running network — deletable from this dashboard."
           >
             personal
@@ -240,16 +240,16 @@ function SeedCard({ seed, applying, installing, deleting, onApply, onInstall, on
         )}
         {seed.local?.store && (
           <span
-            className="px-1.5 py-0.5 text-[10px] rounded bg-accent/15 text-accent font-mono"
+            className="shrink-0 px-1.5 py-0.5 text-[10px] rounded bg-accent/15 text-accent font-mono"
             title={`Ships with the ${seed.local.store} store`}
           >
             {seed.local.store}
           </span>
         )}
         {seed.tags.map((t) => (
-          <span key={t} className="px-1.5 py-0.5 text-[10px] rounded bg-surface-overlay text-text-muted">{t}</span>
+          <span key={t} className="shrink-0 px-1.5 py-0.5 text-[10px] rounded bg-surface-overlay text-text-muted">{t}</span>
         ))}
-        <div className="ml-auto flex items-center gap-2">
+        <div className="basis-full sm:basis-auto sm:ml-auto flex flex-wrap items-center gap-2 mt-1 sm:mt-0">
           {seed.onDisk ? (
             <>
               <button
@@ -265,7 +265,7 @@ function SeedCard({ seed, applying, installing, deleting, onApply, onInstall, on
                 disabled={!canApply || applying}
                 title={applyTitle ?? "Replace the running network with this seed's nodes (DB tables survive)."}
                 className={`px-3 py-1 text-xs rounded ${
-                  canApply ? "bg-accent text-bg hover:bg-accent/90" : "bg-surface-overlay text-text-muted cursor-not-allowed"
+                  canApply ? "bg-accent text-accent-fg hover:bg-accent/90" : "bg-surface-overlay text-text-muted cursor-not-allowed"
                 } disabled:opacity-50`}
               >
                 {applying ? "Applying…" : "Apply (replace)"}
@@ -285,7 +285,7 @@ function SeedCard({ seed, applying, installing, deleting, onApply, onInstall, on
             <button
               onClick={onInstall}
               disabled={installing}
-              className="px-3 py-1 text-xs rounded bg-accent text-bg hover:bg-accent/90 disabled:opacity-50"
+              className="px-3 py-1 text-xs rounded bg-accent text-accent-fg hover:bg-accent/90 disabled:opacity-50"
             >
               {installing ? "Pulling…" : "Pull from marketplace"}
             </button>

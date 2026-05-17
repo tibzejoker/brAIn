@@ -1,4 +1,4 @@
-import { Handle, Position, type Node, type NodeProps } from "@xyflow/react";
+import { Handle, NodeResizer, Position, type Node, type NodeProps } from "@xyflow/react";
 
 type NodeBlockData = Node<{
   label: string;
@@ -8,7 +8,24 @@ type NodeBlockData = Node<{
   targetAgentId?: string;
   tags: string[];
   hasUi: boolean;
+  /** Open the UI in the fullscreen modal (separate route-style overlay). */
   onOpenUi?: () => void;
+  /** Toggle in-graph in-place expansion. On desktop this grows the
+   *  node and embeds the UI iframe right inside the card; on mobile
+   *  the upstream handler routes straight to fullscreen instead so
+   *  this callback is never invoked from the cramped node tile. */
+  onToggleExpand?: () => void;
+  /** Persist a new size after the user drags the NodeResizer handle.
+   *  Stored upstream in NetworkGraph so collapsing then re-expanding
+   *  restores the last size for THIS node. */
+  onResizeExpanded?: (w: number, h: number) => void;
+  /** True while this node is currently expanded (multiple nodes may
+   *  be expanded at once — set membership is kept in NetworkGraph). */
+  isExpanded: boolean;
+  /** Optional persisted size from a previous drag. When omitted the
+   *  card uses DEFAULT_EXPANDED_{W,H}. */
+  expandedWidth?: number;
+  expandedHeight?: number;
   subscribes: string[];
   publishes: string[];
   unreadCount: number;
@@ -23,6 +40,36 @@ type NodeBlockData = Node<{
    *  them, to keep the graph quiet at rest. */
   isHovered: boolean;
 }>;
+
+// === Inline SVG icons ========================================================
+// Kept inline to avoid pulling in an icon library just for these three
+// 16x16 strokes. All three are tuned to read against the dark surface
+// tokens and match the rest of the dashboard's subtle, monochrome
+// chrome. `currentColor` so they pick up the surrounding text class.
+
+function IconChevronDown(): React.ReactElement {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 6l4 4 4-4" />
+    </svg>
+  );
+}
+
+function IconChevronUp(): React.ReactElement {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M4 10l4-4 4 4" />
+    </svg>
+  );
+}
+
+function IconFullscreen(): React.ReactElement {
+  return (
+    <svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+      <path d="M3 6V3h3M13 6V3h-3M3 10v3h3M13 10v3h-3" />
+    </svg>
+  );
+}
 
 const AUTHORITY_CHIP: Record<number, { label: string; cls: string }> = {
   0: { label: "BASIC",     cls: "bg-slate-600 text-white" },
@@ -70,7 +117,7 @@ function topicColor(topic: string): string {
   return `hsl(${hue}, 70%, 65%)`;
 }
 
-export function NodeBlock({ data, selected }: NodeProps<NodeBlockData>): React.ReactElement {
+export function NodeBlock({ id, data, selected }: NodeProps<NodeBlockData>): React.ReactElement {
   const borderColor = STATE_COLORS[data.state] ?? "border-border";
   const dotColor = STATE_DOTS[data.state] ?? "bg-node-terminated";
 
@@ -79,15 +126,50 @@ export function NodeBlock({ data, selected }: NodeProps<NodeBlockData>): React.R
   // vice versa); the empty side is just a placeholder for alignment.
   const ioRowCount = Math.max(data.subscribes.length, data.publishes.length);
 
+  // When expanded, the card grows to host the iframe. Default 480x360,
+  // but the user can drag the NodeResizer handles on the right / bottom /
+  // bottom-right corner to make it bigger (e.g. for the chat node UI)
+  // or smaller. We keep the same border / surface tokens so the
+  // expansion reads as "the same card, bigger" rather than a different
+  // surface. The expanded shell is `flex flex-col` so the iframe area
+  // can fill the remaining vertical space below the (unchanged) header
+  // + IO rows.
+  const DEFAULT_EXPANDED_W = 480;
+  const DEFAULT_EXPANDED_H = 360;
+  const expandedStyle = data.isExpanded
+    ? {
+        width: data.expandedWidth ?? DEFAULT_EXPANDED_W,
+        height: data.expandedHeight ?? DEFAULT_EXPANDED_H,
+      }
+    : undefined;
+
   return (
     <div
       className={`
-        relative rounded-lg border-2 bg-surface-raised
-        ${borderColor}
-        ${selected ? "ring-2 ring-accent ring-offset-1 ring-offset-surface" : ""}
-        min-w-[260px] cursor-pointer transition-shadow hover:shadow-lg
+        relative rounded-lg border-2
+        ${selected ? "bg-surface-overlay border-text" : `bg-surface-raised ${borderColor}`}
+        ${data.isExpanded ? "flex flex-col" : "min-w-[260px]"} cursor-pointer transition-shadow hover:shadow-lg
       `}
+      style={expandedStyle}
     >
+      {/* NodeResizer — only active while expanded. React Flow renders
+          drag handles on the chosen sides; we limit to right + bottom +
+          bottom-right corner so they don't fight the chevron / fullscreen
+          buttons at the top, and stay below sane min dimensions so the
+          card never collapses to nothing. The size delta flows back to
+          the parent via onResize so it persists across collapse/expand. */}
+      {data.isExpanded && (
+        <NodeResizer
+          isVisible
+          minWidth={320}
+          minHeight={240}
+          handleStyle={{ width: 8, height: 8, background: "var(--color-text-muted)", border: 0, borderRadius: 2 }}
+          lineStyle={{ borderColor: "var(--color-border-bright)", borderWidth: 1 }}
+          onResize={(_, p) => {
+            (data.onResizeExpanded as ((w: number, h: number) => void) | undefined)?.(p.width, p.height);
+          }}
+        />
+      )}
       {/* Unread badge */}
       {data.unreadCount > 0 && (
         <div className="absolute -top-2 -right-2 min-w-[20px] h-5 px-1.5 rounded-full bg-node-stopped text-white text-[10px] font-bold flex items-center justify-center shadow-lg z-10">
@@ -131,17 +213,37 @@ export function NodeBlock({ data, selected }: NodeProps<NodeBlockData>): React.R
       )}
 
       {/* === Header (centered) ===
-          Fixed height matches HEADER_HEIGHT so handle positions line up. */}
-      <div className="px-3 pt-2 pb-1 flex items-center justify-center gap-2">
+          Fixed height matches HEADER_HEIGHT so handle positions line up.
+          When the node carries a UI, two subtle outline icons sit at
+          the top-right: a chevron that flips between expand (↓) and
+          collapse (↑), plus a fullscreen square. Both use neutral
+          text-muted colour to stay calm in the resting graph. */}
+      <div className="px-3 pt-2 pb-1 flex items-center justify-center gap-2 relative">
         <span className={`w-2.5 h-2.5 rounded-full ${dotColor} shrink-0`} />
         <span className="font-semibold text-sm text-text truncate">{data.label}</span>
         {data.hasUi && (
-          <button
-            onClick={(e) => { e.stopPropagation(); (data.onOpenUi as (() => void) | undefined)?.(); }}
-            className="px-1.5 py-0.5 rounded bg-accent/20 text-accent hover:bg-accent/30 transition-colors text-[10px]"
-          >
-            UI
-          </button>
+          <div className="absolute top-1.5 right-2 flex items-center gap-0.5">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                (data.onToggleExpand as (() => void) | undefined)?.();
+              }}
+              title={data.isExpanded ? "Collapse" : "Expand UI in place"}
+              className="p-1 rounded text-text-muted hover:text-text hover:bg-surface-overlay transition-colors"
+            >
+              {data.isExpanded ? <IconChevronUp /> : <IconChevronDown />}
+            </button>
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                (data.onOpenUi as (() => void) | undefined)?.();
+              }}
+              title="Open UI fullscreen"
+              className="p-1 rounded text-text-muted hover:text-text hover:bg-surface-overlay transition-colors"
+            >
+              <IconFullscreen />
+            </button>
+          </div>
         )}
       </div>
 
@@ -210,6 +312,24 @@ export function NodeBlock({ data, selected }: NodeProps<NodeBlockData>): React.R
               </div>
             );
           })}
+        </div>
+      )}
+
+      {/* === Embedded UI (in-place expansion) ===
+          When `isExpanded` is true the iframe takes over the bottom of
+          the card. `flex-1` makes it claim the rest of the 360px shell
+          below the (fixed-height) header + IO rows. `nodrag`/`nowheel`
+          are React Flow data attributes that stop a drag started inside
+          the iframe from yanking the node around the canvas or zooming
+          the viewport — the embedded UI handles its own scroll. */}
+      {data.isExpanded && data.hasUi && (
+        <div className="flex-1 mx-2 mb-2 rounded border border-border bg-surface overflow-hidden">
+          <iframe
+            src={`/nodes/${id}/ui/`}
+            title={`${data.label} UI`}
+            className="nodrag nowheel"
+            style={{ width: "100%", height: "100%", border: 0, display: "block" }}
+          />
         </div>
       )}
 

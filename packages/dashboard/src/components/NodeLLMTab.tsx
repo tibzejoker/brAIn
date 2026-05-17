@@ -116,7 +116,7 @@ export function NodeLLMTab({ nodeId, currentModelOverride, onAction }: NodeLLMTa
           type="button"
           onClick={save}
           disabled={saving || draft === (currentModelOverride ?? "")}
-          className="px-3 py-1 rounded bg-accent text-bg text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
+          className="px-3 py-1 rounded bg-accent text-accent-fg text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {saving ? "Saving…" : "Save"}
         </button>
