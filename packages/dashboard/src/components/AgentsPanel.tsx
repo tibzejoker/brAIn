@@ -123,20 +123,22 @@ function TransportInfoView({ transport, onChanged }: {
     ? `BRAIN_NATS_URL=${reachableUrl}${transport.token ? ` BRAIN_NATS_TOKEN=${transport.token}` : ""}`
     : "";
   // Two-step snippet:
-  //   1. Bootstrap the monorepo locally (skip if already cloned)
-  //   2. Run the agent against this broker
-  // `@brain/agent` lives in the private brAIn monorepo — it is not
-  // published on npm, so `npx brain-agent` would fail. The realistic
-  // path is to git clone the framework once, let pnpm install build
-  // the agent's CLI under packages/agent/dist/cli.js, then env-launch
-  // it directly with node.
+  //   1. Bootstrap a brAIn workspace via the published `create-brain`
+  //      scaffolder. It clones tibzejoker/brAIn + tibzejoker/brAIn-store
+  //      side-by-side under ./brain/, runs pnpm install (which builds
+  //      @brain/sdk, @brain/core, @brain/agent + the nats binary) and
+  //      auto-launches the API. Pass --no-start when you only want the
+  //      agent, since this remote host doesn't need the full framework.
+  //   2. Run the agent against THIS broker with the env vars.
+  // The CLI lives at brain/brAIn/packages/agent/dist/cli.js after the
+  // scaffolder's pnpm install finishes building it.
   const snippet = envPrefix
     ? [
-        "# 1. Bootstrap brAIn (skip if already cloned)",
-        "git clone git@github.com:tibzejoker/brAIn.git ~/brAIn && cd ~/brAIn && pnpm install",
+        "# 1. Bootstrap a brAIn workspace (skip if already done)",
+        "npm create brain -- --no-start",
         "",
         "# 2. Run the agent against this broker",
-        `${envPrefix} node ~/brAIn/packages/agent/dist/cli.js`,
+        `${envPrefix} node brain/brAIn/packages/agent/dist/cli.js`,
       ].join("\n")
     : "";
 
@@ -249,7 +251,7 @@ function TransportInfoView({ transport, onChanged }: {
             </button>
           </div>
           <p className="text-[10px] text-text-muted">
-            <code className="font-mono">@brain/agent</code> ships inside the monorepo (not on npm) — clone once, then the agent CLI is at <code className="font-mono">packages/agent/dist/cli.js</code>.
+            <code className="font-mono">create-brain</code> sets up the full workspace (framework + marketplace + storeprojects) in one shot. <code className="font-mono">--no-start</code> stops it from launching the API on the remote host — only the agent CLI is needed there.
           </p>
         </div>
       )}
