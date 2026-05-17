@@ -37,8 +37,12 @@ export interface AgentOptions {
   natsPrefix?: string;
   /** Optional bearer token for the broker. */
   natsToken?: string;
-  /** Directory holding node packages (`nodes/<type>/config.json`). */
-  nodesDir: string;
+  /** Directory (or array of directories) holding node packages
+   *  (`nodes/<type>/config.json`). The agent scans each one at boot
+   *  and registers every type it finds, so the brAIn API discovers
+   *  this agent's installable types via the announcement and can spawn
+   *  them remotely. Empty / missing dirs are skipped with a warning. */
+  nodesDir: string | string[];
   /** Local SQLite path for the agent's persistent state. */
   dbPath: string;
   /** Interval between discovery announcements (ms). Default 10s. */
@@ -64,8 +68,16 @@ export class Agent {
   async start(): Promise<void> {
     const log = logger.child({ svc: "agent", id: this.id, host: this.host });
 
-    if (!existsSync(this.opts.nodesDir)) {
-      log.warn({ dir: this.opts.nodesDir }, "agent: nodes dir not found, continuing with empty registry");
+    const dirs = Array.isArray(this.opts.nodesDir) ? this.opts.nodesDir : [this.opts.nodesDir];
+    const presentDirs = dirs.filter((d) => {
+      const ok = existsSync(d);
+      if (!ok) log.warn({ dir: d }, "agent: nodes dir not found, skipping");
+      return ok;
+    });
+    if (presentDirs.length === 0) {
+      log.warn("agent: no nodes dirs resolved — this remote will announce zero installable types");
+    } else {
+      log.info({ dirs: presentDirs }, "agent: scanning nodes dirs");
     }
 
     log.info({ url: this.opts.natsUrl }, "starting NATS bus");
@@ -85,7 +97,7 @@ export class Agent {
     this.natsBus.watchStatus();
 
     this.brain = new BrainService(this.opts.dbPath, this.natsBus);
-    this.brain.bootstrap(this.opts.nodesDir);
+    this.brain.bootstrap(presentDirs.length > 0 ? presentDirs : dirs);
 
     // Restore any nodes this agent had spawned previously (so a restart
     // doesn't lose work).
