@@ -38,8 +38,9 @@ export { startChildServer } from "./child-server";
 export type { ChildServerOptions, ChildServerHandle } from "./child-server";
 export {
   AgentDirectory, AGENT_ANNOUNCE_TOPIC, AGENT_ANNOUNCE_DEFAULT_MS,
+  startAgentPresence,
 } from "./agents";
-export type { AgentAnnouncement, AgentDirectoryOptions } from "./agents";
+export type { AgentAnnouncement, AgentDirectoryOptions, AgentPresenceOptions, AgentPresenceHandle } from "./agents";
 export { StoreService } from "./store";
 export type {
   StoreRegistry, StoreRepo, StoreNode, StoreNodeStatus, StoreInstallResult,

@@ -1,5 +1,6 @@
 import { Module, Logger, type OnModuleInit, type OnModuleDestroy } from "@nestjs/common";
-import { BrainService, BrokerService, NatsBusService, readBrokerPrefs, readExternalBrokerPrefs, getDb, getSetting, setSetting } from "@brain/core";
+import { BrainService, BrokerService, NatsBusService, readBrokerPrefs, readExternalBrokerPrefs, startAgentPresence, getDb, getSetting, setSetting } from "@brain/core";
+import { hostname } from "node:os";
 import { randomBytes } from "node:crypto";
 import { NodesController } from "./rest/nodes.controller";
 import { TypesController } from "./rest/types.controller";
@@ -199,6 +200,29 @@ export class AppModule implements OnModuleInit, OnModuleDestroy {
     const restored = await this.brain.restore();
     if (restored > 0) {
       this.log.log(`Restored ${restored} nodes from database`);
+    }
+
+    // When this API has joined an external hub, also announce ITSELF
+    // as an installable-types host on the shared bus — same wiring the
+    // standalone brain-agent CLI uses. Without this, the remote hub
+    // sees our messages but never lists us in its /agents directory,
+    // so it can't spawn nodes targeted at us. Stable per-install
+    // agent_id persisted in kv_settings so reconnects are recognized
+    // as the same host.
+    if (this.broker.getMode() === "external") {
+      const db = getDb();
+      let agentId = getSetting(db, "api_agent_id");
+      if (!agentId) {
+        agentId = `${hostname()}-api-${randomBytes(4).toString("hex")}`;
+        setSetting(db, "api_agent_id", agentId);
+      }
+      startAgentPresence({
+        brain: this.brain,
+        bus: this.brain.bus as NatsBusService,
+        agentId,
+        host: hostname(),
+      });
+      this.log.log(`agent presence active as ${agentId} (external broker)`);
     }
 
     // Auto-seed from default if DB is empty. Fire-and-forget: a fresh
