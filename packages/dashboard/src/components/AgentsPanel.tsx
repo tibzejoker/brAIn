@@ -116,12 +116,18 @@ function TransportInfoView({ transport, onChanged }: {
   const isExternal = transport.mode === "external";
   const ip = pickedIp ?? (transport.lan_ips[0] as string | undefined) ?? "";
 
+  // Auto-pick the right shell syntax for the visitor's OS, but let
+  // them flip — Windows users SSHing into a Linux box need bash even
+  // though their browser says Windows, and vice versa.
+  type Shell = "bash" | "powershell";
+  const [shell, setShell] = useState<Shell>(() => {
+    if (typeof navigator === "undefined") return "bash";
+    return /Win/i.test(navigator.platform) ? "powershell" : "bash";
+  });
+
   // Only meaningful when bus is open AND we know an IP — otherwise no
   // snippet to copy.
   const reachableUrl = open && transport.url && ip ? transport.url.replace("0.0.0.0", ip) : "";
-  const envPrefix = reachableUrl
-    ? `BRAIN_NATS_URL=${reachableUrl}${transport.token ? ` BRAIN_NATS_TOKEN=${transport.token}` : ""}`
-    : "";
   // Two-step snippet:
   //   1. Bootstrap a brAIn workspace via the published `create-brain`
   //      scaffolder. It clones tibzejoker/brAIn + tibzejoker/brAIn-store
@@ -131,16 +137,35 @@ function TransportInfoView({ transport, onChanged }: {
   //      agent, since this remote host doesn't need the full framework.
   //   2. Run the agent against THIS broker with the env vars.
   // The CLI lives at brain/brAIn/packages/agent/dist/cli.js after the
-  // scaffolder's pnpm install finishes building it.
-  const snippet = envPrefix
-    ? [
+  // scaffolder's pnpm install finishes building it. Shell-specific env
+  // syntax: bash inlines `KEY=val cmd`, PowerShell needs `$env:KEY=...`
+  // statements before the call.
+  const snippet = ((): string => {
+    if (!reachableUrl) return "";
+    const url = reachableUrl;
+    const tok = transport.token;
+    if (shell === "powershell") {
+      const lines = [
         "# 1. Bootstrap a brAIn workspace (skip if already done)",
         "npm create brain -- --no-start",
         "",
         "# 2. Run the agent against this broker",
-        `${envPrefix} node brain/brAIn/packages/agent/dist/cli.js`,
-      ].join("\n")
-    : "";
+        `$env:BRAIN_NATS_URL = "${url}"`,
+      ];
+      if (tok) lines.push(`$env:BRAIN_NATS_TOKEN = "${tok}"`);
+      lines.push("node brain/brAIn/packages/agent/dist/cli.js");
+      return lines.join("\n");
+    }
+    // bash / zsh / sh — KEY=val inline prefix
+    const envInline = `BRAIN_NATS_URL=${url}${tok ? ` BRAIN_NATS_TOKEN=${tok}` : ""}`;
+    return [
+      "# 1. Bootstrap a brAIn workspace (skip if already done)",
+      "npm create brain -- --no-start",
+      "",
+      "# 2. Run the agent against this broker",
+      `${envInline} node brain/brAIn/packages/agent/dist/cli.js`,
+    ].join("\n");
+  })();
 
   // Mobile join URI — `brain://join?url=...&token=...`. Parseable by the
   // Flutter mobile app's QR scanner and usable as a system deep link.
@@ -241,6 +266,23 @@ function TransportInfoView({ transport, onChanged }: {
 
       {snippet && (
         <div className="space-y-1">
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => setShell("bash")}
+              className={`px-2 py-0.5 text-[10px] rounded ${shell === "bash" ? "bg-accent text-accent-fg" : "bg-surface-overlay text-text-muted hover:text-text"}`}
+            >
+              bash / zsh
+            </button>
+            <button
+              onClick={() => setShell("powershell")}
+              className={`px-2 py-0.5 text-[10px] rounded ${shell === "powershell" ? "bg-accent text-accent-fg" : "bg-surface-overlay text-text-muted hover:text-text"}`}
+            >
+              PowerShell
+            </button>
+            <span className="text-[10px] text-text-muted ml-auto">
+              {shell === "powershell" ? "Windows" : "macOS / Linux"}
+            </span>
+          </div>
           <div className="flex items-start gap-2">
             <pre className="flex-1 min-w-0 text-[11px] font-mono bg-surface-overlay px-2 py-1.5 rounded text-text whitespace-pre-wrap break-all">{snippet}</pre>
             <button
