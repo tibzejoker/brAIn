@@ -119,8 +119,25 @@ function TransportInfoView({ transport, onChanged }: {
   // Only meaningful when bus is open AND we know an IP — otherwise no
   // snippet to copy.
   const reachableUrl = open && transport.url && ip ? transport.url.replace("0.0.0.0", ip) : "";
-  const snippet = reachableUrl
-    ? `BRAIN_NATS_URL=${reachableUrl}${transport.token ? ` BRAIN_NATS_TOKEN=${transport.token}` : ""} npx brain-agent`
+  const envPrefix = reachableUrl
+    ? `BRAIN_NATS_URL=${reachableUrl}${transport.token ? ` BRAIN_NATS_TOKEN=${transport.token}` : ""}`
+    : "";
+  // Two-step snippet:
+  //   1. Bootstrap the monorepo locally (skip if already cloned)
+  //   2. Run the agent against this broker
+  // `@brain/agent` lives in the private brAIn monorepo — it is not
+  // published on npm, so `npx brain-agent` would fail. The realistic
+  // path is to git clone the framework once, let pnpm install build
+  // the agent's CLI under packages/agent/dist/cli.js, then env-launch
+  // it directly with node.
+  const snippet = envPrefix
+    ? [
+        "# 1. Bootstrap brAIn (skip if already cloned)",
+        "git clone git@github.com:tibzejoker/brAIn.git ~/brAIn && cd ~/brAIn && pnpm install",
+        "",
+        "# 2. Run the agent against this broker",
+        `${envPrefix} node ~/brAIn/packages/agent/dist/cli.js`,
+      ].join("\n")
     : "";
 
   // Mobile join URI — `brain://join?url=...&token=...`. Parseable by the
@@ -221,14 +238,19 @@ function TransportInfoView({ transport, onChanged }: {
       )}
 
       {snippet && (
-        <div className="flex items-start gap-2">
-          <pre className="flex-1 text-[11px] font-mono bg-surface-overlay px-2 py-1.5 rounded text-text overflow-x-auto whitespace-pre">{snippet}</pre>
-          <button
-            onClick={() => copy("snippet", snippet)}
-            className="text-xs text-text-muted hover:text-text whitespace-nowrap pt-1.5"
-          >
-            {copied === "snippet" ? "copied" : "copy"}
-          </button>
+        <div className="space-y-1">
+          <div className="flex items-start gap-2">
+            <pre className="flex-1 min-w-0 text-[11px] font-mono bg-surface-overlay px-2 py-1.5 rounded text-text whitespace-pre-wrap break-all">{snippet}</pre>
+            <button
+              onClick={() => copy("snippet", snippet)}
+              className="text-xs text-text-muted hover:text-text whitespace-nowrap pt-1.5"
+            >
+              {copied === "snippet" ? "copied" : "copy"}
+            </button>
+          </div>
+          <p className="text-[10px] text-text-muted">
+            <code className="font-mono">@brain/agent</code> ships inside the monorepo (not on npm) — clone once, then the agent CLI is at <code className="font-mono">packages/agent/dist/cli.js</code>.
+          </p>
         </div>
       )}
 
