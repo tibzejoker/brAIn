@@ -1,5 +1,5 @@
 import { Module, Logger, type OnModuleInit, type OnModuleDestroy } from "@nestjs/common";
-import { BrainService, BrokerService, NatsBusService, readBrokerPrefs, getDb, getSetting, setSetting } from "@brain/core";
+import { BrainService, BrokerService, NatsBusService, readBrokerPrefs, readExternalBrokerPrefs, getDb, getSetting, setSetting } from "@brain/core";
 import { randomBytes } from "node:crypto";
 import { NodesController } from "./rest/nodes.controller";
 import { TypesController } from "./rest/types.controller";
@@ -27,6 +27,7 @@ function resolveFromRoot(envVar: string | undefined, fallback: string): string {
 
 /** data/broker.json — persisted bind preference, dashboard-toggleable. */
 export const BROKER_PREFS_PATH = resolveFromRoot(process.env.BRAIN_BROKER_PREFS_PATH, "data/broker.json");
+export const EXTERNAL_BROKER_PREFS_PATH = resolveFromRoot(process.env.BRAIN_EXTERNAL_BROKER_PREFS_PATH, "data/external-broker.json");
 
 /**
  * Read the persisted broker auth token, or generate + persist one.
@@ -51,12 +52,21 @@ const brokerProvider = {
   provide: BrokerService,
   useFactory: async (): Promise<BrokerService> => {
     const log = new Logger("BrokerService");
-    const externalUrl = process.env.BRAIN_NATS_URL;
+    // External-broker source priority:
+    //   1. BRAIN_NATS_URL env var (highest — for explicit overrides)
+    //   2. data/external-broker.json (written by the dashboard's
+    //      "Join existing hub" flow; survives restart)
+    //   3. neither → embedded mode (spawn local nats-server)
+    const envExternalUrl = process.env.BRAIN_NATS_URL;
+    const fileExternal = envExternalUrl ? null : readExternalBrokerPrefs(EXTERNAL_BROKER_PREFS_PATH);
+    const externalUrl = envExternalUrl ?? fileExternal?.url;
     const prefs = readBrokerPrefs(BROKER_PREFS_PATH);
     const dbPath = resolveFromRoot(process.env.BRAIN_DB_PATH, "data/brain.db");
-    // External mode skips auth — caller manages the broker, so the
-    // token is theirs to set via BRAIN_NATS_TOKEN if they want one.
-    const authToken = externalUrl ? process.env.BRAIN_NATS_TOKEN : ensureBrokerToken(dbPath);
+    // External mode skips local-token generation — the caller (env or
+    // persisted file) brings the token they want to authenticate with.
+    const authToken = externalUrl
+      ? (process.env.BRAIN_NATS_TOKEN ?? fileExternal?.token)
+      : ensureBrokerToken(dbPath);
     // Pin the broker port via BRAIN_BROKER_PORT — useful when remote
     // agents need a stable URL across API restarts (token rotation,
     // bind toggle, etc.). Defaults to a free port picked by the OS.
@@ -80,10 +90,11 @@ const brainServiceProvider = {
     if (!url) throw new Error("broker has no URL — start() was not awaited");
 
     // Embedded broker → use the token we generated. External broker →
-    // the user owns the token (BRAIN_NATS_TOKEN), pass through.
+    // BRAIN_NATS_TOKEN env wins; fall back to the token persisted in
+    // data/external-broker.json (written by the dashboard's join flow).
     const token = broker.getMode() === "embedded"
       ? getSetting(getDb(dbPath), "broker_token") ?? undefined
-      : process.env.BRAIN_NATS_TOKEN;
+      : (process.env.BRAIN_NATS_TOKEN ?? readExternalBrokerPrefs(EXTERNAL_BROKER_PREFS_PATH)?.token);
     const natsBus = new NatsBusService({
       url,
       prefix: process.env.BRAIN_NATS_PREFIX ?? "brain",

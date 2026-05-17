@@ -1,2 +1,6 @@
-export { BrokerService, readBrokerPrefs, writeBrokerPrefs } from "./broker.service";
-export type { BrokerOptions, BrokerMode, BrokerPrefs } from "./broker.service";
+export {
+  BrokerService,
+  readBrokerPrefs, writeBrokerPrefs,
+  readExternalBrokerPrefs, writeExternalBrokerPrefs, clearExternalBrokerPrefs,
+} from "./broker.service";
+export type { BrokerOptions, BrokerMode, BrokerPrefs, ExternalBrokerPrefs } from "./broker.service";

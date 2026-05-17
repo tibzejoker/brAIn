@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { getAgents, getTransport, setTransportBind, type AgentSnapshot, type TransportInfo } from "../api/client";
+import { getAgents, getTransport, setTransportBind, joinExternalBroker, leaveExternalBroker, type AgentSnapshot, type TransportInfo } from "../api/client";
 
 /**
  * Distributed runtime panel. The bus is always NATS — embedded by
@@ -119,10 +119,62 @@ function TransportInfoView({ transport, onChanged }: {
   const [pickedIp, setPickedIp] = useState<string | null>(null);
   const [restarting, setRestarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [joinOpen, setJoinOpen] = useState(false);
 
   const open = transport.bind_address === "0.0.0.0";
   const isExternal = transport.mode === "external";
   const ip = pickedIp ?? (transport.lan_ips[0] as string | undefined) ?? "";
+
+  /** Poll the API's /network/transport endpoint until the broker mode
+   *  flips to the expected target (the API has exited and respawned).
+   *  Returns true on success, false on timeout. Shared helper used by
+   *  both join + leave so the spinner reads the same window. */
+  const pollUntilMode = useCallback(async (targetMode: "embedded" | "external"): Promise<boolean> => {
+    const deadline = Date.now() + 20000;
+    while (Date.now() < deadline) {
+      try {
+        const t = await getTransport();
+        if (t.mode === targetMode) return true;
+      } catch { /* api restarting */ }
+      await new Promise((r) => setTimeout(r, 500));
+    }
+    return false;
+  }, []);
+
+  const joinHub = useCallback((url: string, token: string, hubName: string): void => {
+    setError(null);
+    setRestarting(true);
+    setJoinOpen(false);
+    joinExternalBroker(url.trim(), token.trim() || undefined, hubName.trim() || undefined)
+      .then(async (r) => {
+        if (!r.restart_scheduled) { setRestarting(false); onChanged(); return; }
+        const ok = await pollUntilMode("external");
+        if (!ok) setError("API didn't come back in time — check the broker URL/token.");
+        setRestarting(false);
+        onChanged();
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : String(err));
+        setRestarting(false);
+      });
+  }, [onChanged, pollUntilMode]);
+
+  const leaveHub = useCallback((): void => {
+    setError(null);
+    setRestarting(true);
+    leaveExternalBroker()
+      .then(async (r) => {
+        if (!r.restart_scheduled) { setRestarting(false); onChanged(); return; }
+        const ok = await pollUntilMode("embedded");
+        if (!ok) setError("API didn't come back in time.");
+        setRestarting(false);
+        onChanged();
+      })
+      .catch((err: unknown) => {
+        setError(err instanceof Error ? err.message : String(err));
+        setRestarting(false);
+      });
+  }, [onChanged, pollUntilMode]);
 
   // Auto-pick the right shell syntax for the visitor's OS, but let
   // them flip — Windows users SSHing into a Linux box need bash even
@@ -222,24 +274,52 @@ function TransportInfoView({ transport, onChanged }: {
             : open ? "bg-accent/15 text-accent"
             : "bg-node-stopped/15 text-node-stopped"
         }`}>
-          {isExternal ? "external" : open ? "open" : "loopback"}
+          {isExternal
+            ? (transport.joined_hub ? `joined: ${transport.joined_hub.hubName ?? "hub"}` : "external")
+            : open ? "open" : "loopback"}
         </span>
-        {!isExternal && (
-          <button
-            onClick={toggleBind}
-            disabled={restarting}
-            className={`ml-auto px-2 py-0.5 text-[11px] rounded transition-colors ${
-              restarting
-                ? "bg-surface-overlay text-text-muted cursor-wait"
-                : "bg-accent text-accent-fg hover:bg-accent/90"
-            }`}
-            title={open
-              ? "Close the broker to LAN — only this host can connect."
-              : "Open the broker to LAN — remote brain-agents can connect. Triggers an API restart."}
-          >
-            {restarting ? "restarting…" : open ? "Close to LAN" : "Open to LAN"}
-          </button>
-        )}
+        <div className="ml-auto flex flex-wrap items-center gap-2">
+          {isExternal && transport.joined_hub && (
+            <button
+              onClick={leaveHub}
+              disabled={restarting}
+              className={`px-2 py-0.5 text-[11px] rounded transition-colors ${
+                restarting
+                  ? "bg-surface-overlay text-text-muted cursor-wait"
+                  : "bg-surface-overlay text-text hover:bg-border"
+              }`}
+              title="Drop the persisted external-broker config and restart in embedded mode."
+            >
+              {restarting ? "restarting…" : "Disconnect"}
+            </button>
+          )}
+          {!isExternal && (
+            <>
+              <button
+                onClick={() => setJoinOpen(true)}
+                disabled={restarting}
+                className="px-2 py-0.5 text-[11px] rounded bg-surface-overlay text-text hover:bg-border transition-colors"
+                title="Join an existing brAIn hub via its broker URL + token. The local API will restart in external mode."
+              >
+                Join hub…
+              </button>
+              <button
+                onClick={toggleBind}
+                disabled={restarting}
+                className={`px-2 py-0.5 text-[11px] rounded transition-colors ${
+                  restarting
+                    ? "bg-surface-overlay text-text-muted cursor-wait"
+                    : "bg-accent text-accent-fg hover:bg-accent/90"
+                }`}
+                title={open
+                  ? "Close the broker to LAN — only this host can connect."
+                  : "Open the broker to LAN — remote brain-agents can connect. Triggers an API restart."}
+              >
+                {restarting ? "restarting…" : open ? "Close to LAN" : "Open to LAN"}
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       {transport.lan_ips.length > 0 && (
@@ -348,6 +428,117 @@ function TransportInfoView({ transport, onChanged }: {
       {error && (
         <p className="text-[11px] text-node-stopped">{error}</p>
       )}
+
+      {joinOpen && (
+        <JoinHubModal
+          onCancel={() => setJoinOpen(false)}
+          onSubmit={joinHub}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Modal for the "Join existing hub" flow. Accepts either:
+ *   - the broker URL + token typed/pasted separately, OR
+ *   - a full `brain://join?url=…&token=…` URI (we extract the parts).
+ * The hub label is optional — only shown to the user once joined.
+ */
+function JoinHubModal({ onCancel, onSubmit }: {
+  onCancel: () => void;
+  onSubmit: (url: string, token: string, hubName: string) => void;
+}): React.ReactElement {
+  const [url, setUrl] = useState("");
+  const [token, setToken] = useState("");
+  const [hubName, setHubName] = useState("");
+  const [uri, setUri] = useState("");
+
+  const applyUri = useCallback((raw: string): void => {
+    setUri(raw);
+    try {
+      // Accept brain://join?url=…&token=…  OR  bare nats://host:port
+      if (raw.startsWith("brain://")) {
+        const q = new URL(raw).searchParams;
+        const u = q.get("url"); const t = q.get("token");
+        if (u) setUrl(u);
+        if (t) setToken(t);
+      } else if (/^nats:\/\//i.test(raw)) {
+        setUrl(raw);
+      }
+    } catch { /* malformed — leave fields as the user typed */ }
+  }, []);
+
+  const valid = /^nats:\/\/\S+/i.test(url.trim());
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onCancel}>
+      <div className="w-full max-w-md bg-surface-raised border border-border rounded-lg shadow-xl p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
+        <div className="flex items-center justify-between">
+          <h3 className="text-sm font-semibold text-text">Join an existing brAIn hub</h3>
+          <button onClick={onCancel} className="text-text-muted hover:text-text text-lg leading-none">&times;</button>
+        </div>
+        <p className="text-[11px] text-text-muted">
+          Point this dashboard at another hub's NATS broker. After joining, you see the same network as that hub — install libs locally, spawn nodes either side. The local API will restart in <code className="font-mono">external</code> mode.
+        </p>
+
+        <div>
+          <label className="block text-[10px] uppercase tracking-wider text-text-muted mb-1">Paste a join URI (optional shortcut)</label>
+          <input
+            type="text"
+            value={uri}
+            onChange={(e) => applyUri(e.target.value)}
+            placeholder="brain://join?url=… OR  nats://host:port"
+            className="w-full px-2 py-1 text-xs rounded bg-surface border border-border focus:border-accent focus:outline-none text-text font-mono break-all"
+          />
+        </div>
+
+        <div className="border-t border-border pt-3 space-y-2">
+          <div>
+            <label className="block text-[10px] uppercase tracking-wider text-text-muted mb-1">Broker URL <span className="text-node-stopped">*</span></label>
+            <input
+              type="text"
+              value={url}
+              onChange={(e) => setUrl(e.target.value)}
+              placeholder="nats://192.168.1.16:4222"
+              className="w-full px-2 py-1 text-xs rounded bg-surface border border-border focus:border-accent focus:outline-none text-text font-mono"
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] uppercase tracking-wider text-text-muted mb-1">Token (if the hub uses one)</label>
+            <input
+              type="password"
+              value={token}
+              onChange={(e) => setToken(e.target.value)}
+              placeholder="(optional)"
+              className="w-full px-2 py-1 text-xs rounded bg-surface border border-border focus:border-accent focus:outline-none text-text font-mono"
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] uppercase tracking-wider text-text-muted mb-1">Label (optional — shown in this dashboard)</label>
+            <input
+              type="text"
+              value={hubName}
+              onChange={(e) => setHubName(e.target.value)}
+              placeholder="Alice's mac"
+              className="w-full px-2 py-1 text-xs rounded bg-surface border border-border focus:border-accent focus:outline-none text-text"
+            />
+          </div>
+        </div>
+
+        <div className="flex items-center justify-end gap-2 pt-1">
+          <button onClick={onCancel} className="px-3 py-1 text-xs rounded text-text-muted hover:text-text">
+            Cancel
+          </button>
+          <button
+            onClick={() => onSubmit(url, token, hubName)}
+            disabled={!valid}
+            className="px-3 py-1 text-xs rounded bg-accent text-accent-fg hover:bg-accent/90 disabled:opacity-40 disabled:cursor-not-allowed"
+          >
+            Join & restart
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

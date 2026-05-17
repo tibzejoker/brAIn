@@ -22,6 +22,11 @@ export interface TransportInfo {
   lan_ips: string[];
   /** NATS auth token enforced by the embedded broker (null in external mode). */
   token: string | null;
+  /** When the API joined a remote hub via the persistent external-broker
+   *  config (UI flow, not env), surface the URL + label so the dashboard
+   *  can show "Connected to <hub>" and offer Disconnect. Null in embedded
+   *  mode or when external came from BRAIN_NATS_URL env. */
+  joined_hub: { url: string; hubName?: string } | null;
 }
 export function getTransport(): Promise<TransportInfo> {
   return request("/network/transport");
@@ -38,6 +43,26 @@ export function setTransportBind(open: boolean): Promise<{ bind_address: string;
     method: "POST",
     body: JSON.stringify({ open }),
   });
+}
+
+/**
+ * Join an existing brAIn hub by pointing the local API at its NATS
+ * broker. Writes data/external-broker.json + exits(0) so the supervisor
+ * restarts the API in `external` mode. Poll getTransport() until
+ * mode === "external" to know the join landed.
+ */
+export function joinExternalBroker(
+  url: string, token?: string, hubName?: string,
+): Promise<{ joined: boolean; restart_scheduled: boolean; url?: string }> {
+  return request("/network/transport/external", {
+    method: "POST",
+    body: JSON.stringify({ url, token, hubName }),
+  });
+}
+
+/** Drop the persisted external-broker config and restart in embedded mode. */
+export function leaveExternalBroker(): Promise<{ left: boolean; restart_scheduled: boolean }> {
+  return request("/network/transport/external", { method: "DELETE" });
 }
 
 // Store / marketplace endpoints — re-exported for back-compat with

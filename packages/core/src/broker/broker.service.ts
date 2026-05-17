@@ -53,6 +53,58 @@ export function writeBrokerPrefs(prefsPath: string, prefs: BrokerPrefs): void {
   writeFileSync(prefsPath, JSON.stringify(prefs, null, 2), "utf-8");
 }
 
+/**
+ * External broker preferences — when present, the API joins an existing
+ * remote NATS broker instead of spawning its own. Written by the
+ * dashboard's "Join existing hub" flow. BRAIN_NATS_URL env still wins.
+ *
+ * File is mode-readable to the user only (it holds the bearer token
+ * needed to authenticate against the foreign broker). Removed by the
+ * "Disconnect" action → API restarts and falls back to embedded mode.
+ */
+export interface ExternalBrokerPrefs {
+  url: string;
+  token?: string;
+  /** Optional human label for the connection — shown in the UI. */
+  hubName?: string;
+}
+
+export function readExternalBrokerPrefs(prefsPath: string): ExternalBrokerPrefs | null {
+  try {
+    if (!existsSync(prefsPath)) return null;
+    const raw = JSON.parse(readFileSync(prefsPath, "utf-8")) as Partial<ExternalBrokerPrefs>;
+    if (typeof raw.url !== "string" || !/^nats:\/\//i.test(raw.url)) return null;
+    return {
+      url: raw.url,
+      token: typeof raw.token === "string" && raw.token.length > 0 ? raw.token : undefined,
+      hubName: typeof raw.hubName === "string" ? raw.hubName : undefined,
+    };
+  } catch (err) {
+    logger.warn({ err, prefsPath }, "external broker prefs unreadable, falling back to embedded");
+    return null;
+  }
+}
+
+export function writeExternalBrokerPrefs(prefsPath: string, prefs: ExternalBrokerPrefs): void {
+  if (!/^nats:\/\//i.test(prefs.url)) {
+    throw new Error(`writeExternalBrokerPrefs: url must start with nats:// (got: ${prefs.url})`);
+  }
+  mkdirSync(dirname(prefsPath), { recursive: true });
+  writeFileSync(prefsPath, JSON.stringify(prefs, null, 2), { mode: 0o600 });
+}
+
+export function clearExternalBrokerPrefs(prefsPath: string): boolean {
+  try {
+    if (!existsSync(prefsPath)) return false;
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    require("node:fs").unlinkSync(prefsPath);
+    return true;
+  } catch (err) {
+    logger.warn({ err, prefsPath }, "external broker prefs delete failed");
+    return false;
+  }
+}
+
 export interface BrokerOptions {
   /**
    * If set, the service runs in *external mode* — no child spawned,

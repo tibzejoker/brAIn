@@ -1,9 +1,9 @@
-import { Controller, Get, Post, Body, Query, Param, HttpException, HttpStatus, Logger } from "@nestjs/common";
-import { BrainService, BrokerService, readBrokerPrefs, writeBrokerPrefs, getDb, getSetting, setSetting, type HistoryEntry, type ProviderStatus, type CLIStatus } from "@brain/core";
+import { Controller, Get, Post, Delete, Body, Query, Param, HttpException, HttpStatus, Logger } from "@nestjs/common";
+import { BrainService, BrokerService, readBrokerPrefs, writeBrokerPrefs, readExternalBrokerPrefs, writeExternalBrokerPrefs, clearExternalBrokerPrefs, getDb, getSetting, setSetting, type HistoryEntry, type ProviderStatus, type CLIStatus } from "@brain/core";
 import { type Message, type NodeInfo, type NodeState } from "@brain/sdk";
 import { networkInterfaces } from "node:os";
 import { randomBytes } from "node:crypto";
-import { BROKER_PREFS_PATH } from "../app.module";
+import { BROKER_PREFS_PATH, EXTERNAL_BROKER_PREFS_PATH } from "../app.module";
 
 /**
  * Discover the IPv4 addresses of this host's external interfaces.
@@ -172,6 +172,11 @@ export class NetworkController {
     bind_address: string;
     lan_ips: string[];
     token: string | null;
+    /** When the API is joined to a remote hub via the persistent
+     *  external-broker config file, surface its label so the dashboard
+     *  can show "Connected to <hub>" + a Disconnect button. Null in
+     *  embedded mode and when external was set via env var only. */
+    joined_hub: { url: string; hubName?: string } | null;
   } {
     const prefs = readBrokerPrefs(BROKER_PREFS_PATH);
     // Only expose the token in embedded mode — in external mode the
@@ -179,13 +184,64 @@ export class NetworkController {
     const token = this.broker.getMode() === "embedded"
       ? getSetting(getDb(), "broker_token")
       : null;
+    const fileExternal = readExternalBrokerPrefs(EXTERNAL_BROKER_PREFS_PATH);
     return {
       url: this.broker.getUrl(),
       mode: this.broker.getMode(),
       bind_address: prefs.bindAddress,
       lan_ips: getLanIps(),
       token,
+      joined_hub: fileExternal
+        ? { url: fileExternal.url, hubName: fileExternal.hubName }
+        : null,
     };
+  }
+
+  /**
+   * Persist an external NATS broker as the API's bus and exit(0) so
+   * the supervisor restarts in `external` mode. After restart this
+   * dashboard joins the remote hub — every node + agent on that bus
+   * becomes visible here, libs installed locally on either side
+   * announce themselves through the same NATS topics.
+   *
+   * Idempotent for the same URL+token (returns restart_scheduled: false).
+   */
+  @Post("transport/external")
+  joinExternal(
+    @Body() body: { url?: string; token?: string; hubName?: string },
+  ): { joined: boolean; restart_scheduled: boolean; url?: string } {
+    const log = new Logger("NetworkController");
+    const url = (body.url ?? "").trim();
+    if (!url) throw new HttpException("url required", HttpStatus.BAD_REQUEST);
+    if (!/^nats:\/\//i.test(url)) throw new HttpException("url must start with nats://", HttpStatus.BAD_REQUEST);
+    const current = readExternalBrokerPrefs(EXTERNAL_BROKER_PREFS_PATH);
+    const token = (body.token ?? "").trim() || undefined;
+    const hubName = (body.hubName ?? "").trim() || undefined;
+    if (current && current.url === url && current.token === token && current.hubName === hubName) {
+      return { joined: true, restart_scheduled: false, url };
+    }
+    writeExternalBrokerPrefs(EXTERNAL_BROKER_PREFS_PATH, { url, token, hubName });
+    log.log(`joining external broker ${url}; exiting in 200ms for restart`);
+    setTimeout(() => { process.exit(0); }, 200);
+    return { joined: true, restart_scheduled: true, url };
+  }
+
+  /**
+   * Drop the persisted external-broker config and exit(0) so the
+   * supervisor brings the API back in embedded mode (spawns its own
+   * nats-server on a free local port).
+   */
+  @Delete("transport/external")
+  leaveExternal(): { left: boolean; restart_scheduled: boolean } {
+    const log = new Logger("NetworkController");
+    const wasPresent = clearExternalBrokerPrefs(EXTERNAL_BROKER_PREFS_PATH);
+    if (!wasPresent) {
+      // Nothing to leave — caller is already in embedded mode.
+      return { left: false, restart_scheduled: false };
+    }
+    log.log("left external broker; exiting in 200ms for restart back to embedded");
+    setTimeout(() => { process.exit(0); }, 200);
+    return { left: true, restart_scheduled: true };
   }
 
   /**

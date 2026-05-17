@@ -1,8 +1,12 @@
 export { BrainService } from "./brain.service";
 export { BusService, NatsBusService, Mailbox, matchTopic } from "./bus";
 export type { IBusService, NatsBusOptions, BusHistoryOptions, BusMailboxView, BusSubscription, SubscribeOptions } from "./bus";
-export { BrokerService, readBrokerPrefs, writeBrokerPrefs } from "./broker";
-export type { BrokerOptions, BrokerMode, BrokerPrefs } from "./broker";
+export {
+  BrokerService,
+  readBrokerPrefs, writeBrokerPrefs,
+  readExternalBrokerPrefs, writeExternalBrokerPrefs, clearExternalBrokerPrefs,
+} from "./broker";
+export type { BrokerOptions, BrokerMode, BrokerPrefs, ExternalBrokerPrefs } from "./broker";
 export {
   TypeRegistry, InstanceRegistry,
   TypeValidatorService, DynamicTypeScanner,
