@@ -544,7 +544,7 @@ Around 30 vitest files. Areas covered:
 `pnpm lint` runs ESLint over the whole monorepo. The configuration
 is on the strict end of TypeScript style: no `any`, no `console`,
 mandatory `import type`, explicit return types, no inline
-`eslint-disable`, and a 300-line cap per source file. Contributions
+`eslint-disable`, and a 500-line cap per source file. Contributions
 need to land at zero errors and zero warnings.
 
 ---

@@ -271,7 +271,7 @@ stay in `tests/`.
 - **Explicit return types** — on all functions (except expressions)
 - **`react-hooks/exhaustive-deps`** — error level
 - **`prefer-const`**, **`eqeqeq`**, **`no-floating-promises`**, **`require-await`**
-- **max-lines: 300** — split files if they exceed this
+- **max-lines: 500** — split files if they exceed this
 - **`eslint-plugin-sonarjs`** — anti-patterns + cognitive-complexity ratchet (baseline 60)
 
 ### Logging
