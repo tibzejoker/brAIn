@@ -31,16 +31,32 @@ jobs:
   test-framework:
     name: framework tests
     runs-on: ubuntu-latest
+    # The framework tests (registry, remote-spawn) walk the workspace
+    # and expect the 9 storeproject sibling repos to live at
+    # ../storeprojects/brAIn-*/ relative to brAIn/. Recreate that
+    # layout in CI by checking brAIn into a subdirectory and cloning
+    # the storeprojects next to it.
     steps:
       - uses: actions/checkout@v4
+        with:
+          path: brAIn
+      - name: Clone storeprojects siblings
+        run: |
+          mkdir -p storeprojects
+          for repo in brAIn-essentials brAIn-games brAIn-bridges brAIn-demo-loneliness brAIn-llm brAIn-memory brAIn-perception brAIn-tools brAIn-ui; do
+            git clone --depth 1 https://github.com/tibzejoker/$repo.git storeprojects/$repo
+          done
       - uses: pnpm/action-setup@v4
         with: { version: 10 }
       - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: pnpm
+          cache-dependency-path: brAIn/pnpm-lock.yaml
       - run: pnpm install --frozen-lockfile
+        working-directory: brAIn
       - run: pnpm test:framework
+        working-directory: brAIn
 
   test-nodes:
     name: per-node tests (parallel)
