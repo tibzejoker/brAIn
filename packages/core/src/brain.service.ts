@@ -43,8 +43,30 @@ import { StoreService } from "./store";
 import { AgentDirectory, type AgentDirectoryOptions } from "./agents";
 import { MCPBridge } from "./mcp";
 
+/**
+ * Cross-realm anchor for `BrainService.current`.
+ *
+ * Node-handler code (e.g. clock, cron) reaches up for the running
+ * brain via `BrainService.current?.bus.publish(...)`. In test runs
+ * the framework module gets loaded *twice* — once via Vite's TS
+ * resolver for the test file (`packages/core/src/...`) and once via
+ * Node's `require()` when a handler in `storeprojects/` is dynamically
+ * imported (resolves to `packages/core/dist/...`). Two module instances
+ * means two static `current` slots — clock would publish through a
+ * BrainService whose `current` is still `null`.
+ *
+ * Routing `current` through `globalThis` makes the slot itself global,
+ * so whichever realm sets it, all readers see the same instance.
+ */
+const CURRENT_KEY = "__brAInService_current__";
+
 export class BrainService extends EventEmitter {
-  static current: BrainService | null = null;
+  static get current(): BrainService | null {
+    return ((globalThis as Record<string, unknown>)[CURRENT_KEY] as BrainService | null) ?? null;
+  }
+  static set current(value: BrainService | null) {
+    (globalThis as Record<string, unknown>)[CURRENT_KEY] = value;
+  }
   // Typed as the interface so consumers don't depend on the in-memory
   // impl; future NatsBusService swap is a one-line change in the
   // constructor.
