@@ -16,7 +16,8 @@
     "brain": "node scripts/brain.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "test": "vitest run",
+    "test": "pnpm -r --workspace-concurrency=4 run test",
+    "test:framework": "vitest run",
     "test:watch": "vitest"
   },
   "engines": {

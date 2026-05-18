@@ -63,6 +63,9 @@ importers:
       typescript:
         specifier: ^5.4.0
         version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)
 
   ../storeprojects/brAIn-bridges/nodes/telegram:
     dependencies:
@@ -82,6 +85,9 @@ importers:
       typescript:
         specifier: ^5.4.0
         version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)
 
   ../storeprojects/brAIn-bridges/nodes/whatsapp:
     dependencies:
@@ -107,6 +113,9 @@ importers:
       typescript:
         specifier: ^5.4.0
         version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)
 
   ../storeprojects/brAIn-demo-loneliness/nodes/phone-loneliness:
     dependencies:
@@ -123,6 +132,9 @@ importers:
       typescript:
         specifier: ^5.4.0
         version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)
 
   ../storeprojects/brAIn-essentials/nodes/attention:
     dependencies:
@@ -155,6 +167,9 @@ importers:
       typescript:
         specifier: ^5.4.0
         version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)
 
   ../storeprojects/brAIn-essentials/nodes/clock:
     dependencies:
@@ -209,6 +224,9 @@ importers:
       typescript:
         specifier: ^5.4.0
         version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)
 
   ../storeprojects/brAIn-essentials/nodes/echo:
     dependencies:
@@ -282,6 +300,9 @@ importers:
       typescript:
         specifier: ^5.4.0
         version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)
 
   ../storeprojects/brAIn-games/nodes/hangman:
     dependencies:
@@ -298,6 +319,9 @@ importers:
       typescript:
         specifier: ^5.4.0
         version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)
 
   ../storeprojects/brAIn-games/nodes/tictactoe:
     dependencies:
@@ -314,6 +338,9 @@ importers:
       typescript:
         specifier: ^5.4.0
         version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)
 
   ../storeprojects/brAIn-llm/nodes/llm-basic:
     dependencies:
@@ -359,6 +386,9 @@ importers:
       typescript:
         specifier: ^5.4.0
         version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)
 
   ../storeprojects/brAIn-memory/nodes/memory-consolidator:
     dependencies:
@@ -372,6 +402,9 @@ importers:
       '@types/node':
         specifier: ^20.11.0
         version: 20.19.39
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)
 
   ../storeprojects/brAIn-memory/nodes/memory-proxy:
     dependencies:
@@ -388,6 +421,9 @@ importers:
       typescript:
         specifier: ^5.4.0
         version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)
 
   ../storeprojects/brAIn-memory/nodes/memory-vector:
     dependencies:
@@ -404,6 +440,9 @@ importers:
       typescript:
         specifier: ^5.4.0
         version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)
 
   ../storeprojects/brAIn-memory/nodes/reminder:
     dependencies:
@@ -477,6 +516,9 @@ importers:
       typescript:
         specifier: ^5.4.0
         version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)
 
   ../storeprojects/brAIn-perception/nodes/voice:
     dependencies:
@@ -512,6 +554,9 @@ importers:
       typescript:
         specifier: ^5.4.0
         version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)
 
   ../storeprojects/brAIn-tools/nodes/terminal:
     dependencies:
@@ -539,7 +584,23 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
-  nodes/_dynamic/dev-565189dc:
+  nodes/_dynamic/dev-27d397c5:
+    dependencies:
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.39
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+      vitest:
+        specifier: ^3.2.4
+        version: 3.2.4(@types/node@20.19.39)(jiti@2.6.1)(lightningcss@1.32.0)(terser@5.46.1)(yaml@2.8.3)
+
+  nodes/_dynamic/dev-71e750d4:
     dependencies:
       '@brain/sdk':
         specifier: workspace:*
