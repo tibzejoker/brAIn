@@ -1,0 +1,18 @@
+# Weekly dependency PRs — npm + github-actions. We DON'T enable
+# auto-merge here because dependabot PRs need a human eyeball for
+# breaking-change patches; review them when they land and merge if
+# clean. Group minor/patch into single PRs to cut review load.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule: { interval: weekly, day: monday }
+    open-pull-requests-limit: 3

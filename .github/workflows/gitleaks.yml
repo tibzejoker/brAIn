@@ -1,0 +1,23 @@
+name: gitleaks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+# Single fast job — scans the diff (not the entire history) on PRs,
+# scans the latest commit range on direct pushes. Failure blocks the
+# branch protection. A real leak in main = the only emergency that
+# justifies bypassing — tibzejoker is in the admin bypass list, but
+# the right reaction is to rotate the credential FIRST.
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # gitleaks needs the full history to diff
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

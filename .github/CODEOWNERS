@@ -1,0 +1,4 @@
+# Default reviewer for every PR. With solo ownership this just means
+# tibzejoker auto-subscribes — no enforced approval since the protection
+# rule is set to 0 required reviews (checks are the real gate).
+* @tibzejoker

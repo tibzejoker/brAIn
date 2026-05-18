@@ -16,7 +16,9 @@
     "brain": "node scripts/brain.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "test": "vitest run",
+    "test": "pnpm -r --workspace-concurrency=4 run test",
+    "test:framework": "vitest run",
+    "test:coverage": "vitest run --coverage",
     "test:watch": "vitest"
   },
   "engines": {
@@ -38,6 +40,7 @@
   "devDependencies": {
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@types/node": "^20.11.0",
+    "@vitest/coverage-v8": "^3.2.4",
     "@typescript-eslint/eslint-plugin": "^8.58.1",
     "@typescript-eslint/parser": "^8.58.1",
     "concurrently": "^9.2.1",
@@ -45,6 +48,8 @@
     "eslint": "^10.2.0",
     "eslint-config-prettier": "^10.1.8",
     "eslint-plugin-react-hooks": "^7.0.1",
+    "eslint-plugin-sonarjs": "^3.0.5",
+    "globals": "^16.0.0",
     "vitest": "^3.2.4",
     "wait-on": "^9.0.5"
   }

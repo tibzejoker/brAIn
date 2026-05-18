@@ -70,18 +70,16 @@ export function SeedsView({ onChanged }: { onChanged: () => void }): React.React
         const message = err instanceof Error ? err.message : String(err);
         // Collision: offer overwrite in a follow-up confirm — keeps
         // the UI single-flow without a custom dialog.
-        if (/already exists/i.test(message)) {
-          if (window.confirm(`"${name}" already exists. Overwrite?`)) {
-            savePersonalSeed(name, { overwrite: true })
-              .then((res) => {
-                setBanner({ type: "success", message: `Overwrote personal seed "${res.slug}"` });
-                void refetch();
-              })
-              .catch((err2: unknown) => setBanner({
-                type: "error", message: err2 instanceof Error ? err2.message : String(err2),
-              }));
-            return;
-          }
+        if (/already exists/i.test(message) && window.confirm(`"${name}" already exists. Overwrite?`)) {
+          savePersonalSeed(name, { overwrite: true })
+            .then((res) => {
+              setBanner({ type: "success", message: `Overwrote personal seed "${res.slug}"` });
+              void refetch();
+            })
+            .catch((err2: unknown) => setBanner({
+              type: "error", message: err2 instanceof Error ? err2.message : String(err2),
+            }));
+          return;
         }
         setBanner({ type: "error", message });
       })

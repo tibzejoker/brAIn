@@ -252,7 +252,9 @@ export function NodeBlock({ id, data, selected }: NodeProps<NodeBlockData>): Rea
         <span className="px-1.5 py-0.5 rounded bg-surface-overlay">{data.nodeType}</span>
         {data.transport === "remote" && (
           <span
-            title={`hosted on remote agent${data.targetAgentId ? ` "${data.targetAgentId}"` : ""}`}
+            title={data.targetAgentId
+              ? `hosted on remote agent "${data.targetAgentId}"`
+              : "hosted on remote agent"}
             className="px-1.5 py-0.5 rounded bg-accent/15 text-accent flex items-center gap-1"
           >
             <span className="w-1.5 h-1.5 rounded-full bg-accent" />remote

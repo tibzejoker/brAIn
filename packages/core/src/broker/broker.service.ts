@@ -19,7 +19,7 @@
  * notice and restart the API as a whole.
  */
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync, readFileSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync, mkdirSync, unlinkSync } from "node:fs";
 import { connect as netConnect, createServer, type AddressInfo } from "node:net";
 import { resolve as resolvePath, dirname } from "node:path";
 import { logger } from "../logger";
@@ -96,8 +96,7 @@ export function writeExternalBrokerPrefs(prefsPath: string, prefs: ExternalBroke
 export function clearExternalBrokerPrefs(prefsPath: string): boolean {
   try {
     if (!existsSync(prefsPath)) return false;
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
-    require("node:fs").unlinkSync(prefsPath);
+    unlinkSync(prefsPath);
     return true;
   } catch (err) {
     logger.warn({ err, prefsPath }, "external broker prefs delete failed");

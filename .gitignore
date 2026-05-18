@@ -1,6 +1,9 @@
 node_modules/
 dist/
 data/
+.pnpm-store/
+coverage/
+.scannerwork/
 
 # nats-server binary downloaded by scripts/install-nats.mjs
 packages/core/bin/

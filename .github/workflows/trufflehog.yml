@@ -1,0 +1,31 @@
+name: trufflehog
+
+# Complementary to gitleaks — wider pattern catalogue + LIVE
+# verification of every match (calls the API the secret would unlock,
+# so unverified candidates are silently dropped). `--only-verified`
+# means: zero noise, but anything that fires is a real, active leak
+# and the credential must be rotated immediately.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: trufflehog-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # trufflehog needs history to scan the past too
+      - uses: trufflesecurity/trufflehog@main
+        with:
+          path: ./
+          base: ${{ github.event.repository.default_branch }}
+          head: HEAD
+          extra_args: --only-verified

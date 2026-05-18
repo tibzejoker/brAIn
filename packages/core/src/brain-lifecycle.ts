@@ -127,7 +127,7 @@ export async function spawnNode(
     authority_level: config.authority_level ?? typeConfig.default_authority,
     state: NodeState.ACTIVE,
     priority: config.priority ?? typeConfig.default_priority,
-    subscriptions: (config.subscriptions ?? typeConfig.default_subscriptions ?? []).map(normaliseSubscription),
+    subscriptions: (config.subscriptions ?? typeConfig.default_subscriptions).map(normaliseSubscription),
     transport,
     position: config.position ?? { x: 0, y: 0 },
     config_overrides: mergedOverrides,
