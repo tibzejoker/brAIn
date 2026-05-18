@@ -5,6 +5,11 @@ name: trufflehog
 # so unverified candidates are silently dropped). `--only-verified`
 # means: zero noise, but anything that fires is a real, active leak
 # and the credential must be rotated immediately.
+#
+# Why no `base`/`head` inputs: on push events to the default branch
+# the trufflehog action errors out when BASE == HEAD (a known quirk).
+# Omitting them lets the action auto-derive the diff from the GitHub
+# event payload — `before..after` on push, `base.sha..head.sha` on PR.
 
 on:
   push:
@@ -25,7 +30,4 @@ jobs:
           fetch-depth: 0  # trufflehog needs history to scan the past too
       - uses: trufflesecurity/trufflehog@main
         with:
-          path: ./
-          base: ${{ github.event.repository.default_branch }}
-          head: HEAD
           extra_args: --only-verified
