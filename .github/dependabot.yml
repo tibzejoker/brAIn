@@ -1,18 +1,34 @@
-# Weekly dependency PRs — npm + github-actions. We DON'T enable
-# auto-merge here because dependabot PRs need a human eyeball for
-# breaking-change patches; review them when they land and merge if
-# clean. Group minor/patch into single PRs to cut review load.
+# Weekly dependency PRs — minor + patch grouped, MAJORS IGNORED.
+#
+# Why ignore majors: a Dependabot PR for `@types/node 20 → 25` or
+# `actions/setup-node 4 → 6` is just noise — major bumps are
+# breaking by definition (engines.node, Action API surface, TS
+# language level) and need a deliberate human read of the changelog.
+# We bump them by hand when we choose to. The grouped minor/patch PR
+# still ships every Monday so CVE patches arrive on autopilot.
+#
+# `open-pull-requests-limit` is tuned low (3 npm / 2 actions) so the
+# weekly burst never floods the PR list.
 version: 2
 updates:
   - package-ecosystem: npm
     directory: /
     schedule: { interval: weekly, day: monday }
-    open-pull-requests-limit: 5
+    open-pull-requests-limit: 3
     groups:
-      minor-and-patch:
+      npm-minor-and-patch:
         update-types: [minor, patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
 
   - package-ecosystem: github-actions
     directory: /
     schedule: { interval: weekly, day: monday }
-    open-pull-requests-limit: 3
+    open-pull-requests-limit: 2
+    groups:
+      actions-minor-and-patch:
+        update-types: [minor, patch]
+    ignore:
+      - dependency-name: "*"
+        update-types: [version-update:semver-major]
