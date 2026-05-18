@@ -29,6 +29,7 @@ export function NodeCreator({
   const [subscriptions, setSubscriptions] = useState("");
   const [agents, setAgents] = useState<AgentSnapshot[]>([]);
   const [collapsed, setCollapsed] = useState<Set<string>>(() => new Set());
+  const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -38,12 +39,23 @@ export function NodeCreator({
     setSelection(null);
     setName("");
     setSubscriptions("");
+    setSearch("");
     setError(null);
+    // The getAgents resolver below overrides this once the list lands.
     setCollapsed(new Set());
 
     let cancelled = false;
     getAgents()
-      .then((list) => { if (!cancelled) setAgents(list); })
+      .then((list) => {
+        if (cancelled) return;
+        setAgents(list);
+        // When at least one remote agent is connected, collapse every
+        // remote group by default so the type list stays scannable.
+        // Local stays open since that's the most common spawn target.
+        if (list.length > 0) {
+          setCollapsed(new Set(list.map((a) => `agent-${a.agent_id}`)));
+        }
+      })
       .catch(() => { if (!cancelled) setAgents([]); });
     return (): void => { cancelled = true; };
   }, [open]);
@@ -123,6 +135,34 @@ export function NodeCreator({
     });
   };
 
+  // Substring match (case-insensitive) on type name or description.
+  // Empty search → everything matches.
+  const lowerSearch = search.trim().toLowerCase();
+  const matchesSearch = useCallback((typeName: string): boolean => {
+    if (!lowerSearch) return true;
+    if (typeName.toLowerCase().includes(lowerSearch)) return true;
+    const desc = types.find((t) => t.name === typeName)?.description ?? "";
+    return desc.toLowerCase().includes(lowerSearch);
+  }, [lowerSearch, types]);
+
+  const filteredLocalTypes = useMemo(
+    () => types.filter((t) => matchesSearch(t.name)),
+    [types, matchesSearch],
+  );
+  const filteredAgentTypes = useMemo(() => {
+    const out: Record<string, string[]> = {};
+    for (const a of agents) out[a.agent_id] = a.types.filter(matchesSearch);
+    return out;
+  }, [agents, matchesSearch]);
+
+  // When search is active, force-expand any group that has matches
+  // (otherwise results stay hidden behind a collapsed header). Empty
+  // search falls back to the user-driven collapsed state.
+  const isCollapsed = (key: string, matchCount: number): boolean => {
+    if (lowerSearch && matchCount > 0) return false;
+    return collapsed.has(key);
+  };
+
   if (!open) return null;
 
   const hasSelection = selection !== null;
@@ -189,20 +229,31 @@ export function NodeCreator({
           )}
         </div>
 
+        {/* Search — filters node-type rows across Local + every agent */}
+        <div className="border-b border-border px-5 py-2 shrink-0">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search node types…"
+            className="w-full px-2 py-1.5 rounded bg-surface-overlay border border-border text-text text-xs focus:outline-none focus:border-accent"
+          />
+        </div>
+
         {/* Targets list — scrollable */}
         <div className="flex-1 overflow-y-auto px-5 py-3 space-y-3 min-h-0">
           {/* LOCAL */}
           <Group
             label="Local"
             sublabel="this brAIn process"
-            count={types.length}
-            isCollapsed={collapsed.has("local")}
+            count={filteredLocalTypes.length}
+            isCollapsed={isCollapsed("local", filteredLocalTypes.length)}
             onToggle={() => toggle("local")}
           >
-            {types.length === 0 ? (
-              <Empty>No node types registered.</Empty>
+            {filteredLocalTypes.length === 0 ? (
+              <Empty>{lowerSearch ? "No matches." : "No node types registered."}</Empty>
             ) : (
-              types.map((t) => (
+              filteredLocalTypes.map((t) => (
                 <TypeRow
                   key={t.name}
                   name={t.name}
@@ -218,21 +269,23 @@ export function NodeCreator({
           {/* REMOTES */}
           {agents.map((a) => {
             const buckets = remoteCounts[a.agent_id] ?? {};
-            const count = a.types.length;
+            const matchingTypes = filteredAgentTypes[a.agent_id] ?? [];
             const id = `agent-${a.agent_id}`;
             return (
               <Group
                 key={a.agent_id}
                 label={a.host}
                 sublabel={`${a.agent_id}`}
-                count={count}
-                isCollapsed={collapsed.has(id)}
+                count={matchingTypes.length}
+                isCollapsed={isCollapsed(id, matchingTypes.length)}
                 onToggle={() => toggle(id)}
               >
-                {count === 0 ? (
+                {a.types.length === 0 ? (
                   <Empty>This remote announces no installable types — it's a passive bus client (e.g. brAIn-mobile). Publish to its topics directly instead of spawning here.</Empty>
+                ) : matchingTypes.length === 0 ? (
+                  <Empty>No matches.</Empty>
                 ) : (
-                  a.types.map((typeName) => {
+                  matchingTypes.map((typeName) => {
                     const tc = types.find((t) => t.name === typeName);
                     return (
                       <TypeRow
