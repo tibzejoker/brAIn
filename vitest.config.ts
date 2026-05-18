@@ -18,6 +18,24 @@ export default defineConfig({
     server: {
       deps: { external: [/\/storeprojects\//] },
     },
+    // Coverage emits lcov for SonarQube/SonarCloud ingestion. v8 is the
+    // native Node coverage provider (no extra babel/istanbul transform).
+    // `all: true` includes uncovered source files so the % isn't inflated
+    // by ignoring untested code.
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "lcov"],
+      reportsDirectory: "./coverage",
+      all: true,
+      include: ["packages/*/src/**/*.ts"],
+      exclude: [
+        "**/*.test.ts",
+        "**/*.spec.ts",
+        "**/dist/**",
+        "**/node_modules/**",
+        "**/*.d.ts",
+      ],
+    },
   },
   server: {
     fs: { allow: [path.resolve(__dirname, "..")] },
