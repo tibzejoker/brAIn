@@ -1,0 +1,32 @@
+name: release-please
+
+# Release Please reads Conventional Commits on main, opens/maintains a
+# rolling "release-please" PR with a pending version bump + auto-generated
+# CHANGELOG.md. Merging THAT PR creates the git tag + a GitHub Release.
+#
+# Commit prefix → bump:
+#   feat:                  → minor (0.X.0)
+#   fix:                   → patch (0.0.X)
+#   feat! / BREAKING CHANGE: → major (X.0.0)
+#   chore:, ci:, docs:,    → no release
+#   refactor:, perf:, test:, style:
+#
+# Force a specific version any time by adding `Release-As: X.Y.Z`
+# as a commit footer (works on any commit, including an empty one
+# created with `git commit --allow-empty`).
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write       # tag + create release
+  pull-requests: write  # open / update the release PR
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: googleapis/release-please-action@v4
+        with:
+          release-type: node
