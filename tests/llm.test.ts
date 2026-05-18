@@ -1,7 +1,10 @@
 import { describe, it, expect, beforeAll } from "vitest";
 import { LLMRegistry, CLIRegistry, generateText } from "@brain/core";
 
-describe("LLMRegistry", () => {
+// These tests hit a live local LLM (Ollama, vLLM, lm-studio, localai).
+// CI runners don't have any of those reachable — skip the whole suite
+// in CI. Local dev runs as normal so the user keeps coverage.
+describe.skipIf(process.env.CI)("LLMRegistry", () => {
   let registry: LLMRegistry;
 
   beforeAll(async () => {
