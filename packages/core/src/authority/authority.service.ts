@@ -50,8 +50,12 @@ export class AuthorityService {
     if (!allowed.has(action)) return false;
 
     // Actions that target another node require strictly lower authority
-    if (target && this.isTargetedAction(action)) {
-      if (target.authority_level >= caller.authority_level) return false;
+    if (
+      target &&
+      this.isTargetedAction(action) &&
+      target.authority_level >= caller.authority_level
+    ) {
+      return false;
     }
 
     // spawn_node: child authority must be < caller

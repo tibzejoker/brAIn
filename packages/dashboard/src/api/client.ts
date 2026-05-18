@@ -98,7 +98,8 @@ export function getMessages(opts?: {
   if (opts?.min_criticality !== undefined)
     params.set("min_criticality", String(opts.min_criticality));
   const qs = params.toString();
-  return request(`/network/messages${qs ? `?${qs}` : ""}`);
+  const suffix = qs ? `?${qs}` : "";
+  return request(`/network/messages${suffix}`);
 }
 
 export function getTrace(traceId: string): Promise<Message[]> {
@@ -305,7 +306,8 @@ export function getNetworkHistory(opts?: {
   if (opts?.action) params.set("action", opts.action);
   if (opts?.node_id) params.set("node_id", opts.node_id);
   const qs = params.toString();
-  return request(`/network/history${qs ? `?${qs}` : ""}`);
+  const suffix = qs ? `?${qs}` : "";
+  return request(`/network/history${suffix}`);
 }
 
 // === Network actions ===

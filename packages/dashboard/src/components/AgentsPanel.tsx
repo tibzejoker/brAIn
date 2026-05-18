@@ -213,14 +213,16 @@ function TransportInfoView({ transport, onChanged }: {
       parts.push("node brain/brAIn/packages/agent/dist/cli.js");
       return parts.join("; ");
     }
-    const envInline = `BRAIN_NATS_URL=${url}${tok ? ` BRAIN_NATS_TOKEN=${tok}` : ""}`;
+    const tokenSuffix = tok ? ` BRAIN_NATS_TOKEN=${tok}` : "";
+    const envInline = `BRAIN_NATS_URL=${url}${tokenSuffix}`;
     return `${envInline} node brain/brAIn/packages/agent/dist/cli.js`;
   })();
 
   // Mobile join URI — `brain://join?url=...&token=...`. Parseable by the
   // Flutter mobile app's QR scanner and usable as a system deep link.
+  const tokenQuery = transport.token ? `&token=${encodeURIComponent(transport.token)}` : "";
   const joinUri = reachableUrl
-    ? `brain://join?url=${encodeURIComponent(reachableUrl)}${transport.token ? `&token=${encodeURIComponent(transport.token)}` : ""}`
+    ? `brain://join?url=${encodeURIComponent(reachableUrl)}${tokenQuery}`
     : "";
 
   const copy = (key: string, text: string): void => {

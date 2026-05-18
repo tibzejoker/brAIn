@@ -1,0 +1,51 @@
+# SonarCloud — deeper analysis than the in-repo eslint-plugin-sonarjs:
+# cross-file duplication, security hotspots, maintainability rating,
+# tech-debt timeline. Free for public repos.
+#
+# DISABLED BY DEFAULT — the job's `if:` gate skips unless the
+# SONAR_TOKEN secret is set on the repo. To turn on:
+#
+#   1. Sign in at https://sonarcloud.io with the tibzejoker GitHub account.
+#   2. Import this repo, choose organisation = tibzejoker.
+#   3. Disable "automatic analysis" in SonarCloud project settings
+#      (we run it from CI here, not from their cloud crawler).
+#   4. Generate a user token (My Account → Security) and add it as a
+#      repo secret named SONAR_TOKEN.
+#   5. Add a `sonar-project.properties` at repo root with:
+#        sonar.projectKey=tibzejoker_<repo-name>
+#        sonar.organization=tibzejoker
+#        sonar.sources=packages
+#        sonar.exclusions=**/dist/**,**/node_modules/**,**/*.test.ts
+#        sonar.javascript.lcov.reportPaths=coverage/lcov.info
+#   6. The next push to main runs this job.
+#
+# Until then the secret is absent and the job is a silent no-op.
+
+name: sonarcloud
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: sonarcloud-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  scan:
+    name: SonarCloud
+    runs-on: ubuntu-latest
+    # Skip silently if no token configured — keeps the workflow file
+    # in the repo as documentation without failing CI on every fork.
+    if: ${{ secrets.SONAR_TOKEN != '' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # Sonar needs full history for blame-based new-code detection.
+          fetch-depth: 0
+      - uses: SonarSource/sonarqube-scan-action@v4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}

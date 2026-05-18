@@ -17,6 +17,7 @@ import type { IBusService } from "../bus/bus.interface";
 import type { LLMRegistry } from "./llm-registry";
 import type { LLMConfigStore } from "./llm-config";
 import { extractReasoningText } from "./reasoning";
+import { logger } from "../logger";
 
 export interface LLMFacadeDeps {
   registry: LLMRegistry;
@@ -605,9 +606,9 @@ function warnIfUnionSchema(schema: unknown, label: string): void {
   if (typeof schema !== "object" || schema === null) return;
   const s = schema as { oneOf?: unknown; anyOf?: unknown };
   if (Array.isArray(s.oneOf) || Array.isArray(s.anyOf)) {
-    // eslint-disable-next-line no-console
-    console.warn(
-      `[ctx.llm] tool "${label}" uses oneOf/anyOf in its inputSchema. ` +
+    logger.warn(
+      { tool: label },
+      `[ctx.llm] tool uses oneOf/anyOf in its inputSchema. ` +
       `Local LLMs (Gemma, smaller Llamas) handle discriminated unions ` +
       `unreliably — prefer ctx.llm.tools({tools: {...}}) with one flat ` +
       `tool per branch. See @brain/sdk LLMToolOptions JSDoc.`,
