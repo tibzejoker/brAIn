@@ -14,7 +14,13 @@ export class TypeRegistry {
     }
 
     const raw = fs.readFileSync(configPath, "utf-8");
-    const config = JSON.parse(raw) as NodeTypeConfig;
+    // Cast through Partial — the SDK type says these fields are
+    // required, but on-disk config.json files sometimes omit them
+    // (notably `default_subscriptions` on publish-only nodes like clock,
+    // and minimal stub configs in dynamic-scanner tests). Treating the
+    // parse as Partial<...> makes the optionality explicit and lets the
+    // null-coalesce below be honest.
+    const config = JSON.parse(raw) as Partial<NodeTypeConfig>;
 
     if (!config.name) {
       throw new Error(`config.json at ${dirPath} is missing "name" field`);
@@ -26,7 +32,7 @@ export class TypeRegistry {
     // here so static (in-tree + installed-package) nodes get the same
     // discipline. The single source of truth fans out to /tools, the
     // MCPBridge, publish-time validation, and ctx.tools.list().
-    for (const sub of config.default_subscriptions) {
+    for (const sub of (config.default_subscriptions ?? [])) {
       const s = sub as { topic: string; description?: string; inputSchema?: unknown; internal?: boolean };
       if (s.internal === true) continue;
       if (!s.inputSchema || typeof s.inputSchema !== "object") {
@@ -42,9 +48,10 @@ export class TypeRegistry {
       }
     }
 
-    this.types.set(config.name, config);
-    this.typePaths.set(config.name, dirPath);
-    return config;
+    const full = config as NodeTypeConfig;
+    this.types.set(full.name, full);
+    this.typePaths.set(full.name, dirPath);
+    return full;
   }
 
   unregister(typeName: string): boolean {

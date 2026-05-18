@@ -109,7 +109,10 @@ describe("TypeRegistry", () => {
       });
 
       const reg = new TypeRegistry();
-      reg.scanDirectory(path.resolve(__dirname, "../nodes"));
+      // Pull in-tree types from every storeproject — after the split,
+      // `clock` lives in `storeprojects/brAIn-essentials/nodes/clock/`,
+      // not in this repo's `nodes/` (which only has `_dynamic/` now).
+      scanAll(reg);
       const installed = reg.scanInstalledPackages(scratch);
       expect(installed).toHaveLength(1);
       expect(reg.has("from-npm")).toBe(true);
