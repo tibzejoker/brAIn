@@ -14,7 +14,7 @@
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@nestjs/common": "^10.3.0",
     "@nestjs/core": "^10.3.0",
-    "@nestjs/platform-express": "^10.3.0",
+    "@nestjs/platform-express": "^11.1.21",
     "@nestjs/platform-socket.io": "^10.3.0",
     "@nestjs/websockets": "^10.3.0",
     "pino": "^10.3.1",
