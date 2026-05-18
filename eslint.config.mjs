@@ -105,7 +105,11 @@ export default [
       "react-hooks/exhaustive-deps": "error",
 
       // === File length limit ===
-      "max-lines": ["error", { max: 300, skipBlankLines: true, skipComments: true }],
+      // 500 lines is the soft cap — enough headroom for a single
+      // cohesive concern (a runner, a panel) without the file becoming
+      // a dumping ground. Past this, the lint nags us to extract a
+      // sibling module rather than letting drift accumulate.
+      "max-lines": ["error", { max: 500, skipBlankLines: true, skipComments: true }],
     },
   },
   prettier,
