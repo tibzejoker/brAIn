@@ -49,8 +49,9 @@ A few shapes you can build with this:
 
 The framework's primitives:
 
-- **Daemon model** — nodes live across iterations, sleep when idle,
-  wake on events. State persists across runs.
+- **Daemon model** — nodes live across iterations; the framework
+  auto-parks them when idle and the bus wakes them on the next
+  subscribed message. State persists across runs.
 - **Many-to-many I/O** — each node subscribes to N topic patterns
   (with wildcards) and publishes to as many.
 - **Criticality with preemption** — every message carries a
@@ -59,9 +60,9 @@ The framework's primitives:
   `ctx.preemptionContext.{interrupting_message, previous_messages}`
   available.
 - **Distributed runtime** — same node config runs in-process or on
-  a remote `brain-agent`. Lifecycle (stop / start / wake) and
-  read-back (logs / mailbox / DLQ) work transparently across
-  machines over NATS.
+  a remote `brain-agent`. Lifecycle (stop / start) and read-back
+  (logs / mailbox / DLQ) work transparently across machines over
+  NATS.
 - **MCP-native** — `mcp-config` (manager) + `mcp-server` (one per
   upstream) bridge any MCP server's tools onto the bus, so the
   agent reaches into filesystem, git, Slack, Linear, Notion,
@@ -104,12 +105,12 @@ Features:
 `packages/core/src/runner` — picked from a node's tags:
 
 - **`ServiceRunner`** for reactive non-LLM nodes (memory, http-bridge,
-  terminal, …): message arrives → handler called once → auto-sleep on
-  `[any]`.
+  terminal, …): message arrives → handler called once → node parks
+  until the next subscribed message arrives.
 - **`LLMRunner`** for LLM nodes (brain, memory-proxy,
   memory-consolidator): handler called in a budget loop (default 5
   iterations). New messages **reset the budget** (fresh attention).
-  When exhausted → forced sleep.
+  When exhausted → node parks until something rewakes it.
 
 ### Preemption
 
@@ -134,7 +135,7 @@ configurable; default is 3. The next handler invocation runs with
 `packages/agent` ships a `brain-agent` CLI binary that joins the
 shared NATS bus and hosts nodes on a remote machine. It announces
 itself every 10 s, subscribes to its control topics
-(`brain.agents.<self>.{spawn,kill,stop,start,wake}`), and answers
+(`brain.agents.<self>.{spawn,kill,stop,start}`), and answers
 read-back requests for `logs / mailboxes / dead_letters` via NATS
 request-reply. The dashboard's **Agents** tab lists every live agent
 and the Node Creator's **Target** dropdown lets you pick "Local" or
@@ -169,7 +170,7 @@ flight.
 ### Persistence
 
 SQLite (`data/brain.db`) via `better-sqlite3`. Spawned nodes,
-subscriptions, mailbox config, and sleep state all survive restarts.
+subscriptions, mailbox config, and dormancy state all survive restarts.
 
 ### Authoring a node
 
@@ -386,7 +387,7 @@ GET    /nodes/:id              Detail
 POST   /nodes                  Spawn  { type, name, transport?,
                                         target_agent_id?, … }
 DELETE /nodes/:id              Kill
-POST   /nodes/:id/{stop,start,wake,tick}
+POST   /nodes/:id/{stop,start,tick}
 PATCH  /nodes/:id/config       Update config_overrides
 PATCH  /nodes/:id/position     Persist dashboard layout
 GET    /nodes/:id/{logs,mailboxes,dead-letters}
