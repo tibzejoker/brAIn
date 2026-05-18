@@ -304,7 +304,7 @@ To re-launch later: `cd brain/brAIn && ./run` (`run.cmd` on Windows).
 
 - **Node.js** ≥ 20 (pnpm is auto-bootstrapped via `corepack` if missing)
 - **git** in `PATH`
-- **Ollama** only if you install LLM nodes (`ollama pull gemma3:4b`,
+- **Ollama** only if you install LLM nodes (`ollama pull gemma4:e4b`,
   `ollama pull qwen3-embedding:0.6b`)
 - **Python 3.11** only if you install the perception nodes (voice / gaze)
   from [brAIn-perception](https://github.com/tibzejoker/brAIn-perception)
