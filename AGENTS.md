@@ -7,10 +7,11 @@ re-discovers the same thing every conversation.
 ## What is brAIn
 
 **Bus-Reactive Ambient Intelligent Nodes** — a runtime for autonomous
-nodes that share a NATS pub/sub bus. Each node runs in a loop, sleeps
-when idle, can be preempted by higher-criticality messages, and can
-live in this process or on a remote `brain-agent` joined to the same
-broker.
+nodes that share a NATS pub/sub bus. Each node runs a handler when a
+subscribed message arrives; the framework auto-parks it between
+invocations. Handlers can be preempted by higher-criticality
+messages, and a node can live in this process or on a remote
+`brain-agent` joined to the same broker.
 
 ## Install
 
@@ -143,7 +144,8 @@ restart.
 BaseRunner (abstract)        — lifecycle, busy lock, ctx builder
   ├── ServiceRunner          — handler called once per batch of messages
   └── LLMRunner              — budget loop (default 5 iter), new messages reset
-                               the budget, exhausted → end of wake
+                               the budget, exhausted → handler returns and the
+                               node parks until something rewakes it
 ```
 
 The framework is purely event-driven: a node sits idle until a
@@ -244,6 +246,18 @@ import handlers from `nodes/<name>/...` paths that moved into sister
 repos — those will fail until they're either migrated to the sister
 repos or rewritten.
 
+Coverage via `@vitest/coverage-v8` → `coverage/lcov.info`, consumed by
+SonarQube. Per-node tests live in their sister repos; framework tests
+stay in `tests/`.
+
+## CI / versioning
+
+- GitHub Actions per repo: `.github/workflows/{ci,gitleaks,trufflehog,release-please}.yml` + `.github/dependabot.yml`.
+- Branch protection: `lint`, framework tests, per-node tests, `scan` (gitleaks + trufflehog). Auto-merge enabled per-PR.
+- Release Please drives versioning from Conventional Commits (`feat:` / `fix:` / `!` / `BREAKING CHANGE:`) → tag + GitHub release. brAIn-mobile additionally builds + attaches an APK.
+- No npm publish workflow yet — Release Please tags only.
+- Deep static analysis: local `docker-compose.ci.yml` runs SonarQube CE; SonarCloud auto-analysis handles PRs on tibzejoker.
+
 ## Code conventions
 
 ### Strict ESLint (0 errors, 0 warnings required)
@@ -258,6 +272,7 @@ repos or rewritten.
 - **`react-hooks/exhaustive-deps`** — error level
 - **`prefer-const`**, **`eqeqeq`**, **`no-floating-promises`**, **`require-await`**
 - **max-lines: 300** — split files if they exceed this
+- **`eslint-plugin-sonarjs`** — anti-patterns + cognitive-complexity ratchet (baseline 60)
 
 ### Logging
 

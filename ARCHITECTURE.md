@@ -12,14 +12,14 @@ For commands and operational quirks see `AGENTS.md`; for a guided intro see `REA
 Most agent frameworks model AI as a **request → response** function. brAIn models it as a **network of daemons watching a bus**.
 
 - **The bus is the system.** Every participant — handlers, UIs, remote hosts — talks NATS. There is no central scheduler. There is no orchestrator. Coordination is emergent: a publisher emits on a topic, every subscriber reacts on its own clock.
-- **Nodes are long-lived, not one-shot.** A handler is invoked when relevant messages arrive (or a timer fires), it does work, then it `sleep`s on a wake condition. No idle CPU, no busy polling, no per-request cold start.
+- **Nodes are long-lived, not one-shot.** A handler is invoked when relevant messages arrive (or a `time.tick` fires), it does work, then the framework auto-parks the node until the next subscribed message lands. No idle CPU, no busy polling, no per-request cold start.
 - **Preemption is first-class.** A higher-criticality message arriving during a slow operation aborts the in-flight handler via an `AbortSignal` and re-invokes it with `wasPreempted = true` plus the partial result. Latency-sensitive nodes don't have to choose between "long task" and "responsive."
 - **No privileged code path.** The orchestrating LLM, the chat UI, the memory store, a mobile phone — they're all nodes with the same lifecycle, the same publish/subscribe surface, the same authority checks. The framework has no "blessed" node type.
 - **Authority before features.** Every spawn / kill / start / stop crosses an `AuthorityService` check; a node can only manage children at strictly lower authority. Capability creep is bounded by construction, not by review.
 - **Transport-agnostic by design.** The same handler signature runs in-process, behind a WebSocket, or as a remote NATS client. Whether the node lives in this process, a sibling laptop, or a phone is a config decision the handler never sees.
 - **Author at runtime.** The framework hashes + watches a `_dynamic` directory. Drop a built node there and it registers without a restart; remove it and it unregisters cleanly.
 
-If you remember nothing else: **publish to topics, sleep on conditions, trust the bus to wake you when it matters.**
+If you remember nothing else: **publish to topics; return from your handler and the framework parks you; the bus wakes you when a subscribed message arrives.**
 
 ## 2 · Project structure
 
@@ -85,7 +85,7 @@ A message published anywhere on the bus reaches every subscriber matching its to
 **`@brain/core`** — The engine.
 - **`BrokerService`** spawns the bundled `nats-server` Go binary or attaches to `BRAIN_NATS_URL`. Owns the broker token, persists bind address.
 - **`NatsBusService`** is the production bus. `BusService` (in-memory) exists only as a test fixture.
-- **`Runners`** invoke handlers when subscriptions fire. Three flavours — `process`, `websocket`, `remote` — selected per-node by `transport`. Manage mailboxes, sleep states, preemption via `AbortController`.
+- **`Runners`** invoke handlers when subscriptions fire. Three flavours — `process`, `websocket`, `remote` — selected per-node by `transport`. Manage mailboxes, dormancy (auto-park on handler return), preemption via `AbortController`.
 - **`TypeRegistry`** resolves `node config.json` files via two paths: directory scans (workspace-checkout layout) and `node_modules/@brain/node-*` package scans (installed-package layout). Both produce identical `NodeTypeConfig` records.
 - **`InstanceRegistry`** tracks live nodes (`NodeInfo` per id). Subscribed to by API + dashboard for the network view.
 - **`AuthorityService`** gates every lifecycle call. Compares caller and target authority levels; throws on permission denial.
@@ -105,7 +105,7 @@ A message published anywhere on the bus reaches every subscriber matching its to
 
 | Store | Used by | Holds |
 |---|---|---|
-| `data/brain.db` (SQLite) | core | Node configs, subscriptions, mailbox snapshots, sleep states, broker token, kv settings |
+| `data/brain.db` (SQLite) | core | Node configs, subscriptions, mailbox snapshots, dormancy state, broker token, kv settings |
 | `data/agent.db` (SQLite) | brain-agent | Per-agent join state when attached to a remote broker |
 | `data/broker.json` | broker | Bind address (loopback vs LAN) |
 | `data/nodes/<id>/` | every node | Reserved per-node `ctx.dataDir` for arbitrary persistent files (DBs, blobs, logs) |
@@ -128,8 +128,11 @@ The framework is deliberately small. Most "integrations" are recurring patterns 
 - **LAN cluster** — "Open to LAN" toggle in the dashboard rebinds the broker to `0.0.0.0`, surfaces the auth token + reachable IP, renders a `brain://join?url=&token=` QR for one-tap pairing of any NATS-aware client.
 - **External broker** — `BRAIN_NATS_URL` skips the embedded broker entirely.
 - **Dev supervisor** — `packages/api/scripts/dev-supervisor.mjs` wraps `tsc -w` + a node child, respawning on clean exit. Required because rebind/token-rotation endpoints intentionally `process.exit(0)` to relaunch with the new config.
-- **Tests** — vitest with a global setup that brings up one nats-server per session. Handler tests mock `NodeContext`; integration tests use the real NATS embedded.
-- **Lint policy** — `pnpm lint` must pass with **0 errors and 0 warnings**.
+- **Tests** — vitest with a global setup that brings up one nats-server per session. Handler tests mock `NodeContext`; integration tests use the real NATS embedded. Coverage via `@vitest/coverage-v8` → `coverage/lcov.info`.
+- **Lint policy** — `pnpm lint` must pass with **0 errors and 0 warnings**. `eslint-plugin-sonarjs` enforces anti-patterns + a cognitive-complexity ratchet (baseline 60).
+- **CI** — GitHub Actions per repo: `ci` (lint + framework tests + per-node tests), `gitleaks`, `trufflehog`, `release-please`. Branch protection requires all four; auto-merge enabled per-PR. Dependabot wired in.
+- **Versioning** — Release Please derives tags + GitHub releases from Conventional Commits (`feat:` / `fix:` / `!` / `BREAKING CHANGE:`). brAIn-mobile additionally builds + attaches an APK. No npm publish workflow yet.
+- **Deep static analysis** — local `docker-compose.ci.yml` runs SonarQube CE; SonarCloud auto-analysis covers PRs on tibzejoker.
 
 ## 8 · Security model
 
@@ -162,7 +165,7 @@ A few things worth understanding before reading the source.
 - **Name:** brAIn — Bus-Reactive Ambient Intelligent Nodes
 - **Repository:** [tibzejoker/brAIn](https://github.com/tibzejoker/brAIn)
 - **License:** MIT
-- **Last updated:** 2026-05-06
+- **Last updated:** 2026-05-18
 
 Domain-specific node bundles live in sibling repos under the same owner and are documented in `README.md`; they are users of this architecture, not parts of it.
 
@@ -174,7 +177,7 @@ Domain-specific node bundles live in sibling repos under the same owner and are 
 | **Bus** | NATS pub/sub. The only inter-node communication channel. |
 | **Topic** | NATS subject string. Publishers emit on one; subscribers match by exact or wildcard. |
 | **Mailbox** | Bounded queue of unread messages per (node, topic) with a retention policy. |
-| **Wake condition** | What ends a sleep: a message on a topic, a timer, or `any`. |
+| **Dormancy** | A node's parked state between handler invocations. Auto-entered when the handler returns, auto-exited when the bus delivers a subscribed message. No manual sleep/wake API. |
 | **Criticality** | 0–10 priority on a message. Drives mailbox eviction and runtime preemption. |
 | **Preemption** | When a higher-criticality message arrives during a handler's slow operation, the runner aborts `ctx.signal` and re-invokes with `wasPreempted = true`. |
 | **Authority** | Capability level (`ROOT` > `ELEVATED` > `STANDARD` > `OBSERVER`) gating spawn / kill / start / stop. |
