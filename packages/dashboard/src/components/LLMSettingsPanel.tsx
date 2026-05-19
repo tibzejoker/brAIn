@@ -173,8 +173,12 @@ export function LLMSettingsPanel(): React.ReactElement {
     );
   }
 
+  // max-w-3xl (~768px) caps the readable column on wide monitors —
+  // provider cards stay legible instead of stretching across the full
+  // right pane. mx-auto centers the column.
   return (
-    <div className="flex-1 overflow-y-auto overflow-x-hidden p-4 sm:p-6 space-y-6 text-sm min-w-0">
+    <div className="flex-1 overflow-y-auto overflow-x-hidden">
+      <div className="max-w-3xl mx-auto p-4 sm:p-6 space-y-6 text-sm min-w-0">
       <header className="space-y-3">
         <div>
           <h2 className="text-lg font-semibold text-text mb-1">LLM Providers</h2>
@@ -280,6 +284,7 @@ export function LLMSettingsPanel(): React.ReactElement {
           <CLIAgentCard key={agent.name} agent={agent} />
         ))}
       </section>
+      </div>
     </div>
   );
 }

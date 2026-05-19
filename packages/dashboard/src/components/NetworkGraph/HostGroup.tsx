@@ -26,19 +26,28 @@ export interface HostGroupData extends Record<string, unknown> {
   isEmpty: boolean;    // no hosted children
 }
 
+// Violet for self-identification — the user's own host stands out in
+// any multi-host network view. Passive (phones, raw publishers) drops
+// to a muted slate so violet stays unambiguously "me".
 const ACCENT_BY_KIND: Record<HostKind, string> = {
-  "local": "var(--color-border)",
+  "local": "#a855f7",
   "active-agent": "var(--color-accent)",
-  "passive": "#a855f7",  // violet — matches dynamic edges
+  "passive": "#64748b",
 };
 
 export function HostGroup({ data }: NodeProps): React.ReactElement {
   const d = data as unknown as HostGroupData;
   const accent = ACCENT_BY_KIND[d.kind];
+  const isMe = d.kind === "local";
   return (
     <div
       className="w-full h-full rounded-lg border-2 border-dashed bg-surface/30 backdrop-blur-[2px] flex flex-col"
-      style={{ borderColor: accent }}
+      style={{
+        borderColor: accent,
+        // Subtle violet wash on the user's own host so it reads as
+        // "yours" even before they spot the badge.
+        backgroundColor: isMe ? "rgba(168, 85, 247, 0.04)" : undefined,
+      }}
     >
       {/* Header — non-interactive, lives at the top of the container */}
       <div
@@ -47,6 +56,14 @@ export function HostGroup({ data }: NodeProps): React.ReactElement {
       >
         <span className="text-base leading-none">{d.icon}</span>
         <span className="font-semibold text-text">{d.label}</span>
+        {isMe && (
+          <span
+            className="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider text-white"
+            style={{ backgroundColor: "#a855f7" }}
+          >
+            me
+          </span>
+        )}
         {d.sublabel && <span className="font-mono opacity-60">{d.sublabel}</span>}
       </div>
       {/* Empty state — only for passive hosts with no children */}

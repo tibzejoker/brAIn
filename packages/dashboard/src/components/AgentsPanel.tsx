@@ -1,6 +1,7 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import { getAgents, getTransport, setTransportBind, joinExternalBroker, leaveExternalBroker, type AgentSnapshot, type TransportInfo } from "../api/client";
+import { JoinHubModal } from "./JoinHubModal";
 
 /**
  * Distributed runtime panel. The bus is always NATS — embedded by
@@ -65,7 +66,7 @@ export function AgentsPanel(): React.ReactElement {
         {!loading && agents.length === 0 && !error && (
           <div className="text-text-muted text-[11px] py-6 px-5 text-center space-y-1">
             <div>No remote agents connected yet.</div>
-            <div className="text-text-muted/70">Copy the snippet above and run it on the machine you want to join.</div>
+            <div className="text-text-muted/70">Pick your platform above and follow the instructions on the device you want to join.</div>
           </div>
         )}
 
@@ -111,19 +112,40 @@ export function AgentsPanel(): React.ReactElement {
   );
 }
 
+/** Platforms a remote bus participant can run on. macOS + Linux share
+ *  the same bash snippet but get separate tabs so the user picks the
+ *  one matching their device — fewer "wait does this work on me?"
+ *  moments than a single "POSIX" tab. */
+type Platform = "mobile" | "macos" | "linux" | "windows";
+
+const PLATFORM_LABEL: Record<Platform, string> = {
+  mobile: "Mobile",
+  macos: "macOS",
+  linux: "Linux",
+  windows: "Windows",
+};
+
+function detectPlatform(): Platform {
+  if (typeof navigator === "undefined") return "macos";
+  const ua = navigator.userAgent;
+  if (/iPhone|iPad|iPod|Android/i.test(ua)) return "mobile";
+  if (/Windows/i.test(ua)) return "windows";
+  if (/Mac/i.test(ua)) return "macos";
+  if (/Linux/i.test(ua)) return "linux";
+  return "macos";
+}
+
 function TransportInfoView({ transport, onChanged }: {
   transport: TransportInfo;
   onChanged: () => void;
 }): React.ReactElement {
-  const [copied, setCopied] = useState<string | null>(null);
-  const [pickedIp, setPickedIp] = useState<string | null>(null);
   const [restarting, setRestarting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [joinOpen, setJoinOpen] = useState(false);
+  const [platform, setPlatform] = useState<Platform>(detectPlatform);
 
   const open = transport.bind_address === "0.0.0.0";
   const isExternal = transport.mode === "external";
-  const ip = pickedIp ?? (transport.lan_ips[0] as string | undefined) ?? "";
 
   /** Poll the API's /network/transport endpoint until the broker mode
    *  flips to the expected target (the API has exited and respawned).
@@ -176,68 +198,11 @@ function TransportInfoView({ transport, onChanged }: {
       });
   }, [onChanged, pollUntilMode]);
 
-  // Auto-pick the right shell syntax for the visitor's OS, but let
-  // them flip — Windows users SSHing into a Linux box need bash even
-  // though their browser says Windows, and vice versa.
-  type Shell = "bash" | "powershell";
-  const [shell, setShell] = useState<Shell>(() => {
-    if (typeof navigator === "undefined") return "bash";
-    return /Win/i.test(navigator.platform) ? "powershell" : "bash";
-  });
-
-  // Only meaningful when bus is open AND we know an IP — otherwise no
-  // snippets to copy.
-  const reachableUrl = open && transport.url && ip ? transport.url.replace("0.0.0.0", ip) : "";
-  // Two-step setup is split into TWO snippets (one copy button each)
-  // so the user can pick "I already have the workspace" and skip the
-  // first line.
-  //   step 1: bootstrap a brAIn workspace via the published `create-brain`
-  //     scaffolder — clones tibzejoker/brAIn + brAIn-store, runs pnpm
-  //     install (builds @brain/sdk/core/agent + the nats binary).
-  //     `--no-start` keeps it from launching the API on this remote
-  //     host (only the agent CLI is needed there).
-  //   step 2: run the agent against THIS broker with the env vars.
-  // The CLI lives at brain/brAIn/packages/agent/dist/cli.js after the
-  // scaffolder's pnpm install. Shell-specific env syntax: bash inlines
-  // `KEY=val cmd`, PowerShell uses `;`-joined `$env:KEY=...` statements
-  // so the whole thing stays on ONE line (much easier to copy/paste
-  // into a Windows prompt than three separate statements).
-  const bootstrapCmd = "npm create brain -- --no-start";
-  const runCmd = ((): string => {
-    if (!reachableUrl) return "";
-    const url = reachableUrl;
-    const tok = transport.token;
-    if (shell === "powershell") {
-      const parts = [`$env:BRAIN_NATS_URL="${url}"`];
-      if (tok) parts.push(`$env:BRAIN_NATS_TOKEN="${tok}"`);
-      parts.push("node brain/brAIn/packages/agent/dist/cli.js");
-      return parts.join("; ");
-    }
-    const tokenSuffix = tok ? ` BRAIN_NATS_TOKEN=${tok}` : "";
-    const envInline = `BRAIN_NATS_URL=${url}${tokenSuffix}`;
-    return `${envInline} node brain/brAIn/packages/agent/dist/cli.js`;
-  })();
-
-  // Mobile join URI — `brain://join?url=...&token=...`. Parseable by the
-  // Flutter mobile app's QR scanner and usable as a system deep link.
-  const tokenQuery = transport.token ? `&token=${encodeURIComponent(transport.token)}` : "";
-  const joinUri = reachableUrl
-    ? `brain://join?url=${encodeURIComponent(reachableUrl)}${tokenQuery}`
-    : "";
-
-  const copy = (key: string, text: string): void => {
-    void navigator.clipboard.writeText(text).then(() => {
-      setCopied(key);
-      setTimeout(() => setCopied(null), 1500);
-    });
-  };
-
   const toggleBind = useCallback((): void => {
     setError(null);
     setRestarting(true);
     setTransportBind(!open)
       .then(() => {
-        // Poll until the API returns the new bind_address.
         const target = !open ? "0.0.0.0" : "127.0.0.1";
         const deadline = Date.now() + 20000;
         const poll = (): void => {
@@ -267,168 +232,27 @@ function TransportInfoView({ transport, onChanged }: {
   }, [open, onChanged]);
 
   return (
-    <div className="px-5 py-3 border-b border-border bg-surface-raised/40 space-y-2">
-      <div className="flex flex-wrap items-center gap-2 text-xs">
-        <span className="text-text-muted">Broker</span>
-        <code className="text-text font-mono">{transport.url ?? "—"}</code>
-        <span className={`px-1.5 py-0.5 rounded text-[10px] ${
-          isExternal ? "bg-node-active/10 text-node-active"
-            : open ? "bg-accent/15 text-accent"
-            : "bg-node-stopped/15 text-node-stopped"
-        }`}>
-          {isExternal
-            ? (transport.joined_hub ? `joined: ${transport.joined_hub.hubName ?? "hub"}` : "external")
-            : open ? "open" : "loopback"}
-        </span>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
-          {isExternal && transport.joined_hub && (
-            <button
-              onClick={leaveHub}
-              disabled={restarting}
-              className={`px-2 py-0.5 text-[11px] rounded transition-colors ${
-                restarting
-                  ? "bg-surface-overlay text-text-muted cursor-wait"
-                  : "bg-surface-overlay text-text hover:bg-border"
-              }`}
-              title="Drop the persisted external-broker config and restart in embedded mode."
-            >
-              {restarting ? "restarting…" : "Disconnect"}
-            </button>
-          )}
-          {!isExternal && (
-            <>
-              <button
-                onClick={() => setJoinOpen(true)}
-                disabled={restarting}
-                className="px-2 py-0.5 text-[11px] rounded bg-surface-overlay text-text hover:bg-border transition-colors"
-                title="Join an existing brAIn hub via its broker URL + token. The local API will restart in external mode."
-              >
-                Join hub…
-              </button>
-              <button
-                onClick={toggleBind}
-                disabled={restarting}
-                className={`px-2 py-0.5 text-[11px] rounded transition-colors ${
-                  restarting
-                    ? "bg-surface-overlay text-text-muted cursor-wait"
-                    : "bg-accent text-accent-fg hover:bg-accent/90"
-                }`}
-                title={open
-                  ? "Close the broker to LAN — only this host can connect."
-                  : "Open the broker to LAN — remote brain-agents can connect. Triggers an API restart."}
-              >
-                {restarting ? "restarting…" : open ? "Close to LAN" : "Open to LAN"}
-              </button>
-            </>
-          )}
-        </div>
-      </div>
+    <div className="border-b border-border bg-surface-raised/40">
+      <BrokerHeader
+        transport={transport}
+        open={open}
+        isExternal={isExternal}
+        restarting={restarting}
+        onJoinClick={() => setJoinOpen(true)}
+        onLeaveClick={leaveHub}
+        onToggleBindClick={toggleBind}
+      />
 
-      {transport.lan_ips.length > 0 && (
-        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
-          <span className="text-text-muted">This machine:</span>
-          {transport.lan_ips.map((addr) => (
-            <button
-              key={addr}
-              onClick={() => { setPickedIp(addr); copy(`ip-${addr}`, addr); }}
-              title="Copy this IP"
-              className={`px-1.5 py-0.5 rounded font-mono text-[11px] transition-colors ${
-                addr === ip && open
-                  ? "bg-accent/15 text-accent"
-                  : "bg-surface-overlay text-text hover:bg-surface-overlay/70"
-              }`}
-            >
-              {addr}{copied === `ip-${addr}` ? " ✓" : ""}
-            </button>
-          ))}
-        </div>
-      )}
-
-      {runCmd && (
-        <div className="space-y-2 pt-1">
-          {/* Shell picker */}
-          <div className="flex items-center gap-1">
-            <span className="text-[10px] text-text-muted uppercase tracking-wider mr-1">Shell</span>
-            <button
-              onClick={() => setShell("bash")}
-              className={`px-2 py-0.5 text-[10px] rounded ${shell === "bash" ? "bg-accent text-accent-fg" : "bg-surface-overlay text-text-muted hover:text-text"}`}
-            >
-              bash / zsh
-            </button>
-            <button
-              onClick={() => setShell("powershell")}
-              className={`px-2 py-0.5 text-[10px] rounded ${shell === "powershell" ? "bg-accent text-accent-fg" : "bg-surface-overlay text-text-muted hover:text-text"}`}
-            >
-              PowerShell
-            </button>
-            <span className="text-[10px] text-text-muted ml-auto">
-              {shell === "powershell" ? "Windows" : "macOS / Linux"}
-            </span>
-          </div>
-
-          {/* Step 1 — bootstrap */}
-          <div>
-            <div className="flex items-center justify-between mb-0.5">
-              <span className="text-[10px] text-text-muted">
-                <span className="inline-block w-4 h-4 mr-1 rounded-full bg-surface-overlay text-text text-[9px] leading-4 text-center font-semibold">1</span>
-                Bootstrap a brAIn workspace (skip if you already have one)
-              </span>
-              <button
-                onClick={() => copy("boot", bootstrapCmd)}
-                className="text-[10px] text-text-muted hover:text-text"
-              >
-                {copied === "boot" ? "copied" : "copy"}
-              </button>
-            </div>
-            <pre className="text-[11px] font-mono bg-surface-overlay px-2 py-1.5 rounded text-text whitespace-pre-wrap break-all">{bootstrapCmd}</pre>
-          </div>
-
-          {/* Step 2 — run agent */}
-          <div>
-            <div className="flex items-center justify-between mb-0.5">
-              <span className="text-[10px] text-text-muted">
-                <span className="inline-block w-4 h-4 mr-1 rounded-full bg-surface-overlay text-text text-[9px] leading-4 text-center font-semibold">2</span>
-                Run the agent against this broker
-              </span>
-              <button
-                onClick={() => copy("run", runCmd)}
-                className="text-[10px] text-text-muted hover:text-text"
-              >
-                {copied === "run" ? "copied" : "copy"}
-              </button>
-            </div>
-            <pre className="text-[11px] font-mono bg-surface-overlay px-2 py-1.5 rounded text-text whitespace-pre-wrap break-all">{runCmd}</pre>
-          </div>
-
-          <p className="text-[10px] text-text-muted">
-            <code className="font-mono">create-brain</code> clones framework + marketplace + storeprojects, runs <code className="font-mono">pnpm install</code> (builds <code className="font-mono">@brain/agent</code>). The agent then auto-discovers every node type under the workspace and announces them here.
-          </p>
-        </div>
-      )}
-
-      {joinUri && (
-        <div className="flex items-start gap-3 pt-1">
-          {/* white background — QR scanners need contrast against the dark UI */}
-          <div className="bg-white p-2 rounded shrink-0">
-            <QRCodeSVG value={joinUri} size={120} level="M" marginSize={0} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <p className="text-[11px] text-text-muted mb-1">
-              Scan from the brAIn mobile app to join this broker.
-            </p>
-            <button
-              onClick={() => copy("join-uri", joinUri)}
-              className="text-[11px] text-text-muted hover:text-text font-mono break-all text-left"
-              title="Copy the join URI"
-            >
-              {copied === "join-uri" ? "copied ✓" : joinUri}
-            </button>
-          </div>
-        </div>
+      {open && !isExternal && (
+        <InviteSection
+          transport={transport}
+          platform={platform}
+          onPlatformChange={setPlatform}
+        />
       )}
 
       {error && (
-        <p className="text-[11px] text-node-stopped">{error}</p>
+        <p className="px-5 pb-3 text-[11px] text-node-stopped">{error}</p>
       )}
 
       {joinOpen && (
@@ -441,106 +265,260 @@ function TransportInfoView({ transport, onChanged }: {
   );
 }
 
-/**
- * Modal for the "Join existing hub" flow. Accepts either:
- *   - the broker URL + token typed/pasted separately, OR
- *   - a full `brain://join?url=…&token=…` URI (we extract the parts).
- * The hub label is optional — only shown to the user once joined.
- */
-function JoinHubModal({ onCancel, onSubmit }: {
-  onCancel: () => void;
-  onSubmit: (url: string, token: string, hubName: string) => void;
+/** Top row of the panel: broker URL, mode badge, primary actions. */
+function BrokerHeader({ transport, open, isExternal, restarting, onJoinClick, onLeaveClick, onToggleBindClick }: {
+  transport: TransportInfo;
+  open: boolean;
+  isExternal: boolean;
+  restarting: boolean;
+  onJoinClick: () => void;
+  onLeaveClick: () => void;
+  onToggleBindClick: () => void;
 }): React.ReactElement {
-  const [url, setUrl] = useState("");
-  const [token, setToken] = useState("");
-  const [hubName, setHubName] = useState("");
-  const [uri, setUri] = useState("");
-
-  const applyUri = useCallback((raw: string): void => {
-    setUri(raw);
-    try {
-      // Accept brain://join?url=…&token=…  OR  bare nats://host:port
-      if (raw.startsWith("brain://")) {
-        const q = new URL(raw).searchParams;
-        const u = q.get("url"); const t = q.get("token");
-        if (u) setUrl(u);
-        if (t) setToken(t);
-      } else if (/^nats:\/\//i.test(raw)) {
-        setUrl(raw);
-      }
-    } catch { /* malformed — leave fields as the user typed */ }
-  }, []);
-
-  const valid = /^nats:\/\/\S+/i.test(url.trim());
-
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4" onClick={onCancel}>
-      <div className="w-full max-w-md bg-surface-raised border border-border rounded-lg shadow-xl p-5 space-y-3" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between">
-          <h3 className="text-sm font-semibold text-text">Join an existing brAIn hub</h3>
-          <button onClick={onCancel} className="text-text-muted hover:text-text text-lg leading-none">&times;</button>
-        </div>
-        <p className="text-[11px] text-text-muted">
-          Point this dashboard at another hub's NATS broker. After joining, you see the same network as that hub — install libs locally, spawn nodes either side. The local API will restart in <code className="font-mono">external</code> mode.
-        </p>
-
-        <div>
-          <label className="block text-[10px] uppercase tracking-wider text-text-muted mb-1">Paste a join URI (optional shortcut)</label>
-          <input
-            type="text"
-            value={uri}
-            onChange={(e) => applyUri(e.target.value)}
-            placeholder="brain://join?url=… OR  nats://host:port"
-            className="w-full px-2 py-1 text-xs rounded bg-surface border border-border focus:border-accent focus:outline-none text-text font-mono break-all"
-          />
-        </div>
-
-        <div className="border-t border-border pt-3 space-y-2">
-          <div>
-            <label className="block text-[10px] uppercase tracking-wider text-text-muted mb-1">Broker URL <span className="text-node-stopped">*</span></label>
-            <input
-              type="text"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              placeholder="nats://192.168.1.16:4222"
-              className="w-full px-2 py-1 text-xs rounded bg-surface border border-border focus:border-accent focus:outline-none text-text font-mono"
-            />
-          </div>
-          <div>
-            <label className="block text-[10px] uppercase tracking-wider text-text-muted mb-1">Token (if the hub uses one)</label>
-            <input
-              type="password"
-              value={token}
-              onChange={(e) => setToken(e.target.value)}
-              placeholder="(optional)"
-              className="w-full px-2 py-1 text-xs rounded bg-surface border border-border focus:border-accent focus:outline-none text-text font-mono"
-            />
-          </div>
-          <div>
-            <label className="block text-[10px] uppercase tracking-wider text-text-muted mb-1">Label (optional — shown in this dashboard)</label>
-            <input
-              type="text"
-              value={hubName}
-              onChange={(e) => setHubName(e.target.value)}
-              placeholder="Alice's mac"
-              className="w-full px-2 py-1 text-xs rounded bg-surface border border-border focus:border-accent focus:outline-none text-text"
-            />
-          </div>
-        </div>
-
-        <div className="flex items-center justify-end gap-2 pt-1">
-          <button onClick={onCancel} className="px-3 py-1 text-xs rounded text-text-muted hover:text-text">
-            Cancel
-          </button>
+    <div className="flex flex-wrap items-center gap-2 px-5 py-3 text-xs max-w-2xl mx-auto w-full">
+      <span className="text-text-muted">Broker</span>
+      <code className="text-text font-mono">{transport.url ?? "—"}</code>
+      <span className={`px-1.5 py-0.5 rounded text-[10px] ${
+        isExternal ? "bg-node-active/10 text-node-active"
+          : open ? "bg-accent/15 text-accent"
+          : "bg-node-stopped/15 text-node-stopped"
+      }`}>
+        {isExternal
+          ? (transport.joined_hub ? `joined: ${transport.joined_hub.hubName ?? "hub"}` : "external")
+          : open ? "open" : "loopback"}
+      </span>
+      <div className="ml-auto flex flex-wrap items-center gap-2">
+        {isExternal && transport.joined_hub && (
           <button
-            onClick={() => onSubmit(url, token, hubName)}
-            disabled={!valid}
-            className="px-3 py-1 text-xs rounded bg-accent text-accent-fg hover:bg-accent/90 disabled:opacity-40 disabled:cursor-not-allowed"
+            onClick={onLeaveClick}
+            disabled={restarting}
+            className={`px-2 py-0.5 text-[11px] rounded transition-colors ${
+              restarting
+                ? "bg-surface-overlay text-text-muted cursor-wait"
+                : "bg-surface-overlay text-text hover:bg-border"
+            }`}
+            title="Drop the persisted external-broker config and restart in embedded mode."
           >
-            Join & restart
+            {restarting ? "restarting…" : "Disconnect"}
           </button>
+        )}
+        {!isExternal && (
+          <>
+            <button
+              onClick={onJoinClick}
+              disabled={restarting}
+              className="px-2 py-0.5 text-[11px] rounded bg-surface-overlay text-text hover:bg-border transition-colors"
+              title="Join an existing brAIn hub via its broker URL + token. The local API will restart in external mode."
+            >
+              Join hub…
+            </button>
+            <button
+              onClick={onToggleBindClick}
+              disabled={restarting}
+              className={`px-2 py-0.5 text-[11px] rounded transition-colors ${
+                restarting
+                  ? "bg-surface-overlay text-text-muted cursor-wait"
+                  : "bg-accent text-accent-fg hover:bg-accent/90"
+              }`}
+              title={open
+                ? "Close the broker to LAN — only this host can connect."
+                : "Open the broker to LAN — remote brain-agents can connect. Triggers an API restart."}
+            >
+              {restarting ? "restarting…" : open ? "Close to LAN" : "Open to LAN"}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** "Invite a new node" section. Picks one platform at a time so the
+ *  user only sees the instructions that apply to their device. */
+function InviteSection({ transport, platform, onPlatformChange }: {
+  transport: TransportInfo;
+  platform: Platform;
+  onPlatformChange: (p: Platform) => void;
+}): React.ReactElement | null {
+  const [pickedIp, setPickedIp] = useState<string | null>(null);
+  const ip = pickedIp ?? (transport.lan_ips[0] as string | undefined) ?? "";
+  const reachableUrl = transport.url && ip ? transport.url.replace("0.0.0.0", ip) : "";
+
+  if (!reachableUrl) {
+    return (
+      <p className="px-5 pb-4 text-[11px] text-text-muted">
+        No LAN address detected — connect this machine to a network to invite remote nodes.
+      </p>
+    );
+  }
+
+  // max-w-2xl keeps the snippet/QR section a comfortable reading width
+  // on wide monitors instead of stretching across the whole right pane;
+  // mx-auto keeps it centered inside the panel.
+  return (
+    <div className="px-5 pb-4 space-y-3 max-w-2xl mx-auto">
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[10px] uppercase tracking-wider text-text-muted">Invite a node</span>
+        <div className="flex gap-1">
+          {(Object.keys(PLATFORM_LABEL) as Platform[]).map((p) => (
+            <button
+              key={p}
+              onClick={() => onPlatformChange(p)}
+              className={`px-2 py-0.5 text-[11px] rounded transition-colors ${
+                platform === p
+                  ? "bg-accent text-accent-fg"
+                  : "bg-surface-overlay text-text-muted hover:text-text"
+              }`}
+            >
+              {PLATFORM_LABEL[p]}
+            </button>
+          ))}
         </div>
       </div>
+
+      {transport.lan_ips.length > 1 && (
+        <LanIpPicker ips={transport.lan_ips} pickedIp={ip} onPick={setPickedIp} />
+      )}
+
+      {platform === "mobile"
+        ? <MobileInstructions reachableUrl={reachableUrl} token={transport.token} />
+        : <DesktopInstructions platform={platform} reachableUrl={reachableUrl} token={transport.token} />}
+    </div>
+  );
+}
+
+function LanIpPicker({ ips, pickedIp, onPick }: {
+  ips: string[];
+  pickedIp: string;
+  onPick: (ip: string) => void;
+}): React.ReactElement {
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+      <span className="text-text-muted">From IP:</span>
+      {ips.map((addr) => (
+        <button
+          key={addr}
+          onClick={() => onPick(addr)}
+          title="Use this LAN IP in the snippet"
+          className={`px-1.5 py-0.5 rounded font-mono text-[11px] transition-colors ${
+            addr === pickedIp
+              ? "bg-accent/15 text-accent"
+              : "bg-surface-overlay text-text hover:bg-surface-overlay/70"
+          }`}
+        >
+          {addr}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+function MobileInstructions({ reachableUrl, token }: {
+  reachableUrl: string;
+  token: string | null;
+}): React.ReactElement {
+  const [copied, setCopied] = useState(false);
+  const tokenQuery = token ? `&token=${encodeURIComponent(token)}` : "";
+  const joinUri = `brain://join?url=${encodeURIComponent(reachableUrl)}${tokenQuery}`;
+  const copy = (): void => {
+    void navigator.clipboard.writeText(joinUri).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    });
+  };
+  return (
+    <div className="flex items-start gap-3">
+      <div className="bg-white p-2 rounded shrink-0">
+        <QRCodeSVG value={joinUri} size={128} level="M" marginSize={0} />
+      </div>
+      <div className="flex-1 min-w-0 space-y-1.5">
+        <p className="text-[11px] text-text">Scan from the brAIn mobile app.</p>
+        <p className="text-[10px] text-text-muted">The phone joins this broker and exposes its sensors as a passive bus client.</p>
+        <button
+          onClick={copy}
+          className="text-[10px] text-text-muted hover:text-text font-mono break-all text-left max-w-full"
+          title="Copy the join URI"
+        >
+          {copied ? "copied ✓" : joinUri}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DesktopInstructions({ platform, reachableUrl, token }: {
+  platform: Exclude<Platform, "mobile">;
+  reachableUrl: string;
+  token: string | null;
+}): React.ReactElement {
+  const [copied, setCopied] = useState<string | null>(null);
+  const copy = (key: string, text: string): void => {
+    void navigator.clipboard.writeText(text).then(() => {
+      setCopied(key);
+      setTimeout(() => setCopied(null), 1500);
+    });
+  };
+
+  // `npm create brain` clones framework + marketplace + storeprojects,
+  // installs deps (which builds @brain/agent). `--no-start` keeps it
+  // from launching its own API on the remote — we only need the agent
+  // CLI there. Step 2 then runs that CLI against THIS broker.
+  const bootstrapCmd = "npm create brain -- --no-start";
+  const runCmd = useMemo(() => {
+    const tok = token;
+    if (platform === "windows") {
+      const parts = [`$env:BRAIN_NATS_URL="${reachableUrl}"`];
+      if (tok) parts.push(`$env:BRAIN_NATS_TOKEN="${tok}"`);
+      parts.push("node brain/brAIn/packages/agent/dist/cli.js");
+      return parts.join("; ");
+    }
+    const tokenSuffix = tok ? ` BRAIN_NATS_TOKEN=${tok}` : "";
+    return `BRAIN_NATS_URL=${reachableUrl}${tokenSuffix} node brain/brAIn/packages/agent/dist/cli.js`;
+  }, [platform, reachableUrl, token]);
+
+  return (
+    <div className="space-y-2">
+      <Snippet
+        step={1}
+        label="Bootstrap a brAIn workspace (skip if you already have one)"
+        cmd={bootstrapCmd}
+        copied={copied === "boot"}
+        onCopy={() => copy("boot", bootstrapCmd)}
+      />
+      <Snippet
+        step={2}
+        label="Run the agent against this broker"
+        cmd={runCmd}
+        copied={copied === "run"}
+        onCopy={() => copy("run", runCmd)}
+      />
+      <p className="text-[10px] text-text-muted">
+        The agent auto-discovers every node type under the workspace and announces them here.
+      </p>
+    </div>
+  );
+}
+
+function Snippet({ step, label, cmd, copied, onCopy }: {
+  step: number;
+  label: string;
+  cmd: string;
+  copied: boolean;
+  onCopy: () => void;
+}): React.ReactElement {
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-0.5">
+        <span className="text-[10px] text-text-muted">
+          <span className="inline-block w-4 h-4 mr-1 rounded-full bg-surface-overlay text-text text-[9px] leading-4 text-center font-semibold">{step}</span>
+          {label}
+        </span>
+        <button onClick={onCopy} className="text-[10px] text-text-muted hover:text-text">
+          {copied ? "copied" : "copy"}
+        </button>
+      </div>
+      <pre className="text-[11px] font-mono bg-surface-overlay px-2 py-1.5 rounded text-text whitespace-pre-wrap break-all">{cmd}</pre>
     </div>
   );
 }
