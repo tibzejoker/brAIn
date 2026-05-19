@@ -14,6 +14,7 @@
     "kill-orphans": "node scripts/kill-orphans.mjs",
     "kill-ports": "node scripts/kill-orphans.mjs --ports-only",
     "brain": "node scripts/brain.mjs",
+    "update-marketplace": "node scripts/update-marketplace.mjs",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "pnpm -r --workspace-concurrency=4 run test",

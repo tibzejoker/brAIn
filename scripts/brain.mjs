@@ -194,12 +194,127 @@ function cmdRemove(name, yes) {
   process.stdout.write(`brain: removed ${node.repo} (${siblings.length} node${siblings.length === 1 ? "" : "s"})\n`);
 }
 
+// Walk the local sibling clone of each registry entry and recompute its
+// `ref` (current HEAD SHA) + `checksums` (SHA-256 of every file currently
+// listed). Used to "promote" local dev commits into the marketplace —
+// writes the new `registry.json` ONLY when `--write` is passed; otherwise
+// prints a per-repo diff so the user can sanity-check before committing.
+function cmdRefreshRegistry(write) {
+  if (!fs.existsSync(REGISTRY_PATH)) {
+    die(`registry not found at ${REGISTRY_PATH}.`);
+  }
+  const raw = readFileSync(REGISTRY_PATH, "utf-8");
+  const reg = JSON.parse(raw);
+  const nodes = reg.nodes ?? [];
+  if (nodes.length === 0) {
+    process.stdout.write("brain: registry has no nodes — nothing to refresh.\n");
+    return;
+  }
+
+  // Group by repo so each git rev-parse only runs once. Per-node we still
+  // re-hash all files because `checksums` is per-node (subpath-scoped).
+  const headByRepo = new Map();
+  function headOf(repoName) {
+    if (headByRepo.has(repoName)) return headByRepo.get(repoName);
+    const repoDir = resolve(BUNDLES_ROOT, repoName);
+    if (!fs.existsSync(resolve(repoDir, ".git"))) {
+      headByRepo.set(repoName, null);
+      return null;
+    }
+    const r = spawnSync("git", ["rev-parse", "HEAD"], { cwd: repoDir });
+    const sha = r.status === 0 ? (r.stdout ?? "").toString().trim() : null;
+    headByRepo.set(repoName, sha);
+    return sha;
+  }
+
+  let touched = 0;
+  let skipped = 0;
+  const missingRepos = new Set();
+  const missingFiles = [];
+
+  for (const node of nodes) {
+    const newRef = headOf(node.repo);
+    if (!newRef) {
+      missingRepos.add(node.repo);
+      skipped++;
+      continue;
+    }
+    const subpathDir = resolve(BUNDLES_ROOT, node.repo, node.subpath);
+    if (!fs.existsSync(subpathDir)) {
+      missingRepos.add(`${node.repo}/${node.subpath}`);
+      skipped++;
+      continue;
+    }
+
+    // Re-hash every file currently in `checksums`. Files that have
+    // disappeared upstream are flagged but kept in the output (dropping
+    // entries is an explicit publish decision, not something to do here).
+    const oldRef = node.ref ?? null;
+    const oldChecksums = node.checksums ?? {};
+    const newChecksums = {};
+    let filesChanged = 0;
+    for (const rel of Object.keys(oldChecksums)) {
+      const abs = path.resolve(subpathDir, rel);
+      if (!fs.existsSync(abs)) {
+        missingFiles.push(`${node.name}/${rel}`);
+        newChecksums[rel] = oldChecksums[rel];  // keep stale entry so registry stays parseable
+        continue;
+      }
+      const got = createHash("sha256").update(fs.readFileSync(abs)).digest("hex");
+      newChecksums[rel] = got;
+      if (got !== oldChecksums[rel]) filesChanged++;
+    }
+
+    const refChanged = oldRef !== newRef;
+    if (!refChanged && filesChanged === 0) {
+      // Already up to date — leave entry untouched.
+      continue;
+    }
+    touched++;
+    process.stdout.write(
+      `  ${pad(node.name, 24)}  ${oldRef ? oldRef.slice(0, 8) : "—"} → ${newRef.slice(0, 8)}  (${filesChanged} file${filesChanged === 1 ? "" : "s"} re-hashed)\n`,
+    );
+    if (write) {
+      node.ref = newRef;
+      node.checksums = newChecksums;
+    }
+  }
+
+  if (missingRepos.size > 0) {
+    process.stderr.write(`brain: skipped ${skipped} entr${skipped === 1 ? "y" : "ies"} — missing local clones:\n`);
+    for (const r of missingRepos) process.stderr.write(`  - ${r}\n`);
+  }
+  if (missingFiles.length > 0) {
+    process.stderr.write(`brain: ${missingFiles.length} files listed in checksums but missing upstream (kept stale):\n`);
+    for (const f of missingFiles.slice(0, 10)) process.stderr.write(`  - ${f}\n`);
+    if (missingFiles.length > 10) process.stderr.write(`  … and ${missingFiles.length - 10} more\n`);
+  }
+
+  if (touched === 0) {
+    process.stdout.write("brain: registry already in sync with every local sibling.\n");
+    return;
+  }
+  if (!write) {
+    process.stdout.write(`\nbrain: ${touched} entr${touched === 1 ? "y" : "ies"} would change. Re-run with --write to apply.\n`);
+    return;
+  }
+  // Preserve trailing newline + indentation style of the existing file
+  // so the diff in `brAIn-store` stays clean.
+  reg.updated_at = new Date().toISOString().slice(0, 10);
+  const out = JSON.stringify(reg, null, 2) + "\n";
+  fs.writeFileSync(REGISTRY_PATH, out);
+  process.stdout.write(`\nbrain: wrote ${touched} updated entr${touched === 1 ? "y" : "ies"} to ${REGISTRY_PATH}\n`);
+  process.stdout.write(`  next step: cd ${path.dirname(REGISTRY_PATH)} && git add registry.json && git commit -m "chore(registry): refresh refs + checksums"\n`);
+}
+
 function usage() {
   process.stdout.write(
     "usage:\n"
     + "  pnpm brain list                       — list marketplace nodes (installed + available)\n"
     + "  pnpm brain pull <node-name>           — install a node by short name\n"
     + "  pnpm brain remove <name> [--yes]      — uninstall a node or delete a local seed\n"
+    + "  pnpm brain refresh-registry [--write] — recompute ref + checksums in brAIn-store/registry.json\n"
+    + "                                          against local sibling HEADs (dry-run by default)\n"
     + "\n"
     + "All commands work offline against the local brAIn-store clone.\n",
   );
@@ -209,6 +324,7 @@ switch (cmd) {
   case "list": cmdList(); break;
   case "pull": cmdPull(argv[1]); break;
   case "remove": cmdRemove(argv[1], argv.includes("--yes")); break;
+  case "refresh-registry": cmdRefreshRegistry(argv.includes("--write")); break;
   case "-h":
   case "--help":
   case undefined: usage(); break;

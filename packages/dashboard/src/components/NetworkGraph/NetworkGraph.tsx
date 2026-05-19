@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useEffect, useState } from "react";
+import { useMemo, useCallback, useEffect, useRef, useState } from "react";
 import {
   ReactFlow,
   Background,
@@ -12,13 +12,15 @@ import {
   type EdgeMouseHandler,
   type NodeMouseHandler,
   type NodeTypes,
+  type ReactFlowInstance,
   BackgroundVariant,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { NodeSnapshot, NodeTypeConfig } from "../../api/types";
-import { updateNodePosition } from "../../api/client";
+import { updateNodePosition, getAgents, type AgentSnapshot } from "../../api/client";
 import { NodeBlock } from "./NodeBlock";
-import { layoutGraph } from "./graph-layout";
+import { HostGroup } from "./HostGroup";
+import { buildHostLayer, HOST_NODE_TYPE, sameRenderedShape } from "./host-layout";
 
 interface Flow {
   sourceId: string;
@@ -48,6 +50,7 @@ function noop(): void { /* best-effort */ }
 
 const nodeTypes: NodeTypes = {
   brainNode: NodeBlock,
+  [HOST_NODE_TYPE]: HostGroup,
 };
 
 function snapshotToFlowNode(
@@ -59,6 +62,8 @@ function snapshotToFlowNode(
   expandedNodeIds: Set<string>,
   expandedSizes: Map<string, { w: number; h: number }>,
   showCapabilityLayer: boolean,
+  parentId: string | undefined,
+  gridSlot: { x: number; y: number } | undefined,
 ): Node {
   const typeConfig = typeMap.get(n.type);
 
@@ -73,10 +78,25 @@ function snapshotToFlowNode(
     .map((s) => s.pattern ?? s.topic ?? "")
     .filter((t) => t.length > 0);
 
+  // When the node belongs to a host container, its position is RELATIVE to
+  // that parent. The DB now stores those relative coords directly (drag-stop
+  // persists them via `updateNodePosition`), so a non-zero stored position
+  // is trusted as-is. Freshly-spawned nodes still arrive with (0, 0) — those
+  // fall back to the grid slot computed by `buildHostLayer`.
+  //
+  // `expandParent: true` makes the parent grow automatically if the child is
+  // dragged past the current border, rather than clamping the child like
+  // `extent: "parent"` would.
+  const hasStoredPos = n.position.x !== 0 || n.position.y !== 0;
+  const position = parentId && !hasStoredPos && gridSlot
+    ? gridSlot
+    : { x: n.position.x, y: n.position.y };
+
   return {
     id: n.id,
     type: "brainNode",
-    position: { x: n.position.x, y: n.position.y },
+    position,
+    ...(parentId ? { parentId, expandParent: true } : {}),
     data: {
       label: n.name,
       nodeType: n.type,
@@ -370,6 +390,44 @@ export function NetworkGraph({
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([] as Node[]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([] as Edge[]);
 
+  // Drag-in-progress flag — set on dragStart, cleared on dragStop. The
+  // node-rebuild effect bails while this is true so a snapshot poll
+  // landing mid-drag can't yank the node out from under the cursor.
+  const isDraggingRef = useRef(false);
+
+  // Auto fit-view runs ONCE — when nodes first appear after mount. The
+  // built-in `fitView` prop only fits on the very first render, which
+  // is too early (snapshots haven't arrived yet, the graph is empty).
+  // We stash the React Flow instance from `onInit` and call fitView()
+  // manually as soon as we have at least one node, then latch the flag
+  // so subsequent polls don't re-zoom under the user.
+  // ReactFlowInstance is generic over the node + edge types passed to
+  // <ReactFlow>. We stash it via a `(...args: never[]) => void`-friendly
+  // signature to dodge generic plumbing — we only use the .fitView() method
+  // below, which is invariant across generic arguments.
+  const rfInstanceRef = useRef<ReactFlowInstance | null>(null);
+  const hasFittedRef = useRef(false);
+  const handleInit = useCallback((instance: unknown): void => {
+    rfInstanceRef.current = instance as ReactFlowInstance;
+  }, []);
+
+  // Poll the agent list every 3 s so freshly-joined remotes (mobile app,
+  // brain-agent) appear as host containers and disappear when their
+  // announce window lapses (~30 s on the API side). Matches the cadence
+  // of AgentsPanel so both views stay in sync.
+  const [agents, setAgents] = useState<AgentSnapshot[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = (): void => {
+      getAgents()
+        .then((list) => { if (!cancelled) setAgents(list); })
+        .catch(() => { if (!cancelled) setAgents([]); });
+    };
+    refresh();
+    const interval = setInterval(refresh, 3000);
+    return (): void => { cancelled = true; clearInterval(interval); };
+  }, []);
+
   // Capability layer state — persisted across sessions. When ON: nodes
   // sprout an authority chip + top/bottom handles, and hovering a node
   // reveals its incoming/outgoing authority edges.
@@ -466,27 +524,83 @@ export function NetworkGraph({
 
   useEffect(() => {
     setNodes((prev) => {
-      const posMap = new Map(prev.map((n) => [n.id, n.position]));
-      const newNodes = snapshots.map((snap) => {
-        const flowNode = snapshotToFlowNode(snap, typeMap, onOpenNodeUi, handleToggleExpand, handleResizeExpanded, expandedNodeIds, expandedSizes, capabilityHoverEnabled);
-        // Preserve existing positions — only layout truly new nodes
-        const existing = posMap.get(snap.id);
-        if (existing && (existing.x !== 0 || existing.y !== 0)) {
-          flowNode.position = existing;
+      // 1. Bail during an in-flight drag — re-rendering the nodes array
+      // mid-drag can drop the active drag context in React Flow. The next
+      // snapshot poll after drag-stop runs this effect again normally.
+      if (isDraggingRef.current) return prev;
+
+      // 2. Capture each child's CURRENT React Flow position so a poll
+      // arriving between drag-stop and the API save doesn't bounce the
+      // node back to its pre-drag coords. Only sticky as long as the
+      // node is still in the same parent (host change resets to snapshot).
+      const prevState = new Map<string, { x: number; y: number; parentId?: string }>();
+      for (const n of prev) {
+        if (n.type === HOST_NODE_TYPE) continue;
+        prevState.set(n.id, {
+          x: n.position.x,
+          y: n.position.y,
+          parentId: (n as { parentId?: string }).parentId,
+        });
+      }
+
+      const { hostNodes, parentIdOf, gridSlotOf } = buildHostLayer(snapshots, agents);
+
+      const childNodes = snapshots.map((snap) => {
+        const newParent = parentIdOf.get(snap.id);
+        const flowNode = snapshotToFlowNode(
+          snap,
+          typeMap,
+          onOpenNodeUi,
+          handleToggleExpand,
+          handleResizeExpanded,
+          expandedNodeIds,
+          expandedSizes,
+          capabilityHoverEnabled,
+          newParent,
+          gridSlotOf.get(snap.id),
+        );
+        const ps = prevState.get(snap.id);
+        if (ps && ps.parentId === newParent) {
+          flowNode.position = { x: ps.x, y: ps.y };
         }
         return flowNode;
       });
-      // Only run layout for nodes that still need placement (position 0,0)
-      const needsLayout = newNodes.some((n) => n.position.x === 0 && n.position.y === 0);
-      return needsLayout ? layoutGraph(newNodes, []).nodes : newNodes;
+
+      // React Flow requires parent nodes to come BEFORE their children.
+      const next = [...hostNodes, ...childNodes];
+
+      // 3. Skip the re-render if nothing meaningful changed since last
+      // time. Polls fire every 1–3 s; without this check, every poll
+      // would rebuild + re-render the whole graph even when the snapshot
+      // is identical to the previous one. We compare a compact fingerprint
+      // of the fields that actually affect rendering — positions are
+      // excluded because they're sticky-overridden above anyway.
+      return sameRenderedShape(prev, next) ? prev : next;
     });
-  }, [snapshots, typeMap, onOpenNodeUi, handleToggleExpand, handleResizeExpanded, expandedNodeIds, expandedSizes, setNodes, capabilityHoverEnabled]);
+  }, [snapshots, agents, typeMap, onOpenNodeUi, handleToggleExpand, handleResizeExpanded, expandedNodeIds, expandedSizes, setNodes, capabilityHoverEnabled]);
 
   useEffect(() => {
     const pubSub = buildEdges(snapshots, flows, types);
     const auth = capabilityHoverEnabled ? buildAuthorityEdges(hoveredNodeId, snapshots) : [];
     setEdges([...pubSub, ...auth]);
   }, [snapshots, flows, types, setEdges, capabilityHoverEnabled, hoveredNodeId]);
+
+  // First-paint auto fit-view. Fires once, the moment the React Flow
+  // instance is ready AND there's at least one node to frame. After
+  // that the latch flips and subsequent polls leave the user's zoom +
+  // pan alone.
+  useEffect(() => {
+    if (hasFittedRef.current) return;
+    if (!rfInstanceRef.current) return;
+    if (nodes.length === 0) return;
+    // Defer one tick so React Flow has finished measuring the freshly-
+    // mounted nodes — fitView before measurement gives a stale viewport.
+    const t = setTimeout(() => {
+      void rfInstanceRef.current?.fitView({ padding: 0.1, duration: 300 });
+      hasFittedRef.current = true;
+    }, 50);
+    return (): void => { clearTimeout(t); };
+  }, [nodes.length]);
 
   const displayNodes = useMemo(
     () => nodes.map((n) => ({
@@ -497,12 +611,28 @@ export function NetworkGraph({
     [nodes, selectedNodeId, hoveredNodeId],
   );
 
+  const handleNodeDragStart = useCallback((): void => {
+    isDraggingRef.current = true;
+  }, []);
+
   const handleNodeDragStop = useCallback((_event: React.MouseEvent, node: Node): void => {
+    isDraggingRef.current = false;
+    // Host containers are synthetic — rebuilt from agents/snapshots every
+    // poll — so we never persist their drag position.
+    if (node.type === HOST_NODE_TYPE) return;
+    // For child nodes the position is now RELATIVE to its parent. We persist
+    // those relative coords directly; on next load, snapshotToFlowNode treats
+    // them as relative when the snapshot still has a parent. If the host
+    // layer is ever disabled, the existing absolute-vs-relative meaning
+    // would need a migration — flagged in the host-layout.ts header.
     updateNodePosition(node.id, node.position.x, node.position.y).catch(noop);
   }, []);
 
   const handleNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node): void => {
+      // Hosts are visual-only — clicking the container shouldn't open a
+      // NodePanel meant for an actual brain node.
+      if (node.type === HOST_NODE_TYPE) return;
       onNodeSelect(node.id === selectedNodeId ? null : node.id);
     },
     [onNodeSelect, selectedNodeId],
@@ -544,13 +674,14 @@ export function NetworkGraph({
       nodeTypes={nodeTypes}
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
+      onNodeDragStart={handleNodeDragStart}
       onNodeDragStop={handleNodeDragStop}
       onNodeClick={handleNodeClick}
       onNodeMouseEnter={handleNodeMouseEnter}
       onNodeMouseLeave={handleNodeMouseLeave}
       onEdgeClick={handleEdgeClick}
       onPaneClick={handlePaneClick}
-      fitView
+      onInit={handleInit}
       proOptions={{ hideAttribution: true }}
     >
       <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="var(--color-border)" />
