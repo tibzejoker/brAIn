@@ -124,6 +124,91 @@ n'importe quelle landing page de framework agentique.
 
 ---
 
+## 5. Mode invité (guest) — quand deux brains rejoignent le même bus
+
+**Pourquoi** : aujourd'hui, quand brain B `Join hub` chez brain A, le
+bus est bien partagé (NATS) mais **chaque dashboard ne voit que sa
+propre `InstanceRegistry`**. L'`AgentDirectory` affiche l'autre
+comme "remote agent" mais pas les nodes qui y tournent. Résultat :
+asymétrique, confus, et les UIs des nodes pointent dans le vide
+parce que la join URI ne transporte que `nats://` pas l'URL HTTP du
+hub. On veut passer à **Option A** : le joiner devient un client
+visuel du hub (mêmes datas, même graph, mêmes UIs), tout en gardant
+ses nodes locaux toujours actifs et visibles sur demande.
+
+### Backend (hub)
+
+- [ ] **`http_url` dans `GET /network/transport`** : l'API calcule sa
+  base URL (LAN IP + `process.env.PORT ?? 3000`) et la surface dans
+  `TransportInfo`. Champ aussi présent dans `joined_hub.http_url`
+  côté joiner pour qu'il sache où taper.
+- [ ] **`joinExternalBroker(url, token, hubName, httpUrl)`** prend
+  `httpUrl` et le persiste dans `data/external-broker.json` à côté
+  de l'URL NATS — survit aux restarts.
+- [ ] **CORS** activé sur l'API NestJS (origin = `*` ou whitelist
+  des origins joiners via le broker token en bearer). Sans CORS le
+  dashboard du joiner se prend des erreurs `Access-Control-Allow-Origin`.
+- [ ] **Snapshot bus** (`brain.network.snapshot`) : le hub publie sa
+  registry (NodeInfo[] + edges) toutes les ~3s + sur événement
+  spawn/kill/state_change. Permet aux joiners d'avoir une vue
+  temps-réel sans devoir poller REST. Inclut `hub_id`, `hub_label`,
+  `http_url`. Criticality 0, retain ~5s.
+
+### Frontend (joiner)
+
+- [ ] **`api/request.ts`** : BASE devient dynamique. Si
+  `transport.joined_hub.http_url` est set ET `mode === "external"`,
+  toutes les requêtes partent vers cette base au lieu du même
+  origin. Stocker dans un module singleton initialisé par l'app
+  shell avant tout `request()`.
+- [ ] **`api/socket.ts`** : `io(hubApiUrl, …)` en mode external (pas
+  `io("/")`). Permet au dashboard d'écouter les events Socket.IO
+  du hub directement.
+- [ ] **`NodeUiModal.tsx`** : iframe `src = hubApiUrl + "/nodes/" + id + "/ui/"`
+  en mode external. Sans ça les UIs des nodes du hub renvoient un
+  404 contre l'API locale.
+- [ ] **Bannière de contexte** en haut du dashboard quand
+  `mode === "external"` : "Connected to <hubName> · viewing <hubLabel>'s
+  network · Disconnect" — clarifie immédiatement qu'on est invité.
+- [ ] **Bouton "Mine (N nodes)"** : peek temporaire sur la registry
+  locale (re-fetch contre localhost) dans un modal/overlay léger,
+  pour vérifier ses nodes sans quitter le hub.
+
+### Join URI enrichie
+
+- [ ] **Format étendu** : `brain://join?url=nats://…&token=…&api=http://192.168.1.16:3000`.
+  Le QR + le snippet copy-paste du panneau Distributed génèrent
+  cette forme. `JoinHubModal.applyUri` parse `api=` et le passe au
+  POST `/network/transport/external`.
+- [ ] **Champ "API URL" optionnel** dans la modal pour fallback
+  manuel quand on a uniquement le `nats://`.
+
+### Spawn en mode invité
+
+- [ ] **Vérifier que ça marche tout seul** : si toutes les requêtes
+  du dashboard pointent vers le hub, alors `POST /nodes` part vers
+  le hub → le node spawn chez le hub → son UI est servie par le hub
+  → tout est cohérent. Pas de proxy bus à coder. À tester
+  rigoureusement avant de considérer cette étape close.
+
+### Tests
+
+- [ ] **E2E manuel** : démarrer deux brains sur la même LAN, rejoindre
+  l'un depuis l'autre, vérifier le graph, spawn un node, ouvrir son
+  UI, send des messages, déconnecter, retour propre au local.
+- [ ] **Test automatisé** (si faisable) : deux APIs sur des ports
+  différents partagent un NATS, le joiner appelle `/network` et reçoit
+  bien la registry du hub.
+
+### Note d'UX déjà faite
+
+- [x] **Badge "me" violet** sur la bounding box du host local dans
+  `HostGroup.tsx` (palette : violet pour `local`, accent pour
+  `active-agent`, slate pour `passive`). Identification immédiate
+  de soi dans n'importe quelle vue multi-host.
+
+---
+
 ## Ce qui sort de la TODO (différé indéfiniment)
 
 - Phase 1.8 (extraction memory/reasoning/tools en siblings) : décision
