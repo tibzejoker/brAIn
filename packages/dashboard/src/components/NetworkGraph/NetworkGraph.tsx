@@ -682,6 +682,7 @@ export function NetworkGraph({
       onEdgeClick={handleEdgeClick}
       onPaneClick={handlePaneClick}
       onInit={handleInit}
+      deleteKeyCode={null}
       proOptions={{ hideAttribution: true }}
     >
       <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="var(--color-border)" />
