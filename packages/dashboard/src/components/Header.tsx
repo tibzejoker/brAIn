@@ -24,9 +24,11 @@ export function Header({ onSpawnClick, onMenuToggle }: HeaderProps): React.React
             </svg>
           </button>
         )}
-        <h1 className="text-lg font-bold tracking-tight text-text">
-          brAIn
-        </h1>
+        <img
+          src="/favicon.svg"
+          alt="brAIn"
+          className="h-8 w-8 shrink-0"
+        />
         <span className="hidden sm:inline text-sm text-text-muted truncate">Network Monitor</span>
       </div>
 

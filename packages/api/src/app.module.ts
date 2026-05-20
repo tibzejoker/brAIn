@@ -190,7 +190,12 @@ const brainServiceProvider = {
       try { return path.resolve(p) !== path.resolve(nodesDir) && require("fs").existsSync(p); }
       catch { return false; }
     });
-    brain.bootstrap([nodesDir, ...allExtras]);
+    brain.bootstrap([nodesDir, ...allExtras], {
+      // Pin every runtime artifact (per-node dirs, LLM config, personal
+      // seeds) to the framework-repo data/ — the same root as brain.db —
+      // instead of letting it default to the workspace root one level up.
+      dataRoot: resolveFromRoot(process.env.BRAIN_DATA_DIR, "data"),
+    });
     // Passively watch every static node directory for new folders so a
     // freshly added & built node auto-registers without an API restart.
     brain.startDynamicScanner({
@@ -208,7 +213,7 @@ const brainServiceProvider = {
     // Personal seeds live next to the framework DB so they share the
     // same backup / data-root surface as everything else. The folder
     // is created lazily on the first save.
-    brain.setPersonalSeedsDir(path.resolve(MONOREPO_ROOT, "..", "data", "seeds"));
+    brain.setPersonalSeedsDir(path.join(resolveFromRoot(process.env.BRAIN_DATA_DIR, "data"), "seeds"));
 
     return brain;
   },

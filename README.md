@@ -1,15 +1,12 @@
-# brAIn
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/brain-logo.png" />
+    <source media="(prefers-color-scheme: light)" srcset=".github/assets/brain-logo-light.png" />
+    <img alt="brAIn" src=".github/assets/brain-logo.png" width="440" />
+  </picture>
+</p>
 
-**Bus-Reactive Ambient Intelligent Nodes**
-
-```
-  ██████╗ ██████╗  █████╗ ██╗███╗   ██╗
-  ██╔══██╗██╔══██╗██╔══██╗██║████╗  ██║
-  ██████╔╝██████╔╝███████║██║██╔██╗ ██║
-  ██╔══██╗██╔══██╗██╔══██║██║██║╚██╗██║
-  ██████╔╝██║  ██║██║  ██║██║██║ ╚████║
-  ╚═════╝ ╚═╝  ╚═╝╚═╝  ╚═╝╚═╝╚═╝  ╚═══╝
-```
+<p align="center"><strong>Bus-Reactive Ambient Intelligent Nodes</strong></p>
 
 A runtime for autonomous agents that live in a **many-to-many event
 world**.

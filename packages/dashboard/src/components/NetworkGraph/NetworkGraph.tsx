@@ -18,9 +18,11 @@ import {
 import "@xyflow/react/dist/style.css";
 import type { NodeSnapshot, NodeTypeConfig } from "../../api/types";
 import { updateNodePosition, getAgents, type AgentSnapshot } from "../../api/client";
+import { onAgentAnnounced, onAgentExpired } from "../../api/socket";
 import { NodeBlock } from "./NodeBlock";
 import { HostGroup } from "./HostGroup";
-import { buildHostLayer, HOST_NODE_TYPE, sameRenderedShape } from "./host-layout";
+import { buildHostLayer, fitHostsToChildren, HOST_NODE_TYPE, sameRenderedShape } from "./host-layout";
+import { buildAuthorityEdges } from "./authority-edges";
 
 interface Flow {
   sourceId: string;
@@ -121,82 +123,6 @@ function snapshotToFlowNode(
       isHovered: false,
     },
   };
-}
-
-// === Authority (capability) overlay ===========================================
-//
-// Authority is not bus traffic — it's a per-call permission check on the
-// framework's AuthorityService. The overlay below draws it as a SEPARATE
-// edge layer on top of the pub/sub graph, only when the user toggles the
-// capability layer ON and is hovering a node. See AuthorityService for
-// the source-of-truth rules; we mirror them here for visualisation:
-//
-//   - Y can CONTROL X (kill/stop/start/wake/rewire) iff Y.authority_level
-//     > X.authority_level  AND  Y.authority_level >= 1.
-//   - Y can INSPECT X (read-only network/node introspection) iff
-//     Y.authority_level >= 1.
-//
-// Both relationships are drawn independently when they apply — control
-// does NOT subsume inspect visually, because someone reading the graph
-// wants to see "this node can inspect anyone reachable" as a distinct
-// statement from "this node can control specific peers." So a ROOT
-// hovering will show a cyan line to every other node (inspect-anyone)
-// plus red lines to the subset it can also kill/stop.
-
-const AUTH_CONTROL_COLOR = "#dc2626"; // strong red — kill/stop/rewire
-const AUTH_INSPECT_COLOR = "#0891b2"; // strong cyan — read-only
-const AUTH_STROKE_WIDTH = 3;
-// Edges are animated (flowing dashes) so direction is unambiguous;
-// opacity is dropped so they don't fight the pub/sub layer on hover.
-const AUTH_STROKE_OPACITY = 0.55;
-
-function buildAuthorityEdges(hoveredId: string | null, snapshots: NodeSnapshot[]): Edge[] {
-  if (!hoveredId) return [];
-  const hovered = snapshots.find((n) => n.id === hoveredId);
-  if (!hovered) return [];
-  const hoveredAuth = hovered.authority_level;
-  const edges: Edge[] = [];
-
-  for (const other of snapshots) {
-    if (other.id === hovered.id) continue;
-    const otherAuth = other.authority_level;
-
-    const pushEdge = (
-      direction: "in" | "out",
-      kind: "control" | "inspect",
-      source: string,
-      target: string,
-    ): void => {
-      edges.push({
-        id: `auth:${direction}:${kind}:${source}->${target}`,
-        source,
-        target,
-        sourceHandle: `auth-out-${kind}`,
-        targetHandle: `auth-in-${kind}`,
-        type: "smoothstep" as const,
-        animated: true,
-        style: {
-          stroke: kind === "control" ? AUTH_CONTROL_COLOR : AUTH_INSPECT_COLOR,
-          strokeWidth: AUTH_STROKE_WIDTH,
-          opacity: AUTH_STROKE_OPACITY,
-        },
-      });
-    };
-
-    // Incoming to hovered: what can `other` do TO `hovered`?
-    if (otherAuth >= 1) {
-      pushEdge("in", "inspect", other.id, hovered.id);
-      if (otherAuth > hoveredAuth) pushEdge("in", "control", other.id, hovered.id);
-    }
-
-    // Outgoing from hovered: what can `hovered` do TO `other`?
-    if (hoveredAuth >= 1) {
-      pushEdge("out", "inspect", hovered.id, other.id);
-      if (hoveredAuth > otherAuth) pushEdge("out", "control", hovered.id, other.id);
-    }
-  }
-
-  return edges;
 }
 
 const CAPABILITY_TOGGLE_KEY = "brain.dashboard.capabilityHoverEnabled";
@@ -395,6 +321,11 @@ export function NetworkGraph({
   // landing mid-drag can't yank the node out from under the cursor.
   const isDraggingRef = useRef(false);
 
+  // Bumped on drag-stop to force the rebuild effect to re-run, which is where
+  // the four-side "hug" (origin slide) happens. Without this trigger the hug
+  // would wait for the next snapshot/agent socket event, which may never come.
+  const [layoutTick, setLayoutTick] = useState(0);
+
   // Auto fit-view runs ONCE — when nodes first appear after mount. The
   // built-in `fitView` prop only fits on the very first render, which
   // is too early (snapshots haven't arrived yet, the graph is empty).
@@ -411,21 +342,40 @@ export function NetworkGraph({
     rfInstanceRef.current = instance as ReactFlowInstance;
   }, []);
 
-  // Poll the agent list every 3 s so freshly-joined remotes (mobile app,
-  // brain-agent) appear as host containers and disappear when their
-  // announce window lapses (~30 s on the API side). Matches the cadence
-  // of AgentsPanel so both views stay in sync.
+  // Agent host containers, driven in real time by the socket — no polling.
+  // We seed once with getAgents() (so an agent that announced before this
+  // client connected still shows up) then let `agent:announced` /
+  // `agent:expired` upsert/remove entries as they arrive. The API emits an
+  // announce on every refresh, so a changing `types` set (passive→active)
+  // also propagates live.
   const [agents, setAgents] = useState<AgentSnapshot[]>([]);
   useEffect(() => {
     let cancelled = false;
-    const refresh = (): void => {
-      getAgents()
-        .then((list) => { if (!cancelled) setAgents(list); })
-        .catch(() => { if (!cancelled) setAgents([]); });
+    getAgents()
+      .then((list) => { if (!cancelled) setAgents(list); })
+      .catch(() => { if (!cancelled) setAgents([]); });
+
+    const upsert = (agent: AgentSnapshot): void => {
+      setAgents((prev) => {
+        const i = prev.findIndex((a) => a.agent_id === agent.agent_id);
+        if (i === -1) return [...prev, agent];
+        // Skip churn on plain refreshes — only re-render when something the
+        // graph actually draws (host label, installable types) changed.
+        const cur = prev[i];
+        const sameTypes = cur.types.length === agent.types.length
+          && cur.types.every((t, k) => t === agent.types[k]);
+        if (cur.host === agent.host && sameTypes) return prev;
+        const next = prev.slice();
+        next[i] = agent;
+        return next;
+      });
     };
-    refresh();
-    const interval = setInterval(refresh, 3000);
-    return (): void => { cancelled = true; clearInterval(interval); };
+    const remove = (agent: AgentSnapshot): void => {
+      setAgents((prev) => prev.filter((a) => a.agent_id !== agent.agent_id));
+    };
+
+    const unsubs = [onAgentAnnounced(upsert), onAgentExpired(remove)];
+    return (): void => { cancelled = true; for (const u of unsubs) u(); };
   }, []);
 
   // Capability layer state — persisted across sessions. When ON: nodes
@@ -534,8 +484,17 @@ export function NetworkGraph({
       // node back to its pre-drag coords. Only sticky as long as the
       // node is still in the same parent (host change resets to snapshot).
       const prevState = new Map<string, { x: number; y: number; parentId?: string }>();
+      // Host origins are preserved across rebuilds too: `fitHostsToChildren`
+      // slides a host's origin inward to hug its content, but buildHostLayer
+      // always re-emits it at the row-layout cursor — without carrying the
+      // previous origin forward, that slide is undone every rebuild and the
+      // content visibly jumps back. Row-layout x is only the *initial* slot.
+      const prevHostPos = new Map<string, { x: number; y: number }>();
       for (const n of prev) {
-        if (n.type === HOST_NODE_TYPE) continue;
+        if (n.type === HOST_NODE_TYPE) {
+          prevHostPos.set(n.id, { x: n.position.x, y: n.position.y });
+          continue;
+        }
         prevState.set(n.id, {
           x: n.position.x,
           y: n.position.y,
@@ -544,6 +503,10 @@ export function NetworkGraph({
       }
 
       const { hostNodes, parentIdOf, gridSlotOf } = buildHostLayer(snapshots, agents);
+      for (const h of hostNodes) {
+        const pos = prevHostPos.get(h.id);
+        if (pos) h.position = pos;
+      }
 
       const childNodes = snapshots.map((snap) => {
         const newParent = parentIdOf.get(snap.id);
@@ -566,6 +529,11 @@ export function NetworkGraph({
         return flowNode;
       });
 
+      // Shrink/grow each host to wrap its children's current positions, hugging
+      // all four sides. Done here (not in buildHostLayer) because it needs the
+      // sticky-resolved positions just applied above.
+      fitHostsToChildren(hostNodes, childNodes, expandedSizes);
+
       // React Flow requires parent nodes to come BEFORE their children.
       const next = [...hostNodes, ...childNodes];
 
@@ -577,7 +545,7 @@ export function NetworkGraph({
       // excluded because they're sticky-overridden above anyway.
       return sameRenderedShape(prev, next) ? prev : next;
     });
-  }, [snapshots, agents, typeMap, onOpenNodeUi, handleToggleExpand, handleResizeExpanded, expandedNodeIds, expandedSizes, setNodes, capabilityHoverEnabled]);
+  }, [snapshots, agents, typeMap, onOpenNodeUi, handleToggleExpand, handleResizeExpanded, expandedNodeIds, expandedSizes, setNodes, capabilityHoverEnabled, layoutTick]);
 
   useEffect(() => {
     const pubSub = buildEdges(snapshots, flows, types);
@@ -615,6 +583,10 @@ export function NetworkGraph({
     isDraggingRef.current = true;
   }, []);
 
+  // No live container fit during the drag: `expandParent` grows the box so the
+  // node never escapes it, and the actual hug (shrinking to wrap all four
+  // sides) runs once on drag-stop — see the layoutTick bump below. Keeping the
+  // resize on release only is consistent across every edge of the box.
   const handleNodeDragStop = useCallback((_event: React.MouseEvent, node: Node): void => {
     isDraggingRef.current = false;
     // Host containers are synthetic — rebuilt from agents/snapshots every
@@ -626,6 +598,9 @@ export function NetworkGraph({
     // layer is ever disabled, the existing absolute-vs-relative meaning
     // would need a migration — flagged in the host-layout.ts header.
     updateNodePosition(node.id, node.position.x, node.position.y).catch(noop);
+    // Re-run the rebuild so the host hugs all four sides around the dropped
+    // position (the live drag only sized right/bottom).
+    setLayoutTick((t) => t + 1);
   }, []);
 
   const handleNodeClick = useCallback(
@@ -682,6 +657,7 @@ export function NetworkGraph({
       onEdgeClick={handleEdgeClick}
       onPaneClick={handlePaneClick}
       onInit={handleInit}
+      deleteKeyCode={null}
       proOptions={{ hideAttribution: true }}
     >
       <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="var(--color-border)" />

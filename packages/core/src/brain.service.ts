@@ -185,7 +185,7 @@ export class BrainService extends EventEmitter {
 
   bootstrap(
     nodesDir: string | string[],
-    opts?: { nodeModulesDir?: string; siblingsRoot?: string; nodeDataRoot?: string },
+    opts?: { nodeModulesDir?: string; siblingsRoot?: string; nodeDataRoot?: string; dataRoot?: string },
   ): void {
     // Accept either a single path (legacy) or a list. Multiple paths support
     // the cross-repo workspace setup: brAIn ships its catalog under `nodes/`,
@@ -207,14 +207,19 @@ export class BrainService extends EventEmitter {
       ?? (dirs[0] ? path.resolve(dirs[0], "..", "..") : process.cwd());
     this.store = new StoreService(this.typeRegistry, siblingsRoot);
 
-    // Wire the per-node data root. Defaults to <siblingsRoot>/data/nodes
-    // so it sits next to the framework DB rather than inside the API
-    // package. Each node's ctx.dataDir resolves to <root>/<nodeId>/.
-    const nodeDataRoot = opts?.nodeDataRoot
-      ?? path.resolve(siblingsRoot, "data", "nodes");
+    // Where all runtime data lives (brain DB, per-node dirs, LLM config,
+    // personal seeds). Decoupled from `siblingsRoot` on purpose: siblings
+    // are about *where sibling repos clone*, the data root is about *where
+    // state persists* — they only coincided by accident. The API pins this
+    // to the framework-repo `data/` (next to brain.db); tests fall back to
+    // `<siblingsRoot>/data` so quick scripts still work without wiring.
+    const dataRoot = opts?.dataRoot ?? path.resolve(siblingsRoot, "data");
+
+    // Per-node data root. Each node's ctx.dataDir resolves to <root>/<nodeId>/.
+    const nodeDataRoot = opts?.nodeDataRoot ?? path.resolve(dataRoot, "nodes");
     setNodeDataRoot(nodeDataRoot);
 
-    this.llm.setConfigStore(this.llmConfig = new LLMConfigStore(path.resolve(siblingsRoot, "data")));
+    this.llm.setConfigStore(this.llmConfig = new LLMConfigStore(dataRoot));
 
     // Discover nodes installed as npm packages under @brain/node-*. Once
     // the perception/memory/etc. domains ship via `pnpm add @brain/node-foo`,

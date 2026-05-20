@@ -73,6 +73,18 @@ export class DashboardGateway implements OnGatewayInit {
       this.server.emit("devmode:changed", data);
     });
 
+    // Agent presence — replaces the dashboard's 3 s getAgents() poll. The
+    // directory fires `agent:announced` on every announce/refresh and
+    // `agent:expired` when an entry lapses its TTL; we mirror both to clients
+    // so host containers appear/update/vanish in real time.
+    this.brain.agents.on("agent:announced", (ann) => {
+      this.server.emit("agent:announced", ann);
+    });
+
+    this.brain.agents.on("agent:expired", (ann) => {
+      this.server.emit("agent:expired", ann);
+    });
+
     this.log.log("WebSocket gateway initialized");
   }
 }
