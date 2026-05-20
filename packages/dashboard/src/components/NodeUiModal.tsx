@@ -1,11 +1,15 @@
 interface NodeUiModalProps {
   nodeId: string;
   nodeName: string;
+  /** HTTP base of the hub that owns this node (guest mode). When set, the
+   *  UI is served by that machine, not us — so the iframe points at it.
+   *  Undefined for local nodes → same-origin. */
+  ownerHubUrl?: string;
   onClose: () => void;
 }
 
-export function NodeUiModal({ nodeId, nodeName, onClose }: NodeUiModalProps): React.ReactElement {
-  const src = `/nodes/${nodeId}/ui/`;
+export function NodeUiModal({ nodeId, nodeName, ownerHubUrl, onClose }: NodeUiModalProps): React.ReactElement {
+  const src = `${ownerHubUrl ?? ""}/nodes/${nodeId}/ui/`;
 
   return (
     <div className="fixed inset-0 z-50 flex flex-col bg-black/80">

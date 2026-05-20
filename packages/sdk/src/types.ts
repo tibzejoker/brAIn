@@ -200,6 +200,29 @@ export function normaliseSubscription(raw: {
   return { ...base, inputSchema: raw.inputSchema };
 }
 
+// === Network / hubs ===
+
+/**
+ * Identifies the machine ("hub") a node belongs to in a peer-to-peer
+ * network. brAIn instances joined to the same NATS bus are symmetric
+ * peers — there is no master/slave; each hub publishes its own running
+ * registry and consumes the others'. `owner_hub` on a `NodeInfo` is the
+ * routing key any client (the React dashboard, a future Flutter app, …)
+ * uses to decide *which* HTTP origin serves that node's UI and accepts
+ * spawn/kill for it, and which `brain.agents.<hub_id>.*` control topic
+ * targets it over the bus.
+ *
+ * `hub_id` is the stable per-install id (same value as the agent-presence
+ * `agent_id`), so the snapshot channel and the control channel correlate.
+ */
+export interface HubRef {
+  hub_id: string;
+  hub_label: string;
+  /** Reachable HTTP base of that hub's API (e.g. `http://192.168.1.16:3000`).
+   *  Absent until the hub advertises it (older peers, pre-join). */
+  http_url?: string;
+}
+
 // === Node info ===
 
 export interface NodeInfo {
@@ -218,6 +241,13 @@ export interface NodeInfo {
    * this node. Used by the API to route control actions over NATS.
    */
   target_agent_id?: string;
+  /**
+   * The hub (machine) that physically runs this node and serves its UI.
+   * Stamped by `NetworkDirectory` when merging a peer's snapshot; left
+   * undefined for purely-local nodes on a standalone instance (callers
+   * treat "undefined" as "mine / same origin"). See {@link HubRef}.
+   */
+  owner_hub?: HubRef;
   position: { x: number; y: number };
   config_overrides?: Record<string, unknown>;
   default_publishes?: string[];

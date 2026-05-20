@@ -8,11 +8,14 @@ import { useCallback, useState } from "react";
  */
 export function JoinHubModal({ onCancel, onSubmit }: {
   onCancel: () => void;
-  onSubmit: (url: string, token: string, hubName: string) => void;
+  onSubmit: (url: string, token: string, hubName: string, httpUrl: string) => void;
 }): React.ReactElement {
   const [url, setUrl] = useState("");
   const [token, setToken] = useState("");
   const [hubName, setHubName] = useState("");
+  // Hub's HTTP base, carried in the `&api=` part of a brain:// link. Lets
+  // this dashboard load the hub's node UIs once joined.
+  const [api, setApi] = useState("");
   const [uri, setUri] = useState("");
   const [uriHint, setUriHint] = useState<"empty" | "parsed" | "raw" | "invalid">("empty");
 
@@ -25,8 +28,11 @@ export function JoinHubModal({ onCancel, onSubmit }: {
       if (trimmed.startsWith("brain://")) {
         const q = new URL(trimmed).searchParams;
         const u = q.get("url"); const t = q.get("token");
+        const a = q.get("api"); const l = q.get("label");
         if (u) setUrl(u);
         if (t) setToken(t);
+        if (a) setApi(a);
+        if (l) setHubName(l);
         setUriHint(u ? "parsed" : "invalid");
         return;
       }
@@ -124,7 +130,7 @@ export function JoinHubModal({ onCancel, onSubmit }: {
             Cancel
           </button>
           <button
-            onClick={() => onSubmit(url, token, hubName)}
+            onClick={() => onSubmit(url, token, hubName, api)}
             disabled={!valid}
             className="px-3 py-1 text-xs rounded bg-accent text-accent-fg hover:bg-accent/90 disabled:opacity-40 disabled:cursor-not-allowed"
           >

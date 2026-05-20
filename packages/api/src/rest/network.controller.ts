@@ -3,7 +3,7 @@ import { BrainService, BrokerService, readBrokerPrefs, writeBrokerPrefs, readExt
 import { type Message, type NodeInfo, type NodeState } from "@brain/sdk";
 import { networkInterfaces } from "node:os";
 import { randomBytes } from "node:crypto";
-import { BROKER_PREFS_PATH, EXTERNAL_BROKER_PREFS_PATH } from "../app.module";
+import { BROKER_PREFS_PATH, EXTERNAL_BROKER_PREFS_PATH, resolveSelfHttpUrl } from "../app.module";
 
 /**
  * Discover the IPv4 addresses of this host's external interfaces.
@@ -43,19 +43,33 @@ export class NetworkController {
     @Query("state") state?: string,
     @Query("tags") tags?: string,
   ): NetworkSnapshot {
-    const nodes = this.brain.getNetworkSnapshot({
+    const local = this.brain.getNetworkSnapshot({
       state: (state ?? "all") as NodeState | "all",
       tags: tags ? tags.split(",") : undefined,
     });
 
-    return {
-      node_count: nodes.length,
-      nodes: nodes.map((n) => ({
-        ...n,
-        subscriptions: this.brain.bus.getSubscriptions(n.id),
-        unread_count: this.brain.bus.getUnreadCount(n.id),
-      })),
-    };
+    // Union with peer hubs' live nodes (each tagged `owner_hub`), so the
+    // dashboard renders one machine-grouped view. A local `remote` stub is
+    // dropped when a peer's snapshot already carries that id — the peer is
+    // authoritative for nodes it actually hosts.
+    const remote = this.brain.network.mergedNodes();
+    const remoteIds = new Set(remote.map((n) => n.id));
+    const localKept = local.filter((n) => !(n.transport === "remote" && remoteIds.has(n.id)));
+
+    const localSnaps: NodeSnapshot[] = localKept.map((n) => ({
+      ...n,
+      subscriptions: this.brain.bus.getSubscriptions(n.id),
+      unread_count: this.brain.bus.getUnreadCount(n.id),
+    }));
+    // Remote nodes: this instance has no local bus subscriptions for them,
+    // so derive the topic handles from the snapshot's own subscription list.
+    const remoteSnaps: NodeSnapshot[] = remote.map((n) => ({
+      ...n,
+      subscriptions: n.subscriptions.map((s) => ({ id: `${n.id}:${s.topic}`, pattern: s.topic })),
+    }));
+
+    const nodes = [...localSnaps, ...remoteSnaps];
+    return { node_count: nodes.length, nodes };
   }
 
   @Get("messages")
@@ -172,11 +186,15 @@ export class NetworkController {
     bind_address: string;
     lan_ips: string[];
     token: string | null;
+    /** Our own externally-reachable HTTP base, so the invite URI can carry
+     *  `&api=` and peers know where to load our node UIs / spawn at us. */
+    http_url: string | null;
     /** When the API is joined to a remote hub via the persistent
-     *  external-broker config file, surface its label so the dashboard
-     *  can show "Connected to <hub>" + a Disconnect button. Null in
-     *  embedded mode and when external was set via env var only. */
-    joined_hub: { url: string; hubName?: string } | null;
+     *  external-broker config file, surface its label + HTTP base so the
+     *  dashboard can show "Connected to <hub>", route node UIs/spawn at
+     *  it, and offer Disconnect. Null in embedded mode and when external
+     *  was set via env var only. */
+    joined_hub: { url: string; hubName?: string; http_url?: string } | null;
   } {
     const prefs = readBrokerPrefs(BROKER_PREFS_PATH);
     // Only expose the token in embedded mode — in external mode the
@@ -191,8 +209,9 @@ export class NetworkController {
       bind_address: prefs.bindAddress,
       lan_ips: getLanIps(),
       token,
+      http_url: resolveSelfHttpUrl() ?? null,
       joined_hub: fileExternal
-        ? { url: fileExternal.url, hubName: fileExternal.hubName }
+        ? { url: fileExternal.url, hubName: fileExternal.hubName, http_url: fileExternal.httpUrl }
         : null,
     };
   }
@@ -208,7 +227,7 @@ export class NetworkController {
    */
   @Post("transport/external")
   joinExternal(
-    @Body() body: { url?: string; token?: string; hubName?: string },
+    @Body() body: { url?: string; token?: string; hubName?: string; httpUrl?: string; api?: string },
   ): { joined: boolean; restart_scheduled: boolean; url?: string } {
     const log = new Logger("NetworkController");
     const url = (body.url ?? "").trim();
@@ -217,10 +236,13 @@ export class NetworkController {
     const current = readExternalBrokerPrefs(EXTERNAL_BROKER_PREFS_PATH);
     const token = (body.token ?? "").trim() || undefined;
     const hubName = (body.hubName ?? "").trim() || undefined;
-    if (current && current.url === url && current.token === token && current.hubName === hubName) {
+    // Accept `httpUrl` or the URI-style alias `api`. Lets the joined
+    // dashboard reach the hub's node UIs + spawn endpoint over HTTP.
+    const httpUrl = (body.httpUrl ?? body.api ?? "").trim() || undefined;
+    if (current && current.url === url && current.token === token && current.hubName === hubName && current.httpUrl === httpUrl) {
       return { joined: true, restart_scheduled: false, url };
     }
-    writeExternalBrokerPrefs(EXTERNAL_BROKER_PREFS_PATH, { url, token, hubName });
+    writeExternalBrokerPrefs(EXTERNAL_BROKER_PREFS_PATH, { url, token, hubName, httpUrl });
     log.log(`joining external broker ${url}; exiting in 200ms for restart`);
     setTimeout(() => { process.exit(0); }, 200);
     return { joined: true, restart_scheduled: true, url };

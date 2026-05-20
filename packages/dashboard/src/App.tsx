@@ -17,6 +17,8 @@ import { useNodeTypes } from "./hooks/useNodeTypes";
 import { useSelectedNode } from "./hooks/useSelectedNode";
 import { useMessageFlows } from "./hooks/useMessageFlows";
 import { getSocket } from "./api/socket";
+import { getTransport } from "./api/client";
+import { setApiToken } from "./api/request";
 
 export function App(): React.ReactElement {
   const { nodes, refresh: refreshNetwork } = useNetwork();
@@ -52,6 +54,9 @@ export function App(): React.ReactElement {
     // Keep the socket warm even though we no longer subscribe to devmode
     // here. Other panels still consume it.
     getSocket();
+    // Pick up THIS hub's broker token so same-origin mutations carry the
+    // Authorization header the BrokerTokenGuard expects (embedded mode).
+    void getTransport().then((t) => setApiToken(t.token)).catch(() => { /* offline boot */ });
   }, []);
 
   const handleSpawnClick = useCallback((): void => {
@@ -199,6 +204,7 @@ export function App(): React.ReactElement {
         <NodeUiModal
           nodeId={uiNodeId}
           nodeName={nodes.find((n) => n.id === uiNodeId)?.name ?? "Node"}
+          ownerHubUrl={nodes.find((n) => n.id === uiNodeId)?.owner_hub?.http_url}
           onClose={handleCloseNodeUi}
         />
       )}

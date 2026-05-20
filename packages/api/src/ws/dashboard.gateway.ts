@@ -5,7 +5,8 @@ import {
 } from "@nestjs/websockets";
 import { Logger } from "@nestjs/common";
 import { Server } from "socket.io";
-import { BrainService } from "@brain/core";
+import { BrainService, type NetworkSnapshot } from "@brain/core";
+import type { HubRef } from "@brain/sdk";
 
 /**
  * Trailing debounce window (ms) used to coalesce rapid node state
@@ -83,6 +84,26 @@ export class DashboardGateway implements OnGatewayInit {
 
     this.brain.agents.on("agent:expired", (ann) => {
       this.server.emit("agent:expired", ann);
+    });
+
+    // Peer-hub network channel — a hub's live registry arriving/refreshing
+    // (`hub:snapshot`) or going silent (`hub:expired`). We reshape each
+    // remote node's subscriptions to the `{id, pattern}` shape the
+    // dashboard's NodeBlock expects (their bus subs live on the peer, not
+    // here) and emit so the merged graph updates in real time.
+    this.brain.network.on("hub:snapshot", (snap: NetworkSnapshot) => {
+      this.server.emit("network:hub_snapshot", {
+        hub: snap.hub,
+        nodes: snap.nodes.map((n) => ({
+          ...n,
+          owner_hub: snap.hub,
+          subscriptions: n.subscriptions.map((s) => ({ id: `${n.id}:${s.topic}`, pattern: s.topic })),
+        })),
+      });
+    });
+
+    this.brain.network.on("hub:expired", (hub: HubRef) => {
+      this.server.emit("network:hub_expired", { hub_id: hub.hub_id });
     });
 
     this.log.log("WebSocket gateway initialized");

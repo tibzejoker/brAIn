@@ -132,9 +132,48 @@ propre `InstanceRegistry`**. L'`AgentDirectory` affiche l'autre
 comme "remote agent" mais pas les nodes qui y tournent. Résultat :
 asymétrique, confus, et les UIs des nodes pointent dans le vide
 parce que la join URI ne transporte que `nats://` pas l'URL HTTP du
-hub. On veut passer à **Option A** : le joiner devient un client
-visuel du hub (mêmes datas, même graph, mêmes UIs), tout en gardant
-ses nodes locaux toujours actifs et visibles sur demande.
+hub.
+
+**Modèle visé** : pair-à-pair **symétrique, niveau machine** (pas
+master/slave). Chaque machine est un *hub* pair identifié par un
+`hub_id` stable (= l'`agent_id` agent-presence). Chaque hub publie sa
+registry vivante sur un **canal réseau du bus** (`brain.network.snapshot`)
+et consomme celles des autres → vue **fusionnée** où chaque node porte
+un `owner_hub` (machine propriétaire). Ce `owner_hub` est la **clé de
+routage** : il dit à n'importe quel client (dashboard React, futur
+Flutter…) quelle origine HTTP sert l'UI du node et accepte son
+spawn/kill, et quel topic `brain.agents.<hub_id>.*` le pilote sur le
+bus. UIs + spawn marchent **des deux côtés**. Le canal bus est un
+contrat client-agnostique ; le WebSocket existant propage en
+temps réel. Connecteurs de transport **pluggables** (URI maintenant,
+SSH plus tard) derrière une Strategy + Facade.
+
+**Auth** (décidé) : token broker en bearer sur les mutations venant
+d'un invité ; allowlist de types "network-spawnable" → évolution
+ultérieure, pas cette passe.
+
+**Correction d'audit** : le CORS est **déjà activé** (`main.ts`
+`app.enableCors()` + gateway `cors:true`) — l'item ci-dessous était
+périmé.
+
+**État (2026-05-21)** — fondation core livrée + testée
+(`tests/network-directory.test.ts`, `tests/connectors.test.ts`, 14 ✓) :
+
+- [x] **`HubRef` + `owner_hub`** sur `NodeInfo` (`sdk/src/types.ts`).
+- [x] **Protocole canal réseau** (`core/src/network/protocol.ts`) :
+  topics `brain.network.snapshot` / `.bye`, `NetworkSnapshot`.
+- [x] **Identité machine** (`core/src/network/hub-identity.ts`) :
+  `resolveHubId` (réutilise le kv `api_agent_id`), `buildHubRef`.
+- [x] **`NetworkDirectory`** (`core/src/network/network-directory.ts`) :
+  consomme les snapshots des pairs, exclut le self, TTL + bye, expose
+  `mergedNodes()` taggé `owner_hub`.
+- [x] **Connecteurs Strategy/Facade** (`core/src/network/connectors/`) :
+  `PeerConnector`, `UriConnector` (brain://, nats://, snippet, `&api=`),
+  `ConnectorRegistry`. SSH se branchera via `register()`.
+
+Reste (ci-dessous) : publisher snapshot + transport `http_url` + guard
+auth côté API, puis la vue fusionnée + routage par `owner_hub` côté
+dashboard.
 
 ### Backend (hub)
 
@@ -145,14 +184,15 @@ ses nodes locaux toujours actifs et visibles sur demande.
 - [ ] **`joinExternalBroker(url, token, hubName, httpUrl)`** prend
   `httpUrl` et le persiste dans `data/external-broker.json` à côté
   de l'URL NATS — survit aux restarts.
-- [ ] **CORS** activé sur l'API NestJS (origin = `*` ou whitelist
-  des origins joiners via le broker token en bearer). Sans CORS le
-  dashboard du joiner se prend des erreurs `Access-Control-Allow-Origin`.
-- [ ] **Snapshot bus** (`brain.network.snapshot`) : le hub publie sa
-  registry (NodeInfo[] + edges) toutes les ~3s + sur événement
-  spawn/kill/state_change. Permet aux joiners d'avoir une vue
-  temps-réel sans devoir poller REST. Inclut `hub_id`, `hub_label`,
-  `http_url`. Criticality 0, retain ~5s.
+- [x] **CORS** — déjà activé (`main.ts` `app.enableCors()` + gateway
+  `cors:true`). Rien à faire.
+- [ ] **Publisher snapshot** : câbler `brain.network.snapshot` sur les
+  events de l'`InstanceRegistry` (spawn/kill/state_change) + heartbeat
+  ~3s, en publiant notre `HubRef` (`buildHubRef`) incl. `http_url`. Le
+  protocole + le `NetworkDirectory` consommateur sont **déjà faits** ;
+  reste à émettre. + `brain.network.bye` sur shutdown propre.
+- [ ] **Guard auth invité** : token broker en bearer exigé sur
+  `POST`/`DELETE /nodes` + node-ui send venant d'un pair.
 
 ### Frontend (joiner)
 
@@ -177,9 +217,11 @@ ses nodes locaux toujours actifs et visibles sur demande.
 ### Join URI enrichie
 
 - [ ] **Format étendu** : `brain://join?url=nats://…&token=…&api=http://192.168.1.16:3000`.
-  Le QR + le snippet copy-paste du panneau Distributed génèrent
-  cette forme. `JoinHubModal.applyUri` parse `api=` et le passe au
-  POST `/network/transport/external`.
+  Le parsing est **déjà fait** dans `UriConnector` (core) ; reste à
+  remplacer le parsing inline de `JoinHubModal.applyUri` par un appel
+  au `ConnectorRegistry`, passer `api` au POST `/network/transport/external`,
+  et générer cette forme dans le QR + snippet du panneau Distributed
+  via `UriConnector.format()`.
 - [ ] **Champ "API URL" optionnel** dans la modal pour fallback
   manuel quand on a uniquement le `nats://`.
 

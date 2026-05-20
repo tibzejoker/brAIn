@@ -22,11 +22,15 @@ export interface TransportInfo {
   lan_ips: string[];
   /** NATS auth token enforced by the embedded broker (null in external mode). */
   token: string | null;
+  /** Our own externally-reachable HTTP base, so the invite URI can carry
+   *  `&api=` and peers know where to load our node UIs / spawn at us. */
+  http_url: string | null;
   /** When the API joined a remote hub via the persistent external-broker
-   *  config (UI flow, not env), surface the URL + label so the dashboard
-   *  can show "Connected to <hub>" and offer Disconnect. Null in embedded
-   *  mode or when external came from BRAIN_NATS_URL env. */
-  joined_hub: { url: string; hubName?: string } | null;
+   *  config (UI flow, not env), surface the URL + label + HTTP base so the
+   *  dashboard can show "Connected to <hub>", load its node UIs, and offer
+   *  Disconnect. Null in embedded mode or when external came from
+   *  BRAIN_NATS_URL env. */
+  joined_hub: { url: string; hubName?: string; http_url?: string } | null;
 }
 export function getTransport(): Promise<TransportInfo> {
   return request("/network/transport");
@@ -52,11 +56,11 @@ export function setTransportBind(open: boolean): Promise<{ bind_address: string;
  * mode === "external" to know the join landed.
  */
 export function joinExternalBroker(
-  url: string, token?: string, hubName?: string,
+  url: string, token?: string, hubName?: string, httpUrl?: string,
 ): Promise<{ joined: boolean; restart_scheduled: boolean; url?: string }> {
   return request("/network/transport/external", {
     method: "POST",
-    body: JSON.stringify({ url, token, hubName }),
+    body: JSON.stringify({ url, token, hubName, httpUrl }),
   });
 }
 

@@ -1,6 +1,6 @@
 import { Module, Logger, type OnModuleInit, type OnModuleDestroy } from "@nestjs/common";
-import { BrainService, BrokerService, NatsBusService, readBrokerPrefs, readExternalBrokerPrefs, startAgentPresence, getDb, getSetting, setSetting } from "@brain/core";
-import { hostname } from "node:os";
+import { BrainService, BrokerService, NatsBusService, readBrokerPrefs, readExternalBrokerPrefs, startAgentPresence, startNetworkPublisher, buildHubRef, getDb, getSetting, setSetting, type NetworkPublisherHandle } from "@brain/core";
+import { hostname, networkInterfaces } from "node:os";
 import { randomBytes } from "node:crypto";
 import { connect as netConnect } from "node:net";
 import { URL } from "node:url";
@@ -26,6 +26,24 @@ function resolveFromRoot(envVar: string | undefined, fallback: string): string {
   const raw = envVar ?? fallback;
   if (path.isAbsolute(raw)) return raw;
   return path.resolve(MONOREPO_ROOT, raw);
+}
+
+/**
+ * This API's externally-reachable HTTP base (e.g. `http://192.168.1.16:3000`),
+ * or null when no non-loopback IPv4 interface exists. Peers use it to load
+ * our node UIs and route spawn/kill at us. First LAN IP + `API_PORT`
+ * (matches `main.ts`); `BRAIN_HTTP_URL` overrides for proxied/tunnelled setups.
+ */
+export function resolveSelfHttpUrl(): string | undefined {
+  const override = process.env.BRAIN_HTTP_URL?.trim();
+  if (override) return override;
+  const port = process.env.API_PORT ?? "3000";
+  for (const ifaces of Object.values(networkInterfaces())) {
+    for (const iface of ifaces ?? []) {
+      if (iface.family === "IPv4" && !iface.internal) return `http://${iface.address}:${port}`;
+    }
+  }
+  return undefined;
 }
 
 /** data/broker.json — persisted bind preference, dashboard-toggleable. */
@@ -226,12 +244,17 @@ const brainServiceProvider = {
 export class AppModule implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger("AppModule");
 
+  private networkPublisher: NetworkPublisherHandle | null = null;
+
   constructor(
     private readonly brain: BrainService,
     private readonly broker: BrokerService,
   ) {}
 
   async onModuleDestroy(): Promise<void> {
+    // Send our network `bye` before dropping the bus so peers prune us
+    // immediately instead of waiting for the TTL sweep.
+    try { this.networkPublisher?.stop(); } catch { /* best-effort */ }
     // Tear down in reverse: bus first (drain in-flight), then broker.
     try { await (this.brain.bus as { close?: () => Promise<void> }).close?.(); }
     catch (err) { this.log.warn(`bus close failed: ${String(err)}`); }
@@ -276,6 +299,22 @@ export class AppModule implements OnModuleInit, OnModuleDestroy {
       });
       this.log.log(`agent presence active as ${agentId} (external broker)`);
     }
+
+    // Advertise this hub's live registry on the network channel so peers
+    // render us in their merged view. Runs in BOTH modes: an embedded hub
+    // must publish so guests that join its bus see its nodes, and a joiner
+    // publishes so the hub sees the joiner's — symmetric peer-to-peer.
+    // `http_url` lets peers reach our node UIs + spawn endpoint over HTTP.
+    const httpUrl = resolveSelfHttpUrl();
+    this.networkPublisher = startNetworkPublisher({
+      bus: this.brain.bus,
+      hub: buildHubRef(getDb(), httpUrl),
+      // Only nodes WE host — drop `remote` stubs, which belong to a peer
+      // that advertises them itself.
+      snapshot: () => this.brain.getNetworkSnapshot().filter((n) => n.transport !== "remote"),
+      changes: this.brain,
+    });
+    this.log.log(`network publisher active${httpUrl ? ` @ ${httpUrl}` : ""}`);
 
     // Auto-seed from default if DB is empty. Fire-and-forget: a fresh
     // install has to clone+install several sister repos which can take

@@ -5,6 +5,7 @@ import type {
   NodeTypeConfig,
   NodeInstanceConfig,
   SubscriptionConfig,
+  HubRef,
 } from "@brain/sdk";
 
 export type {
@@ -14,6 +15,7 @@ export type {
   NodeTypeConfig,
   NodeInstanceConfig,
   SubscriptionConfig,
+  HubRef,
 };
 
 export interface SubscriptionSnapshot {
@@ -40,4 +42,15 @@ export interface StateChangeEvent {
 export interface KillEvent {
   nodeId: string;
   reason?: string;
+}
+
+/** A peer hub's live registry arriving/refreshing on the network channel. */
+export interface HubSnapshotEvent {
+  hub: HubRef;
+  nodes: NodeSnapshot[];
+}
+
+/** A peer hub gone silent / disconnected — drop all its nodes. */
+export interface HubExpiredEvent {
+  hub_id: string;
 }

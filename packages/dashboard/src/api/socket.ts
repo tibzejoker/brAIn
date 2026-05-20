@@ -4,6 +4,8 @@ import type {
   Message,
   StateChangeEvent,
   KillEvent,
+  HubSnapshotEvent,
+  HubExpiredEvent,
 } from "./types";
 import type { AgentSnapshot } from "./client";
 
@@ -69,5 +71,24 @@ export function onAgentExpired(cb: (agent: AgentSnapshot) => void): () => void {
   s.on("agent:expired", cb);
   return (): void => {
     s.off("agent:expired", cb);
+  };
+}
+
+// Peer-hub network channel — a remote machine's live registry arriving or
+// refreshing. Each node carries `owner_hub`, so the merged graph can group
+// it under its owning machine and route its UI to that hub's HTTP base.
+export function onNetworkHubSnapshot(cb: (e: HubSnapshotEvent) => void): () => void {
+  const s = getSocket();
+  s.on("network:hub_snapshot", cb);
+  return (): void => {
+    s.off("network:hub_snapshot", cb);
+  };
+}
+
+export function onNetworkHubExpired(cb: (e: HubExpiredEvent) => void): () => void {
+  const s = getSocket();
+  s.on("network:hub_expired", cb);
+  return (): void => {
+    s.off("network:hub_expired", cb);
   };
 }
