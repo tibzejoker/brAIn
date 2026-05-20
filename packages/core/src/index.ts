@@ -19,6 +19,10 @@ export type {
 export { AuthorityService } from "./authority";
 export { NodeRunner, IdleThrottle } from "./runner";
 export type { LogEntry } from "./runner";
+// Per-node data root (<dataRoot>/nodes). Nodes that persist outside their
+// own ctx.dataDir (shared SQLite, OAuth token stores) resolve the data root
+// from this so they land next to brain.db instead of in process.cwd().
+export { getNodeDataRoot } from "./runner/context-builder";
 export { logger, createNodeLogger } from "./logger";
 export { getDb, closeDb, getSetting, setSetting, deleteSetting } from "./db";
 export type { HistoryEntry, HistoryAction } from "./db";
