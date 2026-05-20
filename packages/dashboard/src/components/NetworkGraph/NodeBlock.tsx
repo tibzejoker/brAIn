@@ -1,3 +1,4 @@
+import { useRef } from "react";
 import { Handle, NodeResizer, Position, type Node, type NodeProps } from "@xyflow/react";
 
 type NodeBlockData = Node<{
@@ -143,8 +144,16 @@ export function NodeBlock({ id, data, selected }: NodeProps<NodeBlockData>): Rea
       }
     : undefined;
 
+  // Ref to the root element — used by NodeResizer's `onResize` to mutate
+  // width/height directly during drag, bypassing React state so we don't
+  // trigger a 60Hz re-layout of the whole graph (which makes neighbour
+  // nodes vanish until the drag ends). On release `onResizeEnd` persists
+  // the final size to state so it survives collapse/expand cycles.
+  const rootRef = useRef<HTMLDivElement>(null);
+
   return (
     <div
+      ref={rootRef}
       className={`
         relative rounded-lg border-2
         ${selected ? "bg-surface-overlay border-text" : `bg-surface-raised ${borderColor}`}
@@ -165,7 +174,18 @@ export function NodeBlock({ id, data, selected }: NodeProps<NodeBlockData>): Rea
           minHeight={240}
           handleStyle={{ width: 8, height: 8, background: "var(--color-text-muted)", border: 0, borderRadius: 2 }}
           lineStyle={{ borderColor: "var(--color-border-bright)", borderWidth: 1 }}
+          // During drag: mutate this node's own DOM via ref so the card
+          // visibly grows in real time, but DO NOT call setState — that
+          // would re-fire the parent's layout effect at 60Hz and make
+          // the rest of the graph flicker. On release we persist the
+          // final size to state so it survives collapse/expand cycles.
           onResize={(_, p) => {
+            const el = rootRef.current;
+            if (!el) return;
+            el.style.width = `${p.width}px`;
+            el.style.height = `${p.height}px`;
+          }}
+          onResizeEnd={(_, p) => {
             (data.onResizeExpanded)?.(p.width, p.height);
           }}
         />
