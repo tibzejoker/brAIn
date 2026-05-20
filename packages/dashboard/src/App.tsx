@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from "react";
+import { BackgroundFX } from "./components/BackgroundFX";
 import { Header } from "./components/Header";
 import { Menu, type MenuView } from "./components/Menu";
 import { NetworkGraph, type EdgeSelection } from "./components/NetworkGraph/NetworkGraph";
@@ -106,7 +107,8 @@ export function App(): React.ReactElement {
   const mobileOverlayOpen = activeView === "graph" && (selectedNode !== null || selectedEdge !== null);
 
   return (
-    <div className="h-screen flex flex-col">
+    <div className="h-screen flex flex-col relative z-10">
+      <BackgroundFX />
       <Header
         onSpawnClick={handleSpawnClick}
         onMenuToggle={handleMenuToggle}

@@ -51,9 +51,12 @@
   --radius-lg: 10px;
 }
 
-html, body {
-  margin: 0;
+html {
   background: var(--color-surface);
+}
+body {
+  margin: 0;
+  background: transparent;
   color: var(--color-text);
   font-family: "Inter", system-ui, -apple-system, sans-serif;
   /* Never allow horizontal scroll on the document — any overflow inside
@@ -76,12 +79,58 @@ code, kbd, samp, .font-mono {
   overflow-wrap: anywhere;
 }
 
-/* React Flow dark theme overrides */
+/* Ambient background FX — purple orbs + dot grid (see BackgroundFX.tsx).
+ * Orbs animate transform only so the compositor stays GPU-bound; the
+ * `prefers-reduced-motion` guard keeps everything still for users who
+ * opted out. */
+.bg-orb {
+  position: absolute;
+  border-radius: 9999px;
+  background: #a855f7;
+  filter: blur(110px);
+  will-change: transform;
+}
+.bg-orb-a {
+  top: -12vh;
+  left: -10vw;
+  width: 42vw;
+  height: 42vw;
+  opacity: 0.10;
+  animation: bg-orb-drift-a 22s ease-in-out infinite alternate;
+}
+.bg-orb-b {
+  bottom: -14vh;
+  right: -8vw;
+  width: 34vw;
+  height: 34vw;
+  opacity: 0.06;
+  animation: bg-orb-drift-b 28s ease-in-out infinite alternate;
+}
+@keyframes bg-orb-drift-a {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(8vw, 6vh, 0); }
+}
+@keyframes bg-orb-drift-b {
+  from { transform: translate3d(0, 0, 0); }
+  to   { transform: translate3d(-7vw, -8vh, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bg-orb { animation: none; }
+}
+
+/* React Flow dark theme overrides — pane bg is `transparent` so the
+ * ambient FX shows through the graph area. The viewport itself stays
+ * dark via the `html` background. */
 .react-flow {
-  --xy-background-color: var(--color-surface);
+  --xy-background-color: transparent;
   --xy-minimap-background-color: var(--color-surface-raised);
   --xy-edge-stroke: var(--color-border-bright);
   --xy-node-border-radius: 8px;
+  background: transparent;
+}
+.react-flow__pane,
+.react-flow__viewport {
+  background: transparent;
 }
 
 .react-flow__minimap {

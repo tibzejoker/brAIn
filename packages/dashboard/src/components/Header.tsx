@@ -25,9 +25,9 @@ export function Header({ onSpawnClick, onMenuToggle }: HeaderProps): React.React
           </button>
         )}
         <img
-          src="/favicon.svg"
+          src="/brain-logo.svg"
           alt="brAIn"
-          className="h-8 w-8 shrink-0"
+          className="h-8 w-auto shrink-0"
         />
         <span className="hidden sm:inline text-sm text-text-muted truncate">Network Monitor</span>
       </div>
