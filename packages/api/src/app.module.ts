@@ -218,7 +218,7 @@ export class AppModule implements OnModuleInit, OnModuleDestroy {
       }
       startAgentPresence({
         brain: this.brain,
-        bus: this.brain.bus as NatsBusService,
+        bus: this.brain.bus,
         agentId,
         host: hostname(),
       });

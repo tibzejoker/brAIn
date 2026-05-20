@@ -342,7 +342,7 @@ function InviteSection({ transport, platform, onPlatformChange }: {
   onPlatformChange: (p: Platform) => void;
 }): React.ReactElement | null {
   const [pickedIp, setPickedIp] = useState<string | null>(null);
-  const ip = pickedIp ?? (transport.lan_ips[0] as string | undefined) ?? "";
+  const ip = pickedIp ?? (transport.lan_ips.length > 0 ? transport.lan_ips[0] : "");
   const reachableUrl = transport.url && ip ? transport.url.replace("0.0.0.0", ip) : "";
 
   if (!reachableUrl) {

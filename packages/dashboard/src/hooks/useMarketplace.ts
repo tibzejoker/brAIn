@@ -51,7 +51,7 @@ async function fetchAll(): Promise<MarketplaceCache> {
     getMarketplaceSeeds().catch(() => [] as MarketplaceSeed[]),
     getSeeds().catch(() => [] as SeedInfo[]),
     fetch("/store/index").then((r) => r.json() as Promise<{ repos: Record<string, { description?: string }> }>)
-      .catch(() => ({ repos: {} as Record<string, { description?: string }> })),
+      .catch(() => ({ repos: {} })),
   ]);
   const fresh: MarketplaceCache = {
     nodes: n, candidates: c,

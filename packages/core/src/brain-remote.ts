@@ -57,7 +57,7 @@ export function dispatchRemoteSpawn(
     type: "text",
     criticality: 3,
     payload: { content: JSON.stringify(request) },
-    metadata: request as unknown as Record<string, unknown>,
+    metadata: request,
   });
 
   deps.remoteNodes.set(id, agentId);

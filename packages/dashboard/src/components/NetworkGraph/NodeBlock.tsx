@@ -166,7 +166,7 @@ export function NodeBlock({ id, data, selected }: NodeProps<NodeBlockData>): Rea
           handleStyle={{ width: 8, height: 8, background: "var(--color-text-muted)", border: 0, borderRadius: 2 }}
           lineStyle={{ borderColor: "var(--color-border-bright)", borderWidth: 1 }}
           onResize={(_, p) => {
-            (data.onResizeExpanded as ((w: number, h: number) => void) | undefined)?.(p.width, p.height);
+            (data.onResizeExpanded)?.(p.width, p.height);
           }}
         />
       )}
@@ -226,7 +226,7 @@ export function NodeBlock({ id, data, selected }: NodeProps<NodeBlockData>): Rea
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                (data.onToggleExpand as (() => void) | undefined)?.();
+                (data.onToggleExpand)?.();
               }}
               title={data.isExpanded ? "Collapse" : "Expand UI in place"}
               className="p-1 rounded text-text-muted hover:text-text hover:bg-surface-overlay transition-colors"
@@ -236,7 +236,7 @@ export function NodeBlock({ id, data, selected }: NodeProps<NodeBlockData>): Rea
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                (data.onOpenUi as (() => void) | undefined)?.();
+                (data.onOpenUi)?.();
               }}
               title="Open UI fullscreen"
               className="p-1 rounded text-text-muted hover:text-text hover:bg-surface-overlay transition-colors"
