@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 360 138" width="360" height="138" fill="none" role="img" aria-label="brAIn">
+  <text x="40" y="60" font-family="ui-monospace, 'SF Mono', Menlo, monospace" font-size="46" font-weight="700" letter-spacing="0" fill="#18181b">br<tspan fill="#a855f7">A</tspan> n</text>
+  <g stroke="#a855f7" stroke-width="5.5" stroke-linecap="round">
+    <line x1="46" y1="99" x2="322" y2="99"/>
+    <line x1="137" y1="26" x2="137" y2="99"/>
+    <line x1="104" y1="99" x2="104" y2="83"/>
+    <line x1="246" y1="99" x2="246" y2="115"/>
+    <line x1="292" y1="99" x2="292" y2="83"/>
+  </g>
+  <g fill="#a855f7">
+    <circle cx="137" cy="23" r="6"/>
+    <circle cx="74" cy="99" r="5"/>
+    <circle cx="137" cy="99" r="5.6"/>
+    <circle cx="200" cy="99" r="5"/>
+    <circle cx="322" cy="99" r="6"/>
+  </g>
+  <g fill="#c084fc">
+    <circle cx="104" cy="80" r="4.8"/>
+    <circle cx="246" cy="118" r="4.8"/>
+    <circle cx="292" cy="80" r="4.8"/>
+  </g>
+</svg>
