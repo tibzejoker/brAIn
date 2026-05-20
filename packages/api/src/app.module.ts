@@ -2,6 +2,8 @@ import { Module, Logger, type OnModuleInit, type OnModuleDestroy } from "@nestjs
 import { BrainService, BrokerService, NatsBusService, readBrokerPrefs, readExternalBrokerPrefs, startAgentPresence, getDb, getSetting, setSetting } from "@brain/core";
 import { hostname } from "node:os";
 import { randomBytes } from "node:crypto";
+import { connect as netConnect } from "node:net";
+import { URL } from "node:url";
 import { NodesController } from "./rest/nodes.controller";
 import { TypesController } from "./rest/types.controller";
 import { NetworkController } from "./rest/network.controller";
@@ -46,6 +48,35 @@ export function ensureBrokerToken(dbPath: string): string {
   return tok;
 }
 
+/**
+ * TCP-probe a NATS URL: resolves true if anything is listening at
+ * host:port within `timeoutMs`. Used to fail-fast on a stale external
+ * broker config (e.g. `data/external-broker.json` pointing at a host
+ * that's offline) instead of hanging the API on `connect()` forever.
+ */
+const EXTERNAL_BROKER_PROBE_TIMEOUT_MS = 10_000;
+
+function probeReachable(natsUrl: string, timeoutMs: number): Promise<boolean> {
+  let host: string;
+  let port: number;
+  try {
+    const u = new URL(natsUrl);
+    host = u.hostname;
+    port = u.port ? Number(u.port) : 4222;
+  } catch { return Promise.resolve(false); }
+  return new Promise((resolve) => {
+    const sock = netConnect({ host, port });
+    const done = (ok: boolean): void => {
+      clearTimeout(timer);
+      try { sock.destroy(); } catch { /* ignore */ }
+      resolve(ok);
+    };
+    const timer = setTimeout(() => done(false), timeoutMs);
+    sock.once("connect", () => done(true));
+    sock.once("error", () => done(false));
+  });
+}
+
 // One BrokerService per API process. Started before BrainService so
 // the bus has a NATS URL to connect to. Held on AppModule so we can
 // stop it cleanly on shutdown.
@@ -60,20 +91,36 @@ const brokerProvider = {
     //   3. neither → embedded mode (spawn local nats-server)
     const envExternalUrl = process.env.BRAIN_NATS_URL;
     const fileExternal = envExternalUrl ? null : readExternalBrokerPrefs(EXTERNAL_BROKER_PREFS_PATH);
-    const externalUrl = envExternalUrl ?? fileExternal?.url;
+    let externalUrl = envExternalUrl ?? fileExternal?.url;
     const prefs = readBrokerPrefs(BROKER_PREFS_PATH);
     const dbPath = resolveFromRoot(process.env.BRAIN_DB_PATH, "data/brain.db");
-    // External mode skips local-token generation — the caller (env or
-    // persisted file) brings the token they want to authenticate with.
-    const authToken = externalUrl
-      ? (process.env.BRAIN_NATS_TOKEN ?? fileExternal?.token)
-      : ensureBrokerToken(dbPath);
     // Pin the broker port via BRAIN_BROKER_PORT — useful when remote
     // agents need a stable URL across API restarts (token rotation,
     // bind toggle, etc.). Defaults to a free port picked by the OS.
     const port = process.env.BRAIN_BROKER_PORT
       ? Number(process.env.BRAIN_BROKER_PORT)
       : undefined;
+    // If an external broker is configured but unreachable, fall back to
+    // embedded so `pnpm start` always boots. A stale hub config (host
+    // offline, wrong port, network change) would otherwise wedge the
+    // API on `connect()` forever — `waitOnFirstConnect: true` in
+    // NatsBusService has no deadline.
+    if (externalUrl) {
+      const reachable = await probeReachable(externalUrl, EXTERNAL_BROKER_PROBE_TIMEOUT_MS);
+      if (!reachable) {
+        log.warn(
+          `external broker ${externalUrl} unreachable after ${EXTERNAL_BROKER_PROBE_TIMEOUT_MS}ms `
+          + "— falling back to embedded NATS. Clear the hub in the dashboard "
+          + `(or delete ${EXTERNAL_BROKER_PREFS_PATH}) to silence this.`,
+        );
+        externalUrl = undefined;
+      }
+    }
+    // External mode skips local-token generation — the caller (env or
+    // persisted file) brings the token they want to authenticate with.
+    const authToken = externalUrl
+      ? (process.env.BRAIN_NATS_TOKEN ?? fileExternal?.token)
+      : ensureBrokerToken(dbPath);
     const broker = new BrokerService({ externalUrl, host: prefs.bindAddress, port, authToken });
     const r = await broker.start();
     log.log(`NATS bus on ${r.url} (${r.mode}, bound to ${prefs.bindAddress}${authToken ? ", auth: on" : ""})`);
