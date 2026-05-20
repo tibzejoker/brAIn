@@ -255,7 +255,7 @@ function matchWildcard(pattern: string | undefined | null, topic: string | undef
  */
 function inferPublishTopics(n: NodeSnapshot, typeMap: Map<string, NodeTypeConfig>): string[] {
   const topics = new Set<string>();
-  const co = n.config_overrides ?? {} as Record<string, unknown>;
+  const co = n.config_overrides ?? {};
 
   // Instance-level overrides
   if (typeof co.response_topic === "string") topics.add(co.response_topic);

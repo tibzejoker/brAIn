@@ -147,7 +147,7 @@ export function buildHostLayer(
       id: spec.id,
       type: HOST_NODE_TYPE,
       position: { x: cursorX, y: 50 },
-      data: data as unknown as Record<string, unknown>,
+      data: data,
       style: { width: size.w, height: size.h },
       draggable: true,
       selectable: false,

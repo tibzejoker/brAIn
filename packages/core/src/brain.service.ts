@@ -243,7 +243,7 @@ export class BrainService extends EventEmitter {
       ...opts,
       bus: opts.bus ?? this.bus,
       typeRegistry: opts.typeRegistry ?? this.typeRegistry,
-    } as DynamicScannerOptions);
+    });
     this.dynamicScanner.start();
     logger.info({ dir: opts.dynamicDir }, "Dynamic scanner started");
     return this.dynamicScanner;
