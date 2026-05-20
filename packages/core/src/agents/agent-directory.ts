@@ -7,9 +7,12 @@
  * and prunes entries that haven't refreshed within `ttlMs` (default
  * 3× the announce interval).
  *
- * Emits two events callers can subscribe to:
- *   - `agent:added`   when an unseen agent_id first appears
- *   - `agent:expired` when an entry hasn't refreshed past ttl
+ * Emits these events callers can subscribe to:
+ *   - `agent:added`     when an unseen agent_id first appears
+ *   - `agent:announced` on every announcement (new or refresh) — carries the
+ *                       latest payload, so consumers can react in real time to
+ *                       both arrivals and in-place changes (e.g. updated types)
+ *   - `agent:expired`   when an entry hasn't refreshed past ttl
  *
  * Lives in @brain/core so the API can list connected agents without
  * pulling in the agent package; the @brain/agent package re-exports
@@ -67,6 +70,10 @@ export class AgentDirectory extends EventEmitter {
         const isNew = !this.seen.has(ann.agent_id);
         this.seen.set(ann.agent_id, ann);
         if (isNew) this.emit("agent:added", ann);
+        // Always fan out the latest payload so live consumers (dashboard
+        // socket) can drop the announce polling entirely — re-announces also
+        // surface here so an agent's changing `types` propagate instantly.
+        this.emit("agent:announced", ann);
       } catch { /* malformed announcement — ignore */ }
     });
 
