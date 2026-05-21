@@ -227,6 +227,10 @@ export interface HubRef {
    *  VPN/WSL/Docker adapter), so it advertises them all and each consumer
    *  probes for the first that answers — like ICE candidates. */
   http_urls?: string[];
+  /** Where this hub's container sits on the shared canvas. Each hub owns
+   *  + persists its own block position and broadcasts it, so every viewer
+   *  places the machine's box in the same spot. Absent until first moved. */
+  canvas_pos?: { x: number; y: number };
 }
 
 // === Node info ===

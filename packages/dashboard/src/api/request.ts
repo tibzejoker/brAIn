@@ -24,6 +24,13 @@ let selfHubId = "";
 export function setSelfHubId(id: string): void { selfHubId = id; }
 export function getSelfHubId(): string { return selfHubId; }
 
+/** Our own machine-container position on the shared canvas. Seeded from
+ *  transport at startup, updated optimistically when we drag our own block
+ *  (local nodes carry no owner_hub, so this is the only source for it). */
+let selfCanvasPos: { x: number; y: number } | undefined;
+export function setSelfCanvasPos(p: { x: number; y: number } | undefined): void { selfCanvasPos = p; }
+export function getSelfCanvasPos(): { x: number; y: number } | undefined { return selfCanvasPos; }
+
 export async function request<T>(
   path: string,
   opts?: RequestInit & { baseUrl?: string },

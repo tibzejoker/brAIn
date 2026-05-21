@@ -17,8 +17,8 @@ import type { HostGroupData, HostKind } from "./HostGroup";
 // and its container vanishes from the graph + the AgentsPanel.
 
 export const HOST_NODE_TYPE = "hostGroup";
-const HOST_ID_LOCAL = "host-local";
-const HOST_PREFIX_AGENT = "host-agent-";
+export const HOST_ID_LOCAL = "host-local";
+export const HOST_PREFIX_AGENT = "host-agent-";
 const HOST_PADDING_TOP = 30;       // room for the host header
 const HOST_PADDING_INNER = 16;     // gutter between header / children / sides
 const CHILD_W = 220;
@@ -69,6 +69,9 @@ function hostIcon(kind: HostKind, agent: AgentSnapshot | null): string {
 export function buildHostLayer(
   snapshots: NodeSnapshot[],
   agents: AgentSnapshot[],
+  // Synced container positions keyed by host id (host-local / host-agent-<id>).
+  // When present for a host, its block is placed there instead of the auto row.
+  canvasPosByHost?: Map<string, { x: number; y: number }>,
 ): {
   hostNodes: Node[];
   parentIdOf: Map<string, string>;
@@ -171,10 +174,11 @@ export function buildHostLayer(
       icon: hostIcon(spec.kind, spec.agent),
       isEmpty: (childrenByHost.get(spec.id) ?? []).length === 0,
     };
+    const synced = canvasPosByHost?.get(spec.id);
     hostNodes.push({
       id: spec.id,
       type: HOST_NODE_TYPE,
-      position: { x: cursorX, y: 50 },
+      position: synced ?? { x: cursorX, y: 50 },
       data: data,
       style: { width: size.w, height: size.h },
       draggable: true,

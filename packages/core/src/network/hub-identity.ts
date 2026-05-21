@@ -34,6 +34,25 @@ export function resolveHubLabel(): string {
   return fromEnv && fromEnv.length > 0 ? fromEnv : hostname();
 }
 
+const HUB_CANVAS_POS_KEY = "hub_canvas_pos";
+
+/** This hub's persisted container position on the shared canvas, if set. */
+export function resolveHubCanvasPos(db: Database.Database): { x: number; y: number } | undefined {
+  const raw = getSetting(db, HUB_CANVAS_POS_KEY);
+  if (!raw) return undefined;
+  try {
+    const p = JSON.parse(raw) as { x?: number; y?: number };
+    if (typeof p.x === "number" && typeof p.y === "number") return { x: p.x, y: p.y };
+  } catch { /* corrupt — ignore */ }
+  return undefined;
+}
+
+/** Persist this hub's container position (dragged on any viewer, stored on
+ *  the owner so every view agrees + it survives restart). */
+export function setHubCanvasPos(db: Database.Database, x: number, y: number): void {
+  setSetting(db, HUB_CANVAS_POS_KEY, JSON.stringify({ x, y }));
+}
+
 /**
  * Assemble the {@link HubRef} this instance advertises on the bus.
  * `httpUrls` is every candidate HTTP base (one per interface); the first
@@ -46,5 +65,6 @@ export function buildHubRef(db: Database.Database, httpUrls: string[] = []): Hub
     hub_label: resolveHubLabel(),
     http_url: httpUrls[0],
     http_urls: httpUrls.length > 0 ? httpUrls : undefined,
+    canvas_pos: resolveHubCanvasPos(db),
   };
 }

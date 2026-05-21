@@ -24,6 +24,8 @@ export interface TransportInfo {
   token: string | null;
   /** This hub's id — used to filter our own presence cursor out of the view. */
   hub_id: string;
+  /** Our own container position on the shared canvas (null until moved). */
+  canvas_pos: { x: number; y: number } | null;
   /** Our own externally-reachable HTTP base (best guess, first of
    *  `http_urls`) — used by the invite URI `&api=`. */
   http_url: string | null;

@@ -8,6 +8,7 @@ import type {
   HubExpiredEvent,
   LayoutUpdate,
   CursorUpdate,
+  HostLayoutUpdate,
 } from "./types";
 import type { AgentSnapshot } from "./client";
 
@@ -119,4 +120,16 @@ export function onCursorUpdate(cb: (c: CursorUpdate) => void): () => void {
   const s = getSocket();
   s.on("cursor:update", cb);
   return (): void => { s.off("cursor:update", cb); };
+}
+
+/** Tell our API a machine's container moved → owner persists + peers update. */
+export function emitHostLayout(hubId: string, x: number, y: number): void {
+  getSocket().emit("host:layout", { hub_id: hubId, x, y });
+}
+
+/** A machine's container moved on some view — reposition its block. */
+export function onHostLayout(cb: (h: HostLayoutUpdate) => void): () => void {
+  const s = getSocket();
+  s.on("host:layout", cb);
+  return (): void => { s.off("host:layout", cb); };
 }

@@ -37,6 +37,11 @@ export const NETWORK_LAYOUT_TOPIC = "brain.network.layout";
  *  throttled ~10/s. Consumers render + smooth (interpolate) and expire it. */
 export const NETWORK_CURSOR_TOPIC = "brain.network.cursor";
 
+/** A machine's container ("host") block was moved on the shared canvas.
+ *  Persisted by the OWNER hub (keyed by hub_id) + broadcast so every view
+ *  places that machine's box in the same spot. */
+export const NETWORK_HOST_LAYOUT_TOPIC = "brain.network.host_layout";
+
 /** Default heartbeat between snapshots. Peers also publish on demand
  *  (spawn/kill/state change), so this is a liveness floor, not the only
  *  source of updates. */
@@ -80,5 +85,16 @@ export interface CursorUpdate {
   label: string;
   x: number;
   y: number;
+  ts: number;
+}
+
+/** A machine's container block moved — broadcast on `NETWORK_HOST_LAYOUT_TOPIC`.
+ *  `hub_id` is the machine whose box moved (the owner persists it); `by` is
+ *  who dragged it (anti-echo). */
+export interface HostLayoutUpdate {
+  hub_id: string;
+  x: number;
+  y: number;
+  by: string;
   ts: number;
 }

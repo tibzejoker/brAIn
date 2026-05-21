@@ -72,3 +72,12 @@ export interface CursorUpdate {
   y: number;
   ts: number;
 }
+
+/** A machine's container block moved on the shared canvas. */
+export interface HostLayoutUpdate {
+  hub_id: string;
+  x: number;
+  y: number;
+  by: string;
+  ts: number;
+}

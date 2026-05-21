@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Delete, Body, Query, Param, HttpException, HttpStatus, Logger } from "@nestjs/common";
-import { BrainService, BrokerService, readBrokerPrefs, writeBrokerPrefs, readExternalBrokerPrefs, writeExternalBrokerPrefs, clearExternalBrokerPrefs, getDb, getSetting, setSetting, resolveHubId, type HistoryEntry, type ProviderStatus, type CLIStatus } from "@brain/core";
+import { BrainService, BrokerService, readBrokerPrefs, writeBrokerPrefs, readExternalBrokerPrefs, writeExternalBrokerPrefs, clearExternalBrokerPrefs, getDb, getSetting, setSetting, resolveHubId, resolveHubCanvasPos, type HistoryEntry, type ProviderStatus, type CLIStatus } from "@brain/core";
 import { type Message, type NodeInfo, type NodeState } from "@brain/sdk";
 import { networkInterfaces } from "node:os";
 import { randomBytes } from "node:crypto";
@@ -189,6 +189,10 @@ export class NetworkController {
     /** This hub's stable id — lets the dashboard filter out its own
      *  presence cursor (never render your own pointer). */
     hub_id: string;
+    /** Our own container position on the shared canvas (null until moved).
+     *  Local nodes carry no owner_hub, so the dashboard reads our block
+     *  placement from here. */
+    canvas_pos: { x: number; y: number } | null;
     /** Our own externally-reachable HTTP base (best guess, first of
      *  `http_urls`) — used by the invite URI `&api=`. */
     http_url: string | null;
@@ -215,6 +219,7 @@ export class NetworkController {
       lan_ips: getLanIps(),
       token,
       hub_id: resolveHubId(getDb()),
+      canvas_pos: resolveHubCanvasPos(getDb()) ?? null,
       http_url: resolveSelfHttpUrls()[0] ?? null,
       http_urls: resolveSelfHttpUrls(),
       joined_hub: fileExternal

@@ -8,9 +8,9 @@ import {
 import { Logger } from "@nestjs/common";
 import { Server } from "socket.io";
 import {
-  BrainService, resolveHubId, resolveHubLabel, getDb,
-  NETWORK_LAYOUT_TOPIC, NETWORK_CURSOR_TOPIC,
-  type NetworkSnapshot, type LayoutUpdate, type CursorUpdate,
+  BrainService, resolveHubId, resolveHubLabel, getDb, setHubCanvasPos,
+  NETWORK_LAYOUT_TOPIC, NETWORK_CURSOR_TOPIC, NETWORK_HOST_LAYOUT_TOPIC,
+  type NetworkSnapshot, type LayoutUpdate, type CursorUpdate, type HostLayoutUpdate,
 } from "@brain/core";
 import type { HubRef } from "@brain/sdk";
 
@@ -129,6 +129,7 @@ export class DashboardGateway implements OnGatewayInit {
     const busId = "__brain.api.collab__";
     this.brain.bus.subscribe(busId, NETWORK_LAYOUT_TOPIC);
     this.brain.bus.subscribe(busId, NETWORK_CURSOR_TOPIC);
+    this.brain.bus.subscribe(busId, NETWORK_HOST_LAYOUT_TOPIC);
     this.brain.bus.on(`message:${busId}`, (msg) => {
       const content = (msg.payload as { content?: string } | undefined)?.content;
       if (typeof content !== "string") return;
@@ -138,6 +139,12 @@ export class DashboardGateway implements OnGatewayInit {
         if (u.by === this.hubId) return; // our own move — already handled in onLayoutIn
         this.persistIfOwned(u.node_id, u.x, u.y);
         this.server.emit("layout:update", u);
+      } else if (msg.topic === NETWORK_HOST_LAYOUT_TOPIC) {
+        let h: HostLayoutUpdate;
+        try { h = JSON.parse(content) as HostLayoutUpdate; } catch { return; }
+        if (h.by === this.hubId) return; // our own move — handled in onHostLayoutIn
+        if (h.hub_id === this.hubId) setHubCanvasPos(getDb(), h.x, h.y); // we own this block
+        this.server.emit("host:layout", h);
       } else {
         let c: CursorUpdate;
         try { c = JSON.parse(content) as CursorUpdate; } catch { return; }
@@ -166,6 +173,19 @@ export class DashboardGateway implements OnGatewayInit {
     this.brain.bus.publish({
       from: `hub:${this.hubId}`, topic: NETWORK_LAYOUT_TOPIC, type: "text",
       criticality: 0, payload: { content: JSON.stringify(u) },
+    });
+  }
+
+  /** A dashboard moved a machine's container → persist if it's OURS +
+   *  broadcast so every view places that block the same. */
+  @SubscribeMessage("host:layout")
+  onHostLayoutIn(@MessageBody() body: { hub_id: string; x: number; y: number }): void {
+    if (!body?.hub_id) return;
+    if (body.hub_id === this.hubId) setHubCanvasPos(getDb(), body.x, body.y);
+    const h: HostLayoutUpdate = { hub_id: body.hub_id, x: body.x, y: body.y, by: this.hubId, ts: Date.now() };
+    this.brain.bus.publish({
+      from: `hub:${this.hubId}`, topic: NETWORK_HOST_LAYOUT_TOPIC, type: "text",
+      criticality: 0, payload: { content: JSON.stringify(h) },
     });
   }
 

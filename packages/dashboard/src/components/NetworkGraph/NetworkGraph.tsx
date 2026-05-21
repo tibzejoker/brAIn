@@ -18,14 +18,14 @@ import {
 import "@xyflow/react/dist/style.css";
 import type { NodeSnapshot, NodeTypeConfig } from "../../api/types";
 import { getAgents, type AgentSnapshot } from "../../api/client";
-import { emitLayoutUpdate, emitCursorUpdate, onLayoutUpdate, onCursorUpdate } from "../../api/socket";
-import { getSelfHubId } from "../../api/request";
+import { emitLayoutUpdate, emitCursorUpdate, emitHostLayout, onLayoutUpdate, onCursorUpdate, onHostLayout } from "../../api/socket";
+import { getSelfHubId, getSelfCanvasPos, setSelfCanvasPos } from "../../api/request";
 import type { CursorUpdate } from "../../api/types";
 import { RemoteCursors } from "./RemoteCursors";
 import { onAgentAnnounced, onAgentExpired } from "../../api/socket";
 import { NodeBlock } from "./NodeBlock";
 import { HostGroup } from "./HostGroup";
-import { buildHostLayer, fitHostsToChildren, HOST_NODE_TYPE, sameRenderedShape } from "./host-layout";
+import { buildHostLayer, fitHostsToChildren, HOST_NODE_TYPE, HOST_ID_LOCAL, HOST_PREFIX_AGENT, sameRenderedShape } from "./host-layout";
 import { buildAuthorityEdges } from "./authority-edges";
 
 interface Flow {
@@ -512,7 +512,17 @@ export function NetworkGraph({
         });
       }
 
-      const { hostNodes, parentIdOf, gridSlotOf } = buildHostLayer(snapshots, agents);
+      // Synced container positions: our own from transport (local nodes have
+      // no owner_hub), peers' from their snapshot's owner_hub.canvas_pos. Used
+      // on first render / reload; live moves come via onHostLayout below.
+      const canvasPosByHost = new Map<string, { x: number; y: number }>();
+      const selfPos = getSelfCanvasPos();
+      if (selfPos) canvasPosByHost.set(HOST_ID_LOCAL, selfPos);
+      for (const s of snapshots) {
+        const oh = s.owner_hub;
+        if (oh?.canvas_pos) canvasPosByHost.set(`${HOST_PREFIX_AGENT}${oh.hub_id}`, oh.canvas_pos);
+      }
+      const { hostNodes, parentIdOf, gridSlotOf } = buildHostLayer(snapshots, agents, canvasPosByHost);
       for (const h of hostNodes) {
         const pos = prevHostPos.get(h.id);
         if (pos) h.position = pos;
@@ -612,9 +622,18 @@ export function NetworkGraph({
   const handleNodeDragStop = useCallback((_event: React.MouseEvent, node: Node): void => {
     isDraggingRef.current = false;
     draggingIdRef.current = null;
-    // Host containers are synthetic — rebuilt from agents/snapshots every
-    // poll — so we never persist their drag position.
-    if (node.type === HOST_NODE_TYPE) return;
+    // Host container moved: broadcast its new canvas position keyed by the
+    // machine it represents (local → our hub; agent block → that hub). The
+    // owner persists it + every view places the block there.
+    if (node.type === HOST_NODE_TYPE) {
+      const hubId = node.id === HOST_ID_LOCAL ? getSelfHubId() : node.id.slice(HOST_PREFIX_AGENT.length);
+      if (hubId) {
+        emitHostLayout(hubId, node.position.x, node.position.y);
+        if (node.id === HOST_ID_LOCAL) setSelfCanvasPos({ x: node.position.x, y: node.position.y });
+      }
+      setLayoutTick((t) => t + 1);
+      return;
+    }
     // For child nodes the position is RELATIVE to its parent. Broadcast the
     // final position over the shared-layout channel: our API persists it if
     // it owns the node, otherwise the owning peer does — so the move is
@@ -681,6 +700,13 @@ export function NetworkGraph({
         if (c.hub_id === getSelfHubId()) return; // never render our own pointer
         const rx = { ...c, ts: Date.now() };
         setCursors((prev) => [...prev.filter((p) => p.hub_id !== c.hub_id), rx]);
+      }),
+      onHostLayout((h) => {
+        const hostId = h.hub_id === getSelfHubId() ? HOST_ID_LOCAL : `${HOST_PREFIX_AGENT}${h.hub_id}`;
+        if (h.hub_id === getSelfHubId()) setSelfCanvasPos({ x: h.x, y: h.y });
+        setNodes((nds) => nds.map((n) =>
+          n.id === hostId && n.type === HOST_NODE_TYPE ? { ...n, position: { x: h.x, y: h.y } } : n,
+        ));
       }),
     ];
     const iv = setInterval(() => {
