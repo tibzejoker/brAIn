@@ -48,31 +48,37 @@ export function BackgroundFX(): React.ReactElement {
     const SETTLE_EPSILON = 0.05;
 
     // === Synapse sparks ===
-    // A spark hops between two nearby dots, tracing a faint trail and
-    // lighting up the endpoints. Distance band picks neighbours that
-    // are close enough to read as "connected" but not on top of each
-    // other.
-    const SPARK_MIN_DIST = 50;
-    const SPARK_MAX_DIST = 200;
-    const SPARK_DURATION_MIN = 700;
-    const SPARK_DURATION_MAX = 1100;
+    // A spark hops from a source dot to a target dot by walking the
+    // grid orthogonally — never diagonally — alternating horizontal
+    // and vertical steps. Each intermediate dot it crosses lights up
+    // briefly, so the path reads as a Manhattan trace through the
+    // network. Tone is deliberately muted so the FX stays decorative
+    // background, not the focal point of the page.
+    const SPARK_HOP_MIN = 3; // grid cells (Manhattan distance lower bound)
+    const SPARK_HOP_MAX = 8; // grid cells (Manhattan distance upper bound)
+    const SPARK_MS_PER_HOP = 110;
     // Schedule the next spark this many ms after the previous one
     // fires. Stochastic to avoid a metronome feel.
-    const SPARK_INTERVAL_MIN = 600;
-    const SPARK_INTERVAL_MAX = 1800;
-    // How long an endpoint dot stays "lit" after the spark touches it.
-    const ENDPOINT_FLASH_MS = 450;
+    const SPARK_INTERVAL_MIN = 700;
+    const SPARK_INTERVAL_MAX = 2000;
+    // How long a dot stays "lit" after the spark crosses it.
+    const ENDPOINT_FLASH_MS = 340;
     // Cool-white spark colour with a soft blue glow — reads as
-    // electrical activity against the warm-neutral dot grid.
-    const SPARK_CORE = "rgba(235, 240, 255, ";
-    const SPARK_GLOW = "rgba(150, 180, 255, 0.55)";
-    const TRAIL_COLOR = "rgba(180, 200, 255, ";
+    // electrical activity against the warm-neutral dot grid. Alphas
+    // tuned low so the spark is visible without dominating.
+    const SPARK_CORE = "rgba(220, 230, 255, ";
+    const SPARK_GLOW = "rgba(150, 180, 255, 0.32)";
+    const TRAIL_COLOR = "rgba(170, 195, 255, ";
 
     const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
     let dpr = window.devicePixelRatio || 1;
     let width = 0;
     let height = 0;
+    // Grid dims kept at outer scope so spark pathing can address dots
+    // by (row, col) without reverse-engineering them every spawn.
+    let gridCols = 0;
+    let gridRows = 0;
     // hx,hy = home (rest) position; dx,dy = current displacement from
     // home (eased toward target each tick); litUntil = `performance.now()`
     // until which this dot renders as a brighter "lit" version due to a
@@ -84,10 +90,15 @@ export function BackgroundFX(): React.ReactElement {
     let rafId = 0;
 
     type Spark = {
-      fromIdx: number;
-      toIdx: number;
+      // Ordered list of dot indices to traverse, source → … → target.
+      // Built once at spawn; consecutive entries are always 4-neighbours
+      // on the grid (no diagonals).
+      path: number[];
       startTs: number;
-      duration: number;
+      msPerHop: number;
+      // Index of the most recently "passed through" dot in `path` — used
+      // to light intermediate dots exactly once as the head crosses them.
+      lastLitIdx: number;
     };
     let sparks: Spark[] = [];
     let sparkTimer: number | null = null;
@@ -99,42 +110,76 @@ export function BackgroundFX(): React.ReactElement {
       canvas.height = Math.floor(height * dpr);
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       dots = [];
-      const cols = Math.ceil(width / SPACING) + 1;
-      const rows = Math.ceil(height / SPACING) + 1;
-      for (let r = 0; r < rows; r++) {
-        for (let c = 0; c < cols; c++) {
+      gridCols = Math.ceil(width / SPACING) + 1;
+      gridRows = Math.ceil(height / SPACING) + 1;
+      for (let r = 0; r < gridRows; r++) {
+        for (let c = 0; c < gridCols; c++) {
           dots.push({ hx: c * SPACING, hy: r * SPACING, dx: 0, dy: 0, litUntil: 0 });
         }
       }
     }
 
+    /**
+     * Build a zigzag path from `fromIdx` to `toIdx` walking only 4-way
+     * neighbours on the grid (up/down/left/right). At each step we
+     * prefer to alternate axis (H then V then H…) so the trace reads
+     * as a staircase rather than an L-shape. Returns the indices in
+     * traversal order, source first.
+     */
+    function buildZigzagPath(fromIdx: number, toIdx: number): number[] {
+      let c = fromIdx % gridCols;
+      let r = Math.floor(fromIdx / gridCols);
+      const tc = toIdx % gridCols;
+      const tr = Math.floor(toIdx / gridCols);
+      const path: number[] = [fromIdx];
+      let preferH = Math.random() < 0.5;
+      // Guard against pathological infinite loops on degenerate grids.
+      const maxSteps = Math.abs(tc - c) + Math.abs(tr - r) + 2;
+      let safety = 0;
+      while ((c !== tc || r !== tr) && safety++ < maxSteps) {
+        const needH = c !== tc;
+        const needV = r !== tr;
+        if (needH && (preferH || !needV)) {
+          c += tc > c ? 1 : -1;
+        } else if (needV) {
+          r += tr > r ? 1 : -1;
+        }
+        preferH = !preferH;
+        path.push(r * gridCols + c);
+      }
+      return path;
+    }
+
     function spawnSpark(): void {
       scheduleNextSpark();
       if (reducedMotion || dots.length < 2) return;
-      // Pick a random source, then a random target within the dist band.
+      // Pick a random source, then a random target whose Manhattan
+      // distance (in grid cells) sits in the desired hop range.
       const fromIdx = Math.floor(Math.random() * dots.length);
-      const from = dots[fromIdx];
+      const fc = fromIdx % gridCols;
+      const fr = Math.floor(fromIdx / gridCols);
       const candidates: number[] = [];
-      const minSq = SPARK_MIN_DIST * SPARK_MIN_DIST;
-      const maxSq = SPARK_MAX_DIST * SPARK_MAX_DIST;
-      for (let i = 0; i < dots.length; i++) {
-        if (i === fromIdx) continue;
-        const dx = dots[i].hx - from.hx;
-        const dy = dots[i].hy - from.hy;
-        const distSq = dx * dx + dy * dy;
-        if (distSq >= minSq && distSq <= maxSq) candidates.push(i);
+      for (let r = 0; r < gridRows; r++) {
+        for (let c = 0; c < gridCols; c++) {
+          const manhattan = Math.abs(c - fc) + Math.abs(r - fr);
+          if (manhattan >= SPARK_HOP_MIN && manhattan <= SPARK_HOP_MAX) {
+            candidates.push(r * gridCols + c);
+          }
+        }
       }
       if (candidates.length === 0) return;
       const toIdx = candidates[Math.floor(Math.random() * candidates.length)];
+      const path = buildZigzagPath(fromIdx, toIdx);
+      if (path.length < 2) return;
       const now = performance.now();
       sparks.push({
-        fromIdx,
-        toIdx,
+        path,
         startTs: now,
-        duration: SPARK_DURATION_MIN + Math.random() * (SPARK_DURATION_MAX - SPARK_DURATION_MIN),
+        msPerHop: SPARK_MS_PER_HOP,
+        lastLitIdx: 0,
       });
-      // Light the source on departure; the target gets lit when the
-      // spark actually reaches it (in step()).
+      // Light the source on departure; each next hop's dot lights up
+      // when the head reaches it (in step()).
       dots[fromIdx].litUntil = now + ENDPOINT_FLASH_MS;
       startLoop();
     }
@@ -185,12 +230,12 @@ export function BackgroundFX(): React.ReactElement {
         if (litLeft > 0) {
           stillMoving = true;
           const flashT = litLeft / ENDPOINT_FLASH_MS;
-          // Lit dot — bigger, brighter, soft glow.
+          // Lit dot — slightly bigger and brighter with a soft halo.
           ctx.shadowColor = SPARK_GLOW;
-          ctx.shadowBlur = 10 * flashT;
-          ctx.fillStyle = SPARK_CORE + (0.85 * flashT + 0.22).toFixed(3) + ")";
+          ctx.shadowBlur = 6 * flashT;
+          ctx.fillStyle = SPARK_CORE + (0.55 * flashT + 0.15).toFixed(3) + ")";
           ctx.beginPath();
-          ctx.arc(d.hx + d.dx, d.hy + d.dy, DOT_RADIUS + 1.5 * flashT, 0, Math.PI * 2);
+          ctx.arc(d.hx + d.dx, d.hy + d.dy, DOT_RADIUS + 1.1 * flashT, 0, Math.PI * 2);
           ctx.fill();
           ctx.shadowBlur = 0;
         } else {
@@ -201,44 +246,70 @@ export function BackgroundFX(): React.ReactElement {
         }
       }
 
-      // --- Synapse sparks ---
+      // --- Synapse sparks (zigzag along the dot grid) ---
       for (let i = sparks.length - 1; i >= 0; i--) {
         const s = sparks[i];
-        const t = (now - s.startTs) / s.duration;
+        const totalHops = s.path.length - 1;
+        const totalMs = totalHops * s.msPerHop;
+        const t = (now - s.startTs) / totalMs;
         if (t >= 1) {
-          // Arrived — light the target on the way out. Indices are
-          // guaranteed valid because sparks are cleared on resize
-          // (which is the only way `dots` is rebuilt).
-          const to = dots[s.toIdx];
-          to.litUntil = Math.max(to.litUntil, now + ENDPOINT_FLASH_MS);
+          // Arrived — light any remaining un-lit dots on the path
+          // (including the final target) on the way out.
+          for (let k = s.lastLitIdx + 1; k < s.path.length; k++) {
+            const d = dots[s.path[k]];
+            d.litUntil = Math.max(d.litUntil, now + ENDPOINT_FLASH_MS);
+          }
           sparks.splice(i, 1);
           continue;
         }
-        const from = dots[s.fromIdx];
-        const to = dots[s.toIdx];
-        // Ease-out cubic so the spark accelerates then arrives gently.
-        const ease = 1 - Math.pow(1 - t, 3);
+        // Where is the head along the path? Each hop is linear (the
+        // segments are short — easing would barely register).
+        const segReal = t * totalHops;
+        const segIdx = Math.floor(segReal);
+        const localT = segReal - segIdx;
+        // Light each newly-crossed dot exactly once as the head passes.
+        if (segIdx > s.lastLitIdx) {
+          for (let k = s.lastLitIdx + 1; k <= segIdx; k++) {
+            const d = dots[s.path[k]];
+            d.litUntil = Math.max(d.litUntil, now + ENDPOINT_FLASH_MS);
+          }
+          s.lastLitIdx = segIdx;
+        }
+        const from = dots[s.path[segIdx]];
+        const to = dots[s.path[segIdx + 1]];
         const fx = from.hx + from.dx;
         const fy = from.hy + from.dy;
         const tox = to.hx + to.dx;
         const toy = to.hy + to.dy;
-        const x = fx + (tox - fx) * ease;
-        const y = fy + (toy - fy) * ease;
-        // Trail: thin line from origin to current head, fading along.
-        ctx.strokeStyle = TRAIL_COLOR + (0.35 * (1 - Math.abs(t - 0.5) * 2)).toFixed(3) + ")";
-        ctx.lineWidth = 0.8;
-        ctx.beginPath();
-        ctx.moveTo(fx, fy);
-        ctx.lineTo(x, y);
-        ctx.stroke();
-        // Head: glowing dot at the leading edge. Brightness peaks
-        // mid-flight then dims as it lands.
+        const x = fx + (tox - fx) * localT;
+        const y = fy + (toy - fy) * localT;
+        // Trail: draw every visited segment, fading the older they are.
+        // Current (in-progress) segment ends at the head's current pos.
+        for (let k = 0; k <= segIdx; k++) {
+          const age = segIdx - k;
+          const alpha = Math.max(0, 0.28 - age * 0.06);
+          if (alpha < 0.02) continue;
+          const a = dots[s.path[k]];
+          const b = dots[s.path[k + 1]];
+          ctx.strokeStyle = TRAIL_COLOR + alpha.toFixed(3) + ")";
+          ctx.lineWidth = 0.7;
+          ctx.beginPath();
+          ctx.moveTo(a.hx + a.dx, a.hy + a.dy);
+          if (k === segIdx) {
+            ctx.lineTo(x, y);
+          } else {
+            ctx.lineTo(b.hx + b.dx, b.hy + b.dy);
+          }
+          ctx.stroke();
+        }
+        // Head: small glowing dot at the leading edge. Brightness peaks
+        // around the midpoint of the journey, then dims as it lands.
         const headAlpha = Math.sin(t * Math.PI);
         ctx.shadowColor = SPARK_GLOW;
-        ctx.shadowBlur = 14 * headAlpha;
-        ctx.fillStyle = SPARK_CORE + (0.95 * headAlpha).toFixed(3) + ")";
+        ctx.shadowBlur = 8 * headAlpha;
+        ctx.fillStyle = SPARK_CORE + (0.50 * headAlpha).toFixed(3) + ")";
         ctx.beginPath();
-        ctx.arc(x, y, 2.2, 0, Math.PI * 2);
+        ctx.arc(x, y, 1.7, 0, Math.PI * 2);
         ctx.fill();
         ctx.shadowBlur = 0;
       }
