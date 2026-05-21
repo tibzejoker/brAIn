@@ -7,11 +7,9 @@ import {
   Res,
   HttpException,
   HttpStatus,
-  UseGuards,
 } from "@nestjs/common";
 import type { Response } from "express";
 import { BrainService } from "@brain/core";
-import { BrokerTokenGuard } from "../auth/broker-token.guard";
 import type { Message } from "@brain/sdk";
 import * as path from "path";
 import * as fs from "fs";
@@ -23,7 +21,6 @@ export class NodeUiController {
   // API routes MUST be declared before the wildcard file server
 
   @Post("send")
-  @UseGuards(BrokerTokenGuard)
   send(
     @Param("id") id: string,
     @Body() body: {
