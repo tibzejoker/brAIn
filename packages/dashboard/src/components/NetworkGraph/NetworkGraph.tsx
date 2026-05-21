@@ -338,6 +338,12 @@ export function NetworkGraph({
   useEffect(() => {
     void getTransport().then((t) => { if (t.canvas_pos) setSelfCanvasPos(t.canvas_pos); }).catch(() => { /* offline */ });
   }, []);
+  // Optimistic container positions, keyed by host id. Set the instant we
+  // drag a block (local OR a peer's) and updated by incoming host:layout, so
+  // the dropped position holds immediately instead of snapping back to the
+  // stale snapshot value until the ~3s round-trip lands. Authoritative over
+  // the snapshot/transport seed.
+  const [hostOverrides, setHostOverrides] = useState<Record<string, { x: number; y: number }>>({});
 
   // Bumped on drag-stop to force the rebuild effect to re-run, which is where
   // the four-side "hug" (origin slide) happens. Without this trigger the hug
@@ -529,6 +535,8 @@ export function NetworkGraph({
         const oh = s.owner_hub;
         if (oh?.canvas_pos) canvasPosByHost.set(`${HOST_PREFIX_AGENT}${oh.hub_id}`, oh.canvas_pos);
       }
+      // Optimistic overrides win over the snapshot seed (no snap-back on drop).
+      for (const [id, p] of Object.entries(hostOverrides)) canvasPosByHost.set(id, p);
       const { hostNodes, parentIdOf, gridSlotOf } = buildHostLayer(snapshots, agents, canvasPosByHost);
       for (const h of hostNodes) {
         // A synced canvas position is authoritative — don't let a stale
@@ -576,7 +584,7 @@ export function NetworkGraph({
       // excluded because they're sticky-overridden above anyway.
       return sameRenderedShape(prev, next) ? prev : next;
     });
-  }, [snapshots, agents, typeMap, onOpenNodeUi, handleToggleExpand, handleResizeExpanded, expandedNodeIds, expandedSizes, setNodes, capabilityHoverEnabled, layoutTick, selfCanvasPos]);
+  }, [snapshots, agents, typeMap, onOpenNodeUi, handleToggleExpand, handleResizeExpanded, expandedNodeIds, expandedSizes, setNodes, capabilityHoverEnabled, layoutTick, selfCanvasPos, hostOverrides]);
 
   useEffect(() => {
     const pubSub = buildEdges(snapshots, flows, types);
@@ -639,8 +647,9 @@ export function NetworkGraph({
     if (node.type === HOST_NODE_TYPE) {
       const hubId = node.id === HOST_ID_LOCAL ? getSelfHubId() : node.id.slice(HOST_PREFIX_AGENT.length);
       if (hubId) {
-        emitHostLayout(hubId, node.position.x, node.position.y);
-        if (node.id === HOST_ID_LOCAL) setSelfCanvasPos({ x: node.position.x, y: node.position.y });
+        const pos = { x: node.position.x, y: node.position.y };
+        setHostOverrides((o) => ({ ...o, [node.id]: pos })); // hold the dropped spot immediately
+        emitHostLayout(hubId, pos.x, pos.y);
       }
       setLayoutTick((t) => t + 1);
       return;
@@ -714,10 +723,7 @@ export function NetworkGraph({
       }),
       onHostLayout((h) => {
         const hostId = h.hub_id === getSelfHubId() ? HOST_ID_LOCAL : `${HOST_PREFIX_AGENT}${h.hub_id}`;
-        if (h.hub_id === getSelfHubId()) setSelfCanvasPos({ x: h.x, y: h.y });
-        setNodes((nds) => nds.map((n) =>
-          n.id === hostId && n.type === HOST_NODE_TYPE ? { ...n, position: { x: h.x, y: h.y } } : n,
-        ));
+        setHostOverrides((o) => ({ ...o, [hostId]: { x: h.x, y: h.y } }));
       }),
     ];
     const iv = setInterval(() => {
