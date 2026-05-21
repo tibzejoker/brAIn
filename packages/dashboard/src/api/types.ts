@@ -54,3 +54,21 @@ export interface HubSnapshotEvent {
 export interface HubExpiredEvent {
   hub_id: string;
 }
+
+/** Live shared layout: a node moved (position relative to its host). */
+export interface LayoutUpdate {
+  node_id: string;
+  x: number;
+  y: number;
+  by: string;
+  ts: number;
+}
+
+/** Presence: another client's pointer in graph coordinates. */
+export interface CursorUpdate {
+  hub_id: string;
+  label: string;
+  x: number;
+  y: number;
+  ts: number;
+}

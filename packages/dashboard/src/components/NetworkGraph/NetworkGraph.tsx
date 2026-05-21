@@ -17,8 +17,10 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { NodeSnapshot, NodeTypeConfig } from "../../api/types";
-import { updateNodePosition, getAgents, type AgentSnapshot } from "../../api/client";
-import { getLayoutPos, setLayoutPos } from "../../api/layout-store";
+import { getAgents, type AgentSnapshot } from "../../api/client";
+import { emitLayoutUpdate, emitCursorUpdate, onLayoutUpdate, onCursorUpdate } from "../../api/socket";
+import type { CursorUpdate } from "../../api/types";
+import { RemoteCursors } from "./RemoteCursors";
 import { onAgentAnnounced, onAgentExpired } from "../../api/socket";
 import { NodeBlock } from "./NodeBlock";
 import { HostGroup } from "./HostGroup";
@@ -49,7 +51,6 @@ interface NetworkGraphProps {
   selectedNodeId: string | null;
 }
 
-function noop(): void { /* best-effort */ }
 
 const nodeTypes: NodeTypes = {
   brainNode: NodeBlock,
@@ -90,16 +91,10 @@ function snapshotToFlowNode(
   // `expandParent: true` makes the parent grow automatically if the child is
   // dragged past the current border, rather than clamping the child like
   // `extent: "parent"` would.
-  // A per-viewer layout override (localStorage) wins over everything: it's
-  // how THIS machine arranged the merged graph, and it must survive reloads
-  // and snapshot churn — crucial for remote peer nodes we can't persist
-  // server-side. Falls back to the stored/grid position otherwise.
-  const override = getLayoutPos(n.id);
   const hasStoredPos = n.position.x !== 0 || n.position.y !== 0;
-  const position = override
-    ?? (parentId && !hasStoredPos && gridSlot
-      ? gridSlot
-      : { x: n.position.x, y: n.position.y });
+  const position = parentId && !hasStoredPos && gridSlot
+    ? gridSlot
+    : { x: n.position.x, y: n.position.y };
 
   return {
     id: n.id,
@@ -327,6 +322,13 @@ export function NetworkGraph({
   // node-rebuild effect bails while this is true so a snapshot poll
   // landing mid-drag can't yank the node out from under the cursor.
   const isDraggingRef = useRef(false);
+  // Collaborative layout + presence: which node we're dragging (so an
+  // incoming move for it doesn't fight us), and throttle clocks for the
+  // ~10/s outbound layout + cursor broadcasts.
+  const draggingIdRef = useRef<string | null>(null);
+  const lastLayoutSentRef = useRef(0);
+  const lastCursorSentRef = useRef(0);
+  const [cursors, setCursors] = useState<CursorUpdate[]>([]);
 
   // Bumped on drag-stop to force the rebuild effect to re-run, which is where
   // the four-side "hug" (origin slide) happens. Without this trigger the hug
@@ -586,8 +588,20 @@ export function NetworkGraph({
     [nodes, selectedNodeId, hoveredNodeId],
   );
 
-  const handleNodeDragStart = useCallback((): void => {
+  const handleNodeDragStart = useCallback((_event: React.MouseEvent, node: Node): void => {
     isDraggingRef.current = true;
+    draggingIdRef.current = node.id;
+  }, []);
+
+  // Live position broadcast while dragging, throttled to ~10/s so the move
+  // animates on every other open view without flooding the bus. The durable
+  // persist happens once on drag-stop.
+  const handleNodeDrag = useCallback((_event: React.MouseEvent, node: Node): void => {
+    if (node.type === HOST_NODE_TYPE) return;
+    const now = Date.now();
+    if (now - lastLayoutSentRef.current < 100) return;
+    lastLayoutSentRef.current = now;
+    emitLayoutUpdate(node.id, node.position.x, node.position.y);
   }, []);
 
   // No live container fit during the drag: `expandParent` grows the box so the
@@ -596,16 +610,15 @@ export function NetworkGraph({
   // resize on release only is consistent across every edge of the box.
   const handleNodeDragStop = useCallback((_event: React.MouseEvent, node: Node): void => {
     isDraggingRef.current = false;
+    draggingIdRef.current = null;
     // Host containers are synthetic — rebuilt from agents/snapshots every
     // poll — so we never persist their drag position.
     if (node.type === HOST_NODE_TYPE) return;
-    // For child nodes the position is now RELATIVE to its parent. Save it to
-    // our per-viewer layout (so it survives reload + snapshot churn for ALL
-    // nodes, incl. remote peers) AND, for nodes we host, persist server-side
-    // so this hub's other clients agree. A remote node isn't in our registry,
-    // so the PATCH is a harmless no-op there — the localStorage copy carries it.
-    setLayoutPos(node.id, node.position.x, node.position.y);
-    updateNodePosition(node.id, node.position.x, node.position.y).catch(noop);
+    // For child nodes the position is RELATIVE to its parent. Broadcast the
+    // final position over the shared-layout channel: our API persists it if
+    // it owns the node, otherwise the owning peer does — so the move is
+    // durable AND every other open view converges on it.
+    emitLayoutUpdate(node.id, node.position.x, node.position.y);
     // Re-run the rebuild so the host hugs all four sides around the dropped
     // position (the live drag only sized right/bottom).
     setLayoutTick((t) => t + 1);
@@ -650,7 +663,44 @@ export function NetworkGraph({
     setHoveredNodeId(null);
   }, [capabilityHoverEnabled]);
 
+  // Collaborative channel: apply incoming moves from other machines live, and
+  // track peer cursors (expired by LOCAL receipt time so clock skew between
+  // machines can't make a live cursor vanish).
+  useEffect(() => {
+    const unsubs = [
+      onLayoutUpdate((u) => {
+        if (draggingIdRef.current === u.node_id) return; // don't fight our own drag
+        setNodes((nds) => nds.map((n) =>
+          n.id === u.node_id && n.type !== HOST_NODE_TYPE
+            ? { ...n, position: { x: u.x, y: u.y } }
+            : n,
+        ));
+      }),
+      onCursorUpdate((c) => {
+        const rx = { ...c, ts: Date.now() };
+        setCursors((prev) => [...prev.filter((p) => p.hub_id !== c.hub_id), rx]);
+      }),
+    ];
+    const iv = setInterval(() => {
+      const cutoff = Date.now() - 4000;
+      setCursors((prev) => (prev.some((c) => c.ts < cutoff) ? prev.filter((c) => c.ts >= cutoff) : prev));
+    }, 1000);
+    return (): void => { for (const u of unsubs) u(); clearInterval(iv); };
+  }, [setNodes]);
+
+  // Broadcast our pointer (graph coords) at ~10/s for presence.
+  const handlePaneMouseMove = useCallback((e: React.MouseEvent): void => {
+    const now = Date.now();
+    if (now - lastCursorSentRef.current < 100) return;
+    const inst = rfInstanceRef.current as unknown as { screenToFlowPosition?: (p: { x: number; y: number }) => { x: number; y: number } } | null;
+    if (!inst?.screenToFlowPosition) return;
+    const p = inst.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    lastCursorSentRef.current = now;
+    emitCursorUpdate(p.x, p.y);
+  }, []);
+
   return (
+    <div className="w-full h-full" onMouseMove={handlePaneMouseMove}>
     <ReactFlow
       nodes={displayNodes}
       edges={edges}
@@ -658,6 +708,7 @@ export function NetworkGraph({
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
       onNodeDragStart={handleNodeDragStart}
+      onNodeDrag={handleNodeDrag}
       onNodeDragStop={handleNodeDragStop}
       onNodeClick={handleNodeClick}
       onNodeMouseEnter={handleNodeMouseEnter}
@@ -692,6 +743,8 @@ export function NetworkGraph({
           return "#707070";
         }}
       />
+      <RemoteCursors cursors={cursors} />
     </ReactFlow>
+    </div>
   );
 }

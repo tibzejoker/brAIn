@@ -25,6 +25,18 @@ export const NETWORK_SNAPSHOT_TOPIC = "brain.network.snapshot";
  *  immediately instead of waiting for the TTL sweep. */
 export const NETWORK_BYE_TOPIC = "brain.network.bye";
 
+/**
+ * Live, shared node layout. Anyone can drag any node (local or a peer's);
+ * the move is broadcast here (throttled ~10/s during a drag) so every view
+ * updates in real time, and the node's OWNER hub persists it so it survives
+ * reload/restart. Position is RELATIVE to the node's host container.
+ */
+export const NETWORK_LAYOUT_TOPIC = "brain.network.layout";
+
+/** Ephemeral presence — each client's pointer in graph coordinates,
+ *  throttled ~10/s. Consumers render + smooth (interpolate) and expire it. */
+export const NETWORK_CURSOR_TOPIC = "brain.network.cursor";
+
 /** Default heartbeat between snapshots. Peers also publish on demand
  *  (spawn/kill/state change), so this is a liveness floor, not the only
  *  source of updates. */
@@ -46,5 +58,27 @@ export interface NetworkSnapshot {
 /** Sent on `NETWORK_BYE_TOPIC` for prompt removal on clean shutdown. */
 export interface NetworkBye {
   hub_id: string;
+  ts: number;
+}
+
+/** A node moved — broadcast on `NETWORK_LAYOUT_TOPIC`. `x`/`y` are relative
+ *  to the node's host container. `by` is the hub that moved it (for the
+ *  anti-echo on the originator's own dashboard). */
+export interface LayoutUpdate {
+  node_id: string;
+  x: number;
+  y: number;
+  by: string;
+  ts: number;
+}
+
+/** A client's pointer position — broadcast on `NETWORK_CURSOR_TOPIC`.
+ *  `x`/`y` are React Flow graph coordinates so every view maps them the
+ *  same way regardless of pan/zoom. */
+export interface CursorUpdate {
+  hub_id: string;
+  label: string;
+  x: number;
+  y: number;
   ts: number;
 }

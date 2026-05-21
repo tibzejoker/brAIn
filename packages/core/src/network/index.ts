@@ -1,9 +1,11 @@
 export {
   NETWORK_SNAPSHOT_TOPIC,
   NETWORK_BYE_TOPIC,
+  NETWORK_LAYOUT_TOPIC,
+  NETWORK_CURSOR_TOPIC,
   NETWORK_SNAPSHOT_DEFAULT_MS,
 } from "./protocol";
-export type { NetworkSnapshot, NetworkBye } from "./protocol";
+export type { NetworkSnapshot, NetworkBye, LayoutUpdate, CursorUpdate } from "./protocol";
 export { resolveHubId, resolveHubLabel, buildHubRef } from "./hub-identity";
 export { NetworkDirectory } from "./network-directory";
 export type { NetworkDirectoryOptions } from "./network-directory";

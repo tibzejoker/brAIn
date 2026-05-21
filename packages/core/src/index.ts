@@ -47,6 +47,7 @@ export {
 export type { AgentAnnouncement, AgentDirectoryOptions, AgentPresenceOptions, AgentPresenceHandle } from "./agents";
 export {
   NETWORK_SNAPSHOT_TOPIC, NETWORK_BYE_TOPIC, NETWORK_SNAPSHOT_DEFAULT_MS,
+  NETWORK_LAYOUT_TOPIC, NETWORK_CURSOR_TOPIC,
   resolveHubId, resolveHubLabel, buildHubRef,
   NetworkDirectory, startNetworkPublisher,
   UriConnector, ConnectorRegistry, createDefaultConnectorRegistry,
@@ -54,6 +55,7 @@ export {
 export type {
   NetworkSnapshot, NetworkBye, NetworkDirectoryOptions,
   NetworkPublisherOptions, NetworkPublisherHandle,
+  LayoutUpdate, CursorUpdate,
   JoinDescriptor, PeerConnector,
 } from "./network";
 export { StoreService } from "./store";

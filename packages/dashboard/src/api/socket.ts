@@ -6,6 +6,8 @@ import type {
   KillEvent,
   HubSnapshotEvent,
   HubExpiredEvent,
+  LayoutUpdate,
+  CursorUpdate,
 } from "./types";
 import type { AgentSnapshot } from "./client";
 
@@ -91,4 +93,30 @@ export function onNetworkHubExpired(cb: (e: HubExpiredEvent) => void): () => voi
   return (): void => {
     s.off("network:hub_expired", cb);
   };
+}
+
+// === Collaborative layout + presence (client → server emits) ===
+
+/** Tell our API a node moved → it persists if it owns it + broadcasts to peers. */
+export function emitLayoutUpdate(nodeId: string, x: number, y: number): void {
+  getSocket().emit("layout:update", { node_id: nodeId, x, y });
+}
+
+/** Broadcast our pointer position (graph coords) to peers. */
+export function emitCursorUpdate(x: number, y: number): void {
+  getSocket().emit("cursor:update", { x, y });
+}
+
+/** A node moved on some machine — apply it to our graph live. */
+export function onLayoutUpdate(cb: (u: LayoutUpdate) => void): () => void {
+  const s = getSocket();
+  s.on("layout:update", cb);
+  return (): void => { s.off("layout:update", cb); };
+}
+
+/** Another client's pointer moved. */
+export function onCursorUpdate(cb: (c: CursorUpdate) => void): () => void {
+  const s = getSocket();
+  s.on("cursor:update", cb);
+  return (): void => { s.off("cursor:update", cb); };
 }
