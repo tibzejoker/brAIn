@@ -206,7 +206,7 @@ export function App(): React.ReactElement {
         <NodeUiModal
           nodeId={uiNodeId}
           nodeName={nodes.find((n) => n.id === uiNodeId)?.name ?? "Node"}
-          ownerHubUrl={nodes.find((n) => n.id === uiNodeId)?.owner_hub?.http_url}
+          ownerHub={nodes.find((n) => n.id === uiNodeId)?.owner_hub}
           onClose={handleCloseNodeUi}
         />
       )}

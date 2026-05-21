@@ -218,9 +218,15 @@ export function normaliseSubscription(raw: {
 export interface HubRef {
   hub_id: string;
   hub_label: string;
-  /** Reachable HTTP base of that hub's API (e.g. `http://192.168.1.16:3000`).
-   *  Absent until the hub advertises it (older peers, pre-join). */
+  /** Best-guess reachable HTTP base (first of `http_urls`). Kept for the
+   *  join URI `&api=` and older peers. Prefer probing `http_urls`. */
   http_url?: string;
+  /** ALL candidate HTTP bases for this hub — one per network interface
+   *  (e.g. `["http://192.168.1.19:3000", "http://10.5.0.2:3000"]`). A hub
+   *  can't know which of its interfaces a given peer can reach (LAN vs a
+   *  VPN/WSL/Docker adapter), so it advertises them all and each consumer
+   *  probes for the first that answers — like ICE candidates. */
+  http_urls?: string[];
 }
 
 // === Node info ===

@@ -34,11 +34,17 @@ export function resolveHubLabel(): string {
   return fromEnv && fromEnv.length > 0 ? fromEnv : hostname();
 }
 
-/** Assemble the {@link HubRef} this instance advertises on the bus. */
-export function buildHubRef(db: Database.Database, httpUrl?: string): HubRef {
+/**
+ * Assemble the {@link HubRef} this instance advertises on the bus.
+ * `httpUrls` is every candidate HTTP base (one per interface); the first
+ * is surfaced as the single `http_url` for back-compat (join URI, older
+ * peers), the full list as `http_urls` for consumers to probe.
+ */
+export function buildHubRef(db: Database.Database, httpUrls: string[] = []): HubRef {
   return {
     hub_id: resolveHubId(db),
     hub_label: resolveHubLabel(),
-    http_url: httpUrl,
+    http_url: httpUrls[0],
+    http_urls: httpUrls.length > 0 ? httpUrls : undefined,
   };
 }

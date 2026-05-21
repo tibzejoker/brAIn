@@ -22,9 +22,11 @@ export interface TransportInfo {
   lan_ips: string[];
   /** NATS auth token enforced by the embedded broker (null in external mode). */
   token: string | null;
-  /** Our own externally-reachable HTTP base, so the invite URI can carry
-   *  `&api=` and peers know where to load our node UIs / spawn at us. */
+  /** Our own externally-reachable HTTP base (best guess, first of
+   *  `http_urls`) — used by the invite URI `&api=`. */
   http_url: string | null;
+  /** All candidate HTTP bases (one per interface) for peers to probe. */
+  http_urls: string[];
   /** When the API joined a remote hub via the persistent external-broker
    *  config (UI flow, not env), surface the URL + label + HTTP base so the
    *  dashboard can show "Connected to <hub>", load its node UIs, and offer

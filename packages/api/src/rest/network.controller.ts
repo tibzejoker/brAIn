@@ -3,7 +3,7 @@ import { BrainService, BrokerService, readBrokerPrefs, writeBrokerPrefs, readExt
 import { type Message, type NodeInfo, type NodeState } from "@brain/sdk";
 import { networkInterfaces } from "node:os";
 import { randomBytes } from "node:crypto";
-import { BROKER_PREFS_PATH, EXTERNAL_BROKER_PREFS_PATH, resolveSelfHttpUrl } from "../app.module";
+import { BROKER_PREFS_PATH, EXTERNAL_BROKER_PREFS_PATH, resolveSelfHttpUrls } from "../app.module";
 
 /**
  * Discover the IPv4 addresses of this host's external interfaces.
@@ -186,9 +186,11 @@ export class NetworkController {
     bind_address: string;
     lan_ips: string[];
     token: string | null;
-    /** Our own externally-reachable HTTP base, so the invite URI can carry
-     *  `&api=` and peers know where to load our node UIs / spawn at us. */
+    /** Our own externally-reachable HTTP base (best guess, first of
+     *  `http_urls`) — used by the invite URI `&api=`. */
     http_url: string | null;
+    /** All candidate HTTP bases (one per interface) for peers to probe. */
+    http_urls: string[];
     /** When the API is joined to a remote hub via the persistent
      *  external-broker config file, surface its label + HTTP base so the
      *  dashboard can show "Connected to <hub>", route node UIs/spawn at
@@ -209,7 +211,8 @@ export class NetworkController {
       bind_address: prefs.bindAddress,
       lan_ips: getLanIps(),
       token,
-      http_url: resolveSelfHttpUrl() ?? null,
+      http_url: resolveSelfHttpUrls()[0] ?? null,
+      http_urls: resolveSelfHttpUrls(),
       joined_hub: fileExternal
         ? { url: fileExternal.url, hubName: fileExternal.hubName, http_url: fileExternal.httpUrl }
         : null,

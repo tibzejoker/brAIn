@@ -29,21 +29,29 @@ function resolveFromRoot(envVar: string | undefined, fallback: string): string {
 }
 
 /**
- * This API's externally-reachable HTTP base (e.g. `http://192.168.1.16:3000`),
- * or null when no non-loopback IPv4 interface exists. Peers use it to load
- * our node UIs and route spawn/kill at us. First LAN IP + `API_PORT`
- * (matches `main.ts`); `BRAIN_HTTP_URL` overrides for proxied/tunnelled setups.
+ * Every externally-reachable HTTP base for this API — one per non-loopback
+ * IPv4 interface (e.g. `["http://192.168.1.19:3000", "http://10.5.0.2:3000"]`).
+ * A hub can't know which interface a given peer can reach, so it advertises
+ * them all and each consumer probes for the first that answers.
+ *
+ * Ordered most-likely-reachable first: a `BRAIN_HTTP_URL` override wins, then
+ * physical-LAN ranges (192.168/* then 10/*) ahead of VPN/WSL/Docker adapters
+ * (172.16-31/*), so the single `http_url` derived from `[0]` is a good guess.
  */
-export function resolveSelfHttpUrl(): string | undefined {
-  const override = process.env.BRAIN_HTTP_URL?.trim();
-  if (override) return override;
+export function resolveSelfHttpUrls(): string[] {
   const port = process.env.API_PORT ?? "3000";
+  const override = process.env.BRAIN_HTTP_URL?.trim();
+  const ips: string[] = [];
   for (const ifaces of Object.values(networkInterfaces())) {
     for (const iface of ifaces ?? []) {
-      if (iface.family === "IPv4" && !iface.internal) return `http://${iface.address}:${port}`;
+      if (iface.family === "IPv4" && !iface.internal) ips.push(iface.address);
     }
   }
-  return undefined;
+  const rank = (ip: string): number =>
+    ip.startsWith("192.168.") ? 0 : ip.startsWith("10.") ? 1 : ip.startsWith("172.") ? 3 : 2;
+  ips.sort((a, b) => rank(a) - rank(b));
+  const urls = ips.map((ip) => `http://${ip}:${port}`);
+  return override ? [override, ...urls.filter((u) => u !== override)] : urls;
 }
 
 /** data/broker.json — persisted bind preference, dashboard-toggleable. */
@@ -305,16 +313,16 @@ export class AppModule implements OnModuleInit, OnModuleDestroy {
     // must publish so guests that join its bus see its nodes, and a joiner
     // publishes so the hub sees the joiner's — symmetric peer-to-peer.
     // `http_url` lets peers reach our node UIs + spawn endpoint over HTTP.
-    const httpUrl = resolveSelfHttpUrl();
+    const httpUrls = resolveSelfHttpUrls();
     this.networkPublisher = startNetworkPublisher({
       bus: this.brain.bus,
-      hub: buildHubRef(getDb(), httpUrl),
+      hub: buildHubRef(getDb(), httpUrls),
       // Only nodes WE host — drop `remote` stubs, which belong to a peer
       // that advertises them itself.
       snapshot: () => this.brain.getNetworkSnapshot().filter((n) => n.transport !== "remote"),
       changes: this.brain,
     });
-    this.log.log(`network publisher active${httpUrl ? ` @ ${httpUrl}` : ""}`);
+    this.log.log(`network publisher active${httpUrls.length ? ` @ ${httpUrls.join(", ")}` : ""}`);
 
     // Auto-seed from default if DB is empty. Fire-and-forget: a fresh
     // install has to clone+install several sister repos which can take
