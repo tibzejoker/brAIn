@@ -17,9 +17,9 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { NodeSnapshot, NodeTypeConfig } from "../../api/types";
-import { getAgents, type AgentSnapshot } from "../../api/client";
+import { getAgents, getTransport, type AgentSnapshot } from "../../api/client";
 import { emitLayoutUpdate, emitCursorUpdate, emitHostLayout, onLayoutUpdate, onCursorUpdate, onHostLayout } from "../../api/socket";
-import { getSelfHubId, getSelfCanvasPos, setSelfCanvasPos } from "../../api/request";
+import { getSelfHubId } from "../../api/request";
 import type { CursorUpdate } from "../../api/types";
 import { RemoteCursors } from "./RemoteCursors";
 import { onAgentAnnounced, onAgentExpired } from "../../api/socket";
@@ -330,6 +330,14 @@ export function NetworkGraph({
   const lastLayoutSentRef = useRef(0);
   const lastCursorSentRef = useRef(0);
   const [cursors, setCursors] = useState<CursorUpdate[]>([]);
+  // Our own machine-container position. Fetched from transport (async, hence
+  // state so the layout re-runs once it lands — local nodes carry no
+  // owner_hub, so this is the only source for our block's placement) and
+  // updated optimistically when we (or a peer) move our block.
+  const [selfCanvasPos, setSelfCanvasPos] = useState<{ x: number; y: number } | undefined>(undefined);
+  useEffect(() => {
+    void getTransport().then((t) => { if (t.canvas_pos) setSelfCanvasPos(t.canvas_pos); }).catch(() => { /* offline */ });
+  }, []);
 
   // Bumped on drag-stop to force the rebuild effect to re-run, which is where
   // the four-side "hug" (origin slide) happens. Without this trigger the hug
@@ -516,14 +524,17 @@ export function NetworkGraph({
       // no owner_hub), peers' from their snapshot's owner_hub.canvas_pos. Used
       // on first render / reload; live moves come via onHostLayout below.
       const canvasPosByHost = new Map<string, { x: number; y: number }>();
-      const selfPos = getSelfCanvasPos();
-      if (selfPos) canvasPosByHost.set(HOST_ID_LOCAL, selfPos);
+      if (selfCanvasPos) canvasPosByHost.set(HOST_ID_LOCAL, selfCanvasPos);
       for (const s of snapshots) {
         const oh = s.owner_hub;
         if (oh?.canvas_pos) canvasPosByHost.set(`${HOST_PREFIX_AGENT}${oh.hub_id}`, oh.canvas_pos);
       }
       const { hostNodes, parentIdOf, gridSlotOf } = buildHostLayer(snapshots, agents, canvasPosByHost);
       for (const h of hostNodes) {
+        // A synced canvas position is authoritative — don't let a stale
+        // prevHostPos (e.g. the default placement captured before transport
+        // resolved on reload) clobber it.
+        if (canvasPosByHost.has(h.id)) continue;
         const pos = prevHostPos.get(h.id);
         if (pos) h.position = pos;
       }
@@ -565,7 +576,7 @@ export function NetworkGraph({
       // excluded because they're sticky-overridden above anyway.
       return sameRenderedShape(prev, next) ? prev : next;
     });
-  }, [snapshots, agents, typeMap, onOpenNodeUi, handleToggleExpand, handleResizeExpanded, expandedNodeIds, expandedSizes, setNodes, capabilityHoverEnabled, layoutTick]);
+  }, [snapshots, agents, typeMap, onOpenNodeUi, handleToggleExpand, handleResizeExpanded, expandedNodeIds, expandedSizes, setNodes, capabilityHoverEnabled, layoutTick, selfCanvasPos]);
 
   useEffect(() => {
     const pubSub = buildEdges(snapshots, flows, types);
