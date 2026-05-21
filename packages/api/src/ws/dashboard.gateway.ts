@@ -167,7 +167,7 @@ export class DashboardGateway implements OnGatewayInit {
   /** A dashboard moved a node → persist if ours + broadcast to peers. */
   @SubscribeMessage("layout:update")
   onLayoutIn(@MessageBody() body: { node_id: string; x: number; y: number }): void {
-    if (!body?.node_id) return;
+    if (!body.node_id) return;
     this.persistIfOwned(body.node_id, body.x, body.y);
     const u: LayoutUpdate = { node_id: body.node_id, x: body.x, y: body.y, by: this.hubId, ts: Date.now() };
     this.brain.bus.publish({
@@ -180,7 +180,7 @@ export class DashboardGateway implements OnGatewayInit {
    *  broadcast so every view places that block the same. */
   @SubscribeMessage("host:layout")
   onHostLayoutIn(@MessageBody() body: { hub_id: string; x: number; y: number }): void {
-    if (!body?.hub_id) return;
+    if (!body.hub_id) return;
     if (body.hub_id === this.hubId) setHubCanvasPos(getDb(), body.x, body.y);
     const h: HostLayoutUpdate = { hub_id: body.hub_id, x: body.x, y: body.y, by: this.hubId, ts: Date.now() };
     this.brain.bus.publish({
@@ -192,7 +192,7 @@ export class DashboardGateway implements OnGatewayInit {
   /** A dashboard's pointer moved → broadcast presence to peers. */
   @SubscribeMessage("cursor:update")
   onCursorIn(@MessageBody() body: { x: number; y: number }): void {
-    const c: CursorUpdate = { hub_id: this.hubId, label: this.hubLabel, x: body?.x ?? 0, y: body?.y ?? 0, ts: Date.now() };
+    const c: CursorUpdate = { hub_id: this.hubId, label: this.hubLabel, x: body.x, y: body.y, ts: Date.now() };
     this.brain.bus.publish({
       from: `hub:${this.hubId}`, topic: NETWORK_CURSOR_TOPIC, type: "text",
       criticality: 0, payload: { content: JSON.stringify(c) },

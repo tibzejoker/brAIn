@@ -324,7 +324,8 @@ export class AppModule implements OnModuleInit, OnModuleDestroy {
       snapshot: () => this.brain.getNetworkSnapshot().filter((n) => n.transport !== "remote"),
       changes: this.brain,
     });
-    this.log.log(`network publisher active${httpUrls.length ? ` @ ${httpUrls.join(", ")}` : ""}`);
+    const where = httpUrls.length > 0 ? ` @ ${httpUrls.join(", ")}` : "";
+    this.log.log(`network publisher active${where}`);
 
     // Auto-seed from default if DB is empty. Fire-and-forget: a fresh
     // install has to clone+install several sister repos which can take

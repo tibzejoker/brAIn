@@ -26,7 +26,6 @@ import {
   NETWORK_BYE_TOPIC,
   NETWORK_SNAPSHOT_DEFAULT_MS,
   type NetworkSnapshot,
-  type NetworkBye,
 } from "./protocol";
 
 export interface NetworkDirectoryOptions {
@@ -90,9 +89,10 @@ export class NetworkDirectory extends EventEmitter {
   }
 
   private onSnapshot(content: string): void {
-    let snap: NetworkSnapshot;
-    try { snap = JSON.parse(content) as NetworkSnapshot; } catch { return; }
-    if (!snap?.hub?.hub_id || !Array.isArray(snap.nodes)) return;
+    let parsed: { hub?: HubRef; nodes?: unknown } | null;
+    try { parsed = JSON.parse(content) as { hub?: HubRef; nodes?: unknown } | null; } catch { return; }
+    if (!parsed?.hub?.hub_id || !Array.isArray(parsed.nodes)) return;
+    const snap = parsed as NetworkSnapshot;
     if (snap.hub.hub_id === this.selfHubId) return; // never track self
     const isNew = !this.seen.has(snap.hub.hub_id);
     this.seen.set(snap.hub.hub_id, snap);
@@ -102,8 +102,8 @@ export class NetworkDirectory extends EventEmitter {
   }
 
   private onBye(content: string): void {
-    let bye: NetworkBye;
-    try { bye = JSON.parse(content) as NetworkBye; } catch { return; }
+    let bye: { hub_id?: string } | null;
+    try { bye = JSON.parse(content) as { hub_id?: string } | null; } catch { return; }
     if (!bye?.hub_id || bye.hub_id === this.selfHubId) return;
     const snap = this.seen.get(bye.hub_id);
     if (snap) { this.drop(bye.hub_id); this.emit("hub:expired", snap.hub); }
@@ -112,9 +112,9 @@ export class NetworkDirectory extends EventEmitter {
   /** Live peer hubs, most-recently-seen first. Pruned by ttl. */
   hubs(): HubRef[] {
     this.sweepExpired();
-    return Array.from(this.seen.keys())
-      .sort((a, b) => (this.lastSeen.get(b) ?? 0) - (this.lastSeen.get(a) ?? 0))
-      .map((id) => this.seen.get(id)!.hub);
+    return Array.from(this.seen.entries())
+      .sort(([a], [b]) => (this.lastSeen.get(b) ?? 0) - (this.lastSeen.get(a) ?? 0))
+      .map(([, snap]) => snap.hub);
   }
 
   /** Raw peer snapshots (hub + its nodes). Pruned by ttl. */
