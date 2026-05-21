@@ -2,10 +2,17 @@ import {
   WebSocketGateway,
   WebSocketServer,
   OnGatewayInit,
+  SubscribeMessage,
+  MessageBody,
 } from "@nestjs/websockets";
 import { Logger } from "@nestjs/common";
 import { Server } from "socket.io";
-import { BrainService } from "@brain/core";
+import {
+  BrainService, resolveHubId, resolveHubLabel, getDb, setHubCanvasPos,
+  NETWORK_LAYOUT_TOPIC, NETWORK_CURSOR_TOPIC, NETWORK_HOST_LAYOUT_TOPIC,
+  type NetworkSnapshot, type LayoutUpdate, type CursorUpdate, type HostLayoutUpdate,
+} from "@brain/core";
+import type { HubRef } from "@brain/sdk";
 
 /**
  * Trailing debounce window (ms) used to coalesce rapid node state
@@ -22,6 +29,8 @@ export class DashboardGateway implements OnGatewayInit {
   private readonly log = new Logger(DashboardGateway.name);
   private readonly stateTimers = new Map<string, NodeJS.Timeout>();
   private readonly statePending = new Map<string, { nodeId: string; from: string; to: string }>();
+  private hubId = "";
+  private hubLabel = "";
 
   @WebSocketServer()
   server!: Server;
@@ -44,6 +53,8 @@ export class DashboardGateway implements OnGatewayInit {
   }
 
   afterInit(): void {
+    this.hubId = resolveHubId(getDb());
+    this.hubLabel = resolveHubLabel();
     this.brain.on("node:spawned", (node) => {
       // Reshape subscriptions to match what /network returns. The dashboard
       // uses `s.pattern` to colour-code topic handles; emitting the raw
@@ -77,7 +88,11 @@ export class DashboardGateway implements OnGatewayInit {
     // directory fires `agent:announced` on every announce/refresh and
     // `agent:expired` when an entry lapses its TTL; we mirror both to clients
     // so host containers appear/update/vanish in real time.
+    // Skip our own announcement — we already render as the "Local" host;
+    // echoing it would add an empty duplicate agent card on our own graph.
+    const selfId = resolveHubId(getDb());
     this.brain.agents.on("agent:announced", (ann) => {
+      if (ann.agent_id === selfId) return;
       this.server.emit("agent:announced", ann);
     });
 
@@ -85,6 +100,102 @@ export class DashboardGateway implements OnGatewayInit {
       this.server.emit("agent:expired", ann);
     });
 
+    // Peer-hub network channel — a hub's live registry arriving/refreshing
+    // (`hub:snapshot`) or going silent (`hub:expired`). We reshape each
+    // remote node's subscriptions to the `{id, pattern}` shape the
+    // dashboard's NodeBlock expects (their bus subs live on the peer, not
+    // here) and emit so the merged graph updates in real time.
+    this.brain.network.on("hub:snapshot", (snap: NetworkSnapshot) => {
+      this.server.emit("network:hub_snapshot", {
+        hub: snap.hub,
+        nodes: snap.nodes.map((n) => ({
+          ...n,
+          owner_hub: snap.hub,
+          subscriptions: n.subscriptions.map((s) => ({ id: `${n.id}:${s.topic}`, pattern: s.topic })),
+        })),
+      });
+    });
+
+    this.brain.network.on("hub:expired", (hub: HubRef) => {
+      this.server.emit("network:hub_expired", { hub_id: hub.hub_id });
+    });
+
+    // Live shared layout + presence cursors. We bridge the bus (machine↔
+    // machine) to our local dashboards (socket.io). A layout move from any
+    // hub is forwarded to our clients AND persisted here if WE own that node
+    // — that's what makes a drag survive reload/restart. Cursor updates are
+    // ephemeral, just relayed. (Our own publishes are dropped by the bus
+    // anti-loop, so we never echo to the originator.)
+    const busId = "__brain.api.collab__";
+    this.brain.bus.subscribe(busId, NETWORK_LAYOUT_TOPIC);
+    this.brain.bus.subscribe(busId, NETWORK_CURSOR_TOPIC);
+    this.brain.bus.subscribe(busId, NETWORK_HOST_LAYOUT_TOPIC);
+    this.brain.bus.on(`message:${busId}`, (msg) => {
+      const content = (msg.payload as { content?: string } | undefined)?.content;
+      if (typeof content !== "string") return;
+      if (msg.topic === NETWORK_LAYOUT_TOPIC) {
+        let u: LayoutUpdate;
+        try { u = JSON.parse(content) as LayoutUpdate; } catch { return; }
+        if (u.by === this.hubId) return; // our own move — already handled in onLayoutIn
+        this.persistIfOwned(u.node_id, u.x, u.y);
+        this.server.emit("layout:update", u);
+      } else if (msg.topic === NETWORK_HOST_LAYOUT_TOPIC) {
+        let h: HostLayoutUpdate;
+        try { h = JSON.parse(content) as HostLayoutUpdate; } catch { return; }
+        if (h.by === this.hubId) return; // our own move — handled in onHostLayoutIn
+        if (h.hub_id === this.hubId) setHubCanvasPos(getDb(), h.x, h.y); // we own this block
+        this.server.emit("host:layout", h);
+      } else {
+        let c: CursorUpdate;
+        try { c = JSON.parse(content) as CursorUpdate; } catch { return; }
+        if (c.hub_id === this.hubId) return; // never relay our own cursor back
+        this.server.emit("cursor:update", c);
+      }
+    });
+
     this.log.log("WebSocket gateway initialized");
+  }
+
+  /** Persist a node's position if WE host it — makes a drag (from any
+   *  machine) durable on the owner. No-op for nodes owned by a peer. */
+  private persistIfOwned(nodeId: string, x: number, y: number): void {
+    if (this.brain.instanceRegistry.get(nodeId)) {
+      this.brain.updatePosition(nodeId, x, y);
+    }
+  }
+
+  /** A dashboard moved a node → persist if ours + broadcast to peers. */
+  @SubscribeMessage("layout:update")
+  onLayoutIn(@MessageBody() body: { node_id: string; x: number; y: number }): void {
+    if (!body.node_id) return;
+    this.persistIfOwned(body.node_id, body.x, body.y);
+    const u: LayoutUpdate = { node_id: body.node_id, x: body.x, y: body.y, by: this.hubId, ts: Date.now() };
+    this.brain.bus.publish({
+      from: `hub:${this.hubId}`, topic: NETWORK_LAYOUT_TOPIC, type: "text",
+      criticality: 0, payload: { content: JSON.stringify(u) },
+    });
+  }
+
+  /** A dashboard moved a machine's container → persist if it's OURS +
+   *  broadcast so every view places that block the same. */
+  @SubscribeMessage("host:layout")
+  onHostLayoutIn(@MessageBody() body: { hub_id: string; x: number; y: number }): void {
+    if (!body.hub_id) return;
+    if (body.hub_id === this.hubId) setHubCanvasPos(getDb(), body.x, body.y);
+    const h: HostLayoutUpdate = { hub_id: body.hub_id, x: body.x, y: body.y, by: this.hubId, ts: Date.now() };
+    this.brain.bus.publish({
+      from: `hub:${this.hubId}`, topic: NETWORK_HOST_LAYOUT_TOPIC, type: "text",
+      criticality: 0, payload: { content: JSON.stringify(h) },
+    });
+  }
+
+  /** A dashboard's pointer moved → broadcast presence to peers. */
+  @SubscribeMessage("cursor:update")
+  onCursorIn(@MessageBody() body: { x: number; y: number }): void {
+    const c: CursorUpdate = { hub_id: this.hubId, label: this.hubLabel, x: body.x, y: body.y, ts: Date.now() };
+    this.brain.bus.publish({
+      from: `hub:${this.hubId}`, topic: NETWORK_CURSOR_TOPIC, type: "text",
+      criticality: 0, payload: { content: JSON.stringify(c) },
+    });
   }
 }

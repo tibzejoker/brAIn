@@ -163,11 +163,11 @@ function TransportInfoView({ transport, onChanged }: {
     return false;
   }, []);
 
-  const joinHub = useCallback((url: string, token: string, hubName: string): void => {
+  const joinHub = useCallback((url: string, token: string, hubName: string, httpUrl: string): void => {
     setError(null);
     setRestarting(true);
     setJoinOpen(false);
-    joinExternalBroker(url.trim(), token.trim() || undefined, hubName.trim() || undefined)
+    joinExternalBroker(url.trim(), token.trim() || undefined, hubName.trim() || undefined, httpUrl.trim() || undefined)
       .then(async (r) => {
         if (!r.restart_scheduled) { setRestarting(false); onChanged(); return; }
         const ok = await pollUntilMode("external");
@@ -382,7 +382,7 @@ function InviteSection({ transport, platform, onPlatformChange }: {
       )}
 
       {platform === "mobile"
-        ? <MobileInstructions reachableUrl={reachableUrl} token={transport.token} />
+        ? <MobileInstructions reachableUrl={reachableUrl} token={transport.token} apiUrl={transport.http_url} />
         : <DesktopInstructions platform={platform} reachableUrl={reachableUrl} token={transport.token} />}
     </div>
   );
@@ -414,13 +414,17 @@ function LanIpPicker({ ips, pickedIp, onPick }: {
   );
 }
 
-function MobileInstructions({ reachableUrl, token }: {
+function MobileInstructions({ reachableUrl, token, apiUrl }: {
   reachableUrl: string;
   token: string | null;
+  apiUrl?: string | null;
 }): React.ReactElement {
   const [copied, setCopied] = useState(false);
   const tokenQuery = token ? `&token=${encodeURIComponent(token)}` : "";
-  const joinUri = `brain://join?url=${encodeURIComponent(reachableUrl)}${tokenQuery}`;
+  // Carry our HTTP base so a joining brAIn renders our node UIs + routes
+  // spawn at us without the user pasting it separately.
+  const apiQuery = apiUrl ? `&api=${encodeURIComponent(apiUrl)}` : "";
+  const joinUri = `brain://join?url=${encodeURIComponent(reachableUrl)}${tokenQuery}${apiQuery}`;
   const copy = (): void => {
     void navigator.clipboard.writeText(joinUri).then(() => {
       setCopied(true);

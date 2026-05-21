@@ -200,6 +200,39 @@ export function normaliseSubscription(raw: {
   return { ...base, inputSchema: raw.inputSchema };
 }
 
+// === Network / hubs ===
+
+/**
+ * Identifies the machine ("hub") a node belongs to in a peer-to-peer
+ * network. brAIn instances joined to the same NATS bus are symmetric
+ * peers — there is no master/slave; each hub publishes its own running
+ * registry and consumes the others'. `owner_hub` on a `NodeInfo` is the
+ * routing key any client (the React dashboard, a future Flutter app, …)
+ * uses to decide *which* HTTP origin serves that node's UI and accepts
+ * spawn/kill for it, and which `brain.agents.<hub_id>.*` control topic
+ * targets it over the bus.
+ *
+ * `hub_id` is the stable per-install id (same value as the agent-presence
+ * `agent_id`), so the snapshot channel and the control channel correlate.
+ */
+export interface HubRef {
+  hub_id: string;
+  hub_label: string;
+  /** Best-guess reachable HTTP base (first of `http_urls`). Kept for the
+   *  join URI `&api=` and older peers. Prefer probing `http_urls`. */
+  http_url?: string;
+  /** ALL candidate HTTP bases for this hub — one per network interface
+   *  (e.g. `["http://192.168.1.19:3000", "http://10.5.0.2:3000"]`). A hub
+   *  can't know which of its interfaces a given peer can reach (LAN vs a
+   *  VPN/WSL/Docker adapter), so it advertises them all and each consumer
+   *  probes for the first that answers — like ICE candidates. */
+  http_urls?: string[];
+  /** Where this hub's container sits on the shared canvas. Each hub owns
+   *  + persists its own block position and broadcasts it, so every viewer
+   *  places the machine's box in the same spot. Absent until first moved. */
+  canvas_pos?: { x: number; y: number };
+}
+
 // === Node info ===
 
 export interface NodeInfo {
@@ -218,6 +251,13 @@ export interface NodeInfo {
    * this node. Used by the API to route control actions over NATS.
    */
   target_agent_id?: string;
+  /**
+   * The hub (machine) that physically runs this node and serves its UI.
+   * Stamped by `NetworkDirectory` when merging a peer's snapshot; left
+   * undefined for purely-local nodes on a standalone instance (callers
+   * treat "undefined" as "mine / same origin"). See {@link HubRef}.
+   */
+  owner_hub?: HubRef;
   position: { x: number; y: number };
   config_overrides?: Record<string, unknown>;
   default_publishes?: string[];

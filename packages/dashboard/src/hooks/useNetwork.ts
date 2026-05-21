@@ -5,6 +5,8 @@ import {
   onNodeSpawned,
   onNodeKilled,
   onNodeStateChanged,
+  onNetworkHubSnapshot,
+  onNetworkHubExpired,
 } from "../api/socket";
 
 interface UseNetworkResult {
@@ -63,6 +65,22 @@ export function useNetwork(): UseNetworkResult {
             n.id === event.nodeId ? { ...n, state: event.to } : n,
           ),
         }));
+      }),
+      // Peer hub pushed its registry: drop whatever we held for that hub and
+      // replace it with the fresh set (each node already tagged owner_hub).
+      onNetworkHubSnapshot((event) => {
+        setSnapshot((prev) => {
+          const others = prev.nodes.filter((n) => n.owner_hub?.hub_id !== event.hub.hub_id);
+          const nodes = [...others, ...event.nodes];
+          return { node_count: nodes.length, nodes };
+        });
+      }),
+      // Peer hub gone — remove all its nodes from the merged view.
+      onNetworkHubExpired((event) => {
+        setSnapshot((prev) => {
+          const nodes = prev.nodes.filter((n) => n.owner_hub?.hub_id !== event.hub_id);
+          return { node_count: nodes.length, nodes };
+        });
       }),
     ];
 

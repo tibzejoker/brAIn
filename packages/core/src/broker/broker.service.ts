@@ -67,6 +67,10 @@ export interface ExternalBrokerPrefs {
   token?: string;
   /** Optional human label for the connection — shown in the UI. */
   hubName?: string;
+  /** Hub's HTTP base (e.g. `http://192.168.1.16:3000`) — lets the joined
+   *  dashboard load the hub's node UIs and route spawn/kill at it. Carried
+   *  in the `&api=` part of the join URI. */
+  httpUrl?: string;
 }
 
 export function readExternalBrokerPrefs(prefsPath: string): ExternalBrokerPrefs | null {
@@ -78,6 +82,7 @@ export function readExternalBrokerPrefs(prefsPath: string): ExternalBrokerPrefs 
       url: raw.url,
       token: typeof raw.token === "string" && raw.token.length > 0 ? raw.token : undefined,
       hubName: typeof raw.hubName === "string" ? raw.hubName : undefined,
+      httpUrl: typeof raw.httpUrl === "string" && raw.httpUrl.length > 0 ? raw.httpUrl : undefined,
     };
   } catch (err) {
     logger.warn({ err, prefsPath }, "external broker prefs unreadable, falling back to embedded");

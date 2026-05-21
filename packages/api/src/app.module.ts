@@ -1,6 +1,6 @@
 import { Module, Logger, type OnModuleInit, type OnModuleDestroy } from "@nestjs/common";
-import { BrainService, BrokerService, NatsBusService, readBrokerPrefs, readExternalBrokerPrefs, startAgentPresence, getDb, getSetting, setSetting } from "@brain/core";
-import { hostname } from "node:os";
+import { BrainService, BrokerService, NatsBusService, readBrokerPrefs, readExternalBrokerPrefs, startAgentPresence, startNetworkPublisher, buildHubRef, getDb, getSetting, setSetting, type NetworkPublisherHandle } from "@brain/core";
+import { hostname, networkInterfaces } from "node:os";
 import { randomBytes } from "node:crypto";
 import { connect as netConnect } from "node:net";
 import { URL } from "node:url";
@@ -26,6 +26,32 @@ function resolveFromRoot(envVar: string | undefined, fallback: string): string {
   const raw = envVar ?? fallback;
   if (path.isAbsolute(raw)) return raw;
   return path.resolve(MONOREPO_ROOT, raw);
+}
+
+/**
+ * Every externally-reachable HTTP base for this API — one per non-loopback
+ * IPv4 interface (e.g. `["http://192.168.1.19:3000", "http://10.5.0.2:3000"]`).
+ * A hub can't know which interface a given peer can reach, so it advertises
+ * them all and each consumer probes for the first that answers.
+ *
+ * Ordered most-likely-reachable first: a `BRAIN_HTTP_URL` override wins, then
+ * physical-LAN ranges (192.168/* then 10/*) ahead of VPN/WSL/Docker adapters
+ * (172.16-31/*), so the single `http_url` derived from `[0]` is a good guess.
+ */
+export function resolveSelfHttpUrls(): string[] {
+  const port = process.env.API_PORT ?? "3000";
+  const override = process.env.BRAIN_HTTP_URL?.trim();
+  const ips: string[] = [];
+  for (const ifaces of Object.values(networkInterfaces())) {
+    for (const iface of ifaces ?? []) {
+      if (iface.family === "IPv4" && !iface.internal) ips.push(iface.address);
+    }
+  }
+  const rank = (ip: string): number =>
+    ip.startsWith("192.168.") ? 0 : ip.startsWith("10.") ? 1 : ip.startsWith("172.") ? 3 : 2;
+  ips.sort((a, b) => rank(a) - rank(b));
+  const urls = ips.map((ip) => `http://${ip}:${port}`);
+  return override ? [override, ...urls.filter((u) => u !== override)] : urls;
 }
 
 /** data/broker.json — persisted bind preference, dashboard-toggleable. */
@@ -226,12 +252,17 @@ const brainServiceProvider = {
 export class AppModule implements OnModuleInit, OnModuleDestroy {
   private readonly log = new Logger("AppModule");
 
+  private networkPublisher: NetworkPublisherHandle | null = null;
+
   constructor(
     private readonly brain: BrainService,
     private readonly broker: BrokerService,
   ) {}
 
   async onModuleDestroy(): Promise<void> {
+    // Send our network `bye` before dropping the bus so peers prune us
+    // immediately instead of waiting for the TTL sweep.
+    try { this.networkPublisher?.stop(); } catch { /* best-effort */ }
     // Tear down in reverse: bus first (drain in-flight), then broker.
     try { await (this.brain.bus as { close?: () => Promise<void> }).close?.(); }
     catch (err) { this.log.warn(`bus close failed: ${String(err)}`); }
@@ -276,6 +307,25 @@ export class AppModule implements OnModuleInit, OnModuleDestroy {
       });
       this.log.log(`agent presence active as ${agentId} (external broker)`);
     }
+
+    // Advertise this hub's live registry on the network channel so peers
+    // render us in their merged view. Runs in BOTH modes: an embedded hub
+    // must publish so guests that join its bus see its nodes, and a joiner
+    // publishes so the hub sees the joiner's — symmetric peer-to-peer.
+    // `http_url` lets peers reach our node UIs + spawn endpoint over HTTP.
+    const httpUrls = resolveSelfHttpUrls();
+    this.networkPublisher = startNetworkPublisher({
+      bus: this.brain.bus,
+      // Getter, not a cached ref — so canvas_pos (block placement) updates
+      // are re-read from the DB on every snapshot and reach peers.
+      hub: () => buildHubRef(getDb(), httpUrls),
+      // Only nodes WE host — drop `remote` stubs, which belong to a peer
+      // that advertises them itself.
+      snapshot: () => this.brain.getNetworkSnapshot().filter((n) => n.transport !== "remote"),
+      changes: this.brain,
+    });
+    const where = httpUrls.length > 0 ? ` @ ${httpUrls.join(", ")}` : "";
+    this.log.log(`network publisher active${where}`);
 
     // Auto-seed from default if DB is empty. Fire-and-forget: a fresh
     // install has to clone+install several sister repos which can take

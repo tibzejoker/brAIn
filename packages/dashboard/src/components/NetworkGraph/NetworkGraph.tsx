@@ -16,12 +16,15 @@ import {
   BackgroundVariant,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
-import type { NodeSnapshot, NodeTypeConfig } from "../../api/types";
-import { updateNodePosition, getAgents, type AgentSnapshot } from "../../api/client";
-import { onAgentAnnounced, onAgentExpired } from "../../api/socket";
+import type { NodeSnapshot, NodeTypeConfig, CursorUpdate } from "../../api/types";
+import { getAgents, getTransport, type AgentSnapshot } from "../../api/client";
+import { emitLayoutUpdate, emitCursorUpdate, emitHostLayout, onLayoutUpdate, onCursorUpdate, onHostLayout, onAgentAnnounced, onAgentExpired } from "../../api/socket";
+import { getSelfHubId } from "../../api/request";
+import { RemoteCursors } from "./RemoteCursors";
 import { NodeBlock } from "./NodeBlock";
 import { HostGroup } from "./HostGroup";
-import { buildHostLayer, fitHostsToChildren, HOST_NODE_TYPE, sameRenderedShape } from "./host-layout";
+import { buildHostLayer, fitHostsToChildren, HOST_NODE_TYPE, HOST_ID_LOCAL, HOST_PREFIX_AGENT, sameRenderedShape } from "./host-layout";
+import { buildEdges, inferPublishTopics } from "./graph-edges";
 import { buildAuthorityEdges } from "./authority-edges";
 
 interface Flow {
@@ -48,7 +51,6 @@ interface NetworkGraphProps {
   selectedNodeId: string | null;
 }
 
-function noop(): void { /* best-effort */ }
 
 const nodeTypes: NodeTypes = {
   brainNode: NodeBlock,
@@ -144,164 +146,6 @@ function persistCapabilityToggle(enabled: boolean): void {
   }
 }
 
-function topicColor(topic: string): string {
-  let hash = 0;
-  for (let i = 0; i < topic.length; i++) {
-    hash = topic.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return `hsl(${Math.abs(hash) % 360}, 70%, 65%)`;
-}
-
-function matchWildcard(pattern: string | undefined | null, topic: string | undefined | null): boolean {
-  // Defensive: a transient malformed snapshot (e.g. just-spawned node
-  // with subscriptions still being wired) can hand us undefined here.
-  // Returning false instead of crashing keeps the whole dashboard up
-  // — the missed edge re-appears on the next snapshot poll.
-  if (!pattern || !topic) return false;
-  if (pattern === topic) return true;
-  if (pattern === "*") return true;
-  if (pattern.endsWith(".*")) {
-    return topic.startsWith(pattern.slice(0, -1));
-  }
-  return false;
-}
-
-/**
- * Infer what topics a node likely publishes on, based on:
- * - config_overrides.response_topic / topic
- * - Known patterns: echo publishes on echo.output, cron publishes its configured topic, etc.
- * - Node type defaults
- */
-/**
- * Infer what topics a node publishes on.
- * Sources (in priority order):
- *   1. config_overrides.response_topic / topic (instance-level override)
- *   2. default_publishes from the node type config
- * Purely data-driven — no hardcoded types.
- */
-function inferPublishTopics(n: NodeSnapshot, typeMap: Map<string, NodeTypeConfig>): string[] {
-  const topics = new Set<string>();
-  const co = n.config_overrides ?? {};
-
-  // Instance-level overrides
-  if (typeof co.response_topic === "string") topics.add(co.response_topic);
-  if (typeof co.topic === "string") topics.add(co.topic);
-
-  // Type defaults — always included (a node can publish to its response topic AND route to other services)
-  const typeConfig = typeMap.get(n.type);
-  if (typeConfig?.default_publishes) {
-    for (const t of typeConfig.default_publishes) topics.add(t);
-  }
-
-  return [...topics];
-}
-
-// Edges that the static config doesn't predict but the bus has actually
-// carried — e.g. a brain LLM publishing through its `publish_message`
-// tool to `game.hangman.command`. These render in violet so they read
-// as "they're connected because they've interacted" rather than
-// "they're connected by config." Persistent across the session: a
-// single past interaction is enough to keep the line drawn.
-const DYNAMIC_EDGE_COLOR = "#a855f7";
-
-function buildEdges(snapshots: NodeSnapshot[], flows: Flow[], types: NodeTypeConfig[]): Edge[] {
-  const typeMap = new Map(types.map((t) => [t.name, t]));
-  const edges: Edge[] = [];
-  const seen = new Set<string>();
-
-  // Active flow pairs — only if last message was within 3 seconds
-  const now = Date.now();
-  const ACTIVE_THRESHOLD_MS = 3000;
-  const activeFlows = new Set<string>();
-  for (const flow of flows) {
-    if (now - flow.lastSeen < ACTIVE_THRESHOLD_MS) {
-      activeFlows.add(`${flow.sourceId}->${flow.targetId}`);
-    }
-  }
-
-  // For each publisher, match its publish topics to subscriber patterns
-  for (const publisher of snapshots) {
-    const pubTopics = inferPublishTopics(publisher, typeMap);
-
-    for (const pubTopic of pubTopics) {
-      for (const subscriber of snapshots) {
-        if (subscriber.id === publisher.id) continue;
-
-        for (const sub of subscriber.subscriptions) {
-          if (!matchWildcard(sub.pattern, pubTopic)) continue;
-
-          const edgeId = `${publisher.id}:${pubTopic}->${subscriber.id}:${sub.pattern}`;
-          if (seen.has(edgeId)) continue;
-          seen.add(edgeId);
-
-          const active = activeFlows.has(`${publisher.id}->${subscriber.id}`);
-          const color = topicColor(pubTopic);
-
-          edges.push({
-            id: edgeId,
-            source: publisher.id,
-            target: subscriber.id,
-            sourceHandle: `out-${pubTopic}`,
-            targetHandle: `in-${sub.pattern}`,
-            type: "smoothstep" as const,
-            animated: active,
-            style: {
-              stroke: color,
-              strokeWidth: active ? 2 : 1,
-              strokeDasharray: active ? undefined : "5 5",
-              opacity: active ? 1 : 0.5,
-            },
-          });
-        }
-      }
-    }
-  }
-
-  // Dynamic edges — any flow whose topic the publisher didn't declare
-  // statically counts as a tool-call / dynamic publish. Drawn in violet,
-  // dedup'd per (publisher, subscriber, topic). Static edges always win
-  // (no double-line for the same pair on the same topic).
-  const snapshotById = new Map(snapshots.map((n) => [n.id, n]));
-  const dynamicSeen = new Set<string>();
-  for (const flow of flows) {
-    const publisher = snapshotById.get(flow.sourceId);
-    const subscriber = snapshotById.get(flow.targetId);
-    if (!publisher || !subscriber) continue;
-
-    const declaredPublishes = inferPublishTopics(publisher, typeMap);
-    // If the publisher declared this topic, the static loop above
-    // already drew it (or skipped it because no subscriber pattern
-    // matched). Either way, not a dynamic case.
-    if (declaredPublishes.includes(flow.topic)) continue;
-
-    const dynamicId = `dyn:${publisher.id}:${flow.topic}->${subscriber.id}`;
-    if (dynamicSeen.has(dynamicId)) continue;
-    dynamicSeen.add(dynamicId);
-
-    const active = activeFlows.has(`${publisher.id}->${subscriber.id}`);
-    edges.push({
-      id: dynamicId,
-      source: publisher.id,
-      target: subscriber.id,
-      sourceHandle: "out-default",
-      targetHandle: "in-default",
-      type: "smoothstep" as const,
-      animated: active,
-      style: {
-        stroke: DYNAMIC_EDGE_COLOR,
-        strokeWidth: active ? 2 : 1.5,
-        strokeDasharray: "3 3",
-        opacity: active ? 1 : 0.7,
-      },
-      label: flow.topic,
-      labelStyle: { fill: DYNAMIC_EDGE_COLOR, fontSize: 10, fontWeight: 600 },
-      labelBgStyle: { fill: "var(--color-surface-overlay, #1f2937)" },
-      labelBgPadding: [4, 2],
-    });
-  }
-
-  return edges;
-}
 
 export function NetworkGraph({
   nodes: snapshots,
@@ -320,6 +164,27 @@ export function NetworkGraph({
   // node-rebuild effect bails while this is true so a snapshot poll
   // landing mid-drag can't yank the node out from under the cursor.
   const isDraggingRef = useRef(false);
+  // Collaborative layout + presence: which node we're dragging (so an
+  // incoming move for it doesn't fight us), and throttle clocks for the
+  // ~10/s outbound layout + cursor broadcasts.
+  const draggingIdRef = useRef<string | null>(null);
+  const lastLayoutSentRef = useRef(0);
+  const lastCursorSentRef = useRef(0);
+  const [cursors, setCursors] = useState<CursorUpdate[]>([]);
+  // Our own machine-container position. Fetched from transport (async, hence
+  // state so the layout re-runs once it lands — local nodes carry no
+  // owner_hub, so this is the only source for our block's placement) and
+  // updated optimistically when we (or a peer) move our block.
+  const [selfCanvasPos, setSelfCanvasPos] = useState<{ x: number; y: number } | undefined>(undefined);
+  useEffect(() => {
+    void getTransport().then((t) => { if (t.canvas_pos) setSelfCanvasPos(t.canvas_pos); }).catch(() => { /* offline */ });
+  }, []);
+  // Optimistic container positions, keyed by host id. Set the instant we
+  // drag a block (local OR a peer's) and updated by incoming host:layout, so
+  // the dropped position holds immediately instead of snapping back to the
+  // stale snapshot value until the ~3s round-trip lands. Authoritative over
+  // the snapshot/transport seed.
+  const [hostOverrides, setHostOverrides] = useState<Record<string, { x: number; y: number }>>({});
 
   // Bumped on drag-stop to force the rebuild effect to re-run, which is where
   // the four-side "hug" (origin slide) happens. Without this trigger the hug
@@ -502,8 +367,23 @@ export function NetworkGraph({
         });
       }
 
-      const { hostNodes, parentIdOf, gridSlotOf } = buildHostLayer(snapshots, agents);
+      // Synced container positions: our own from transport (local nodes have
+      // no owner_hub), peers' from their snapshot's owner_hub.canvas_pos. Used
+      // on first render / reload; live moves come via onHostLayout below.
+      const canvasPosByHost = new Map<string, { x: number; y: number }>();
+      if (selfCanvasPos) canvasPosByHost.set(HOST_ID_LOCAL, selfCanvasPos);
+      for (const s of snapshots) {
+        const oh = s.owner_hub;
+        if (oh?.canvas_pos) canvasPosByHost.set(`${HOST_PREFIX_AGENT}${oh.hub_id}`, oh.canvas_pos);
+      }
+      // Optimistic overrides win over the snapshot seed (no snap-back on drop).
+      for (const [id, p] of Object.entries(hostOverrides)) canvasPosByHost.set(id, p);
+      const { hostNodes, parentIdOf, gridSlotOf } = buildHostLayer(snapshots, agents, canvasPosByHost);
       for (const h of hostNodes) {
+        // A synced canvas position is authoritative — don't let a stale
+        // prevHostPos (e.g. the default placement captured before transport
+        // resolved on reload) clobber it.
+        if (canvasPosByHost.has(h.id)) continue;
         const pos = prevHostPos.get(h.id);
         if (pos) h.position = pos;
       }
@@ -545,7 +425,7 @@ export function NetworkGraph({
       // excluded because they're sticky-overridden above anyway.
       return sameRenderedShape(prev, next) ? prev : next;
     });
-  }, [snapshots, agents, typeMap, onOpenNodeUi, handleToggleExpand, handleResizeExpanded, expandedNodeIds, expandedSizes, setNodes, capabilityHoverEnabled, layoutTick]);
+  }, [snapshots, agents, typeMap, onOpenNodeUi, handleToggleExpand, handleResizeExpanded, expandedNodeIds, expandedSizes, setNodes, capabilityHoverEnabled, layoutTick, selfCanvasPos, hostOverrides]);
 
   useEffect(() => {
     const pubSub = buildEdges(snapshots, flows, types);
@@ -579,8 +459,20 @@ export function NetworkGraph({
     [nodes, selectedNodeId, hoveredNodeId],
   );
 
-  const handleNodeDragStart = useCallback((): void => {
+  const handleNodeDragStart = useCallback((_event: React.MouseEvent, node: Node): void => {
     isDraggingRef.current = true;
+    draggingIdRef.current = node.id;
+  }, []);
+
+  // Live position broadcast while dragging, throttled to ~10/s so the move
+  // animates on every other open view without flooding the bus. The durable
+  // persist happens once on drag-stop.
+  const handleNodeDrag = useCallback((_event: React.MouseEvent, node: Node): void => {
+    if (node.type === HOST_NODE_TYPE) return;
+    const now = Date.now();
+    if (now - lastLayoutSentRef.current < 100) return;
+    lastLayoutSentRef.current = now;
+    emitLayoutUpdate(node.id, node.position.x, node.position.y);
   }, []);
 
   // No live container fit during the drag: `expandParent` grows the box so the
@@ -589,15 +481,25 @@ export function NetworkGraph({
   // resize on release only is consistent across every edge of the box.
   const handleNodeDragStop = useCallback((_event: React.MouseEvent, node: Node): void => {
     isDraggingRef.current = false;
-    // Host containers are synthetic — rebuilt from agents/snapshots every
-    // poll — so we never persist their drag position.
-    if (node.type === HOST_NODE_TYPE) return;
-    // For child nodes the position is now RELATIVE to its parent. We persist
-    // those relative coords directly; on next load, snapshotToFlowNode treats
-    // them as relative when the snapshot still has a parent. If the host
-    // layer is ever disabled, the existing absolute-vs-relative meaning
-    // would need a migration — flagged in the host-layout.ts header.
-    updateNodePosition(node.id, node.position.x, node.position.y).catch(noop);
+    draggingIdRef.current = null;
+    // Host container moved: broadcast its new canvas position keyed by the
+    // machine it represents (local → our hub; agent block → that hub). The
+    // owner persists it + every view places the block there.
+    if (node.type === HOST_NODE_TYPE) {
+      const hubId = node.id === HOST_ID_LOCAL ? getSelfHubId() : node.id.slice(HOST_PREFIX_AGENT.length);
+      if (hubId) {
+        const pos = { x: node.position.x, y: node.position.y };
+        setHostOverrides((o) => ({ ...o, [node.id]: pos })); // hold the dropped spot immediately
+        emitHostLayout(hubId, pos.x, pos.y);
+      }
+      setLayoutTick((t) => t + 1);
+      return;
+    }
+    // For child nodes the position is RELATIVE to its parent. Broadcast the
+    // final position over the shared-layout channel: our API persists it if
+    // it owns the node, otherwise the owning peer does — so the move is
+    // durable AND every other open view converges on it.
+    emitLayoutUpdate(node.id, node.position.x, node.position.y);
     // Re-run the rebuild so the host hugs all four sides around the dropped
     // position (the live drag only sized right/bottom).
     setLayoutTick((t) => t + 1);
@@ -642,7 +544,49 @@ export function NetworkGraph({
     setHoveredNodeId(null);
   }, [capabilityHoverEnabled]);
 
+  // Collaborative channel: apply incoming moves from other machines live, and
+  // track peer cursors (expired by LOCAL receipt time so clock skew between
+  // machines can't make a live cursor vanish).
+  useEffect(() => {
+    const unsubs = [
+      onLayoutUpdate((u) => {
+        if (draggingIdRef.current === u.node_id) return; // don't fight our own drag
+        setNodes((nds) => nds.map((n) =>
+          n.id === u.node_id && n.type !== HOST_NODE_TYPE
+            ? { ...n, position: { x: u.x, y: u.y } }
+            : n,
+        ));
+      }),
+      onCursorUpdate((c) => {
+        if (c.hub_id === getSelfHubId()) return; // never render our own pointer
+        const rx = { ...c, ts: Date.now() };
+        setCursors((prev) => [...prev.filter((p) => p.hub_id !== c.hub_id), rx]);
+      }),
+      onHostLayout((h) => {
+        const hostId = h.hub_id === getSelfHubId() ? HOST_ID_LOCAL : `${HOST_PREFIX_AGENT}${h.hub_id}`;
+        setHostOverrides((o) => ({ ...o, [hostId]: { x: h.x, y: h.y } }));
+      }),
+    ];
+    const iv = setInterval(() => {
+      const cutoff = Date.now() - 4000;
+      setCursors((prev) => (prev.some((c) => c.ts < cutoff) ? prev.filter((c) => c.ts >= cutoff) : prev));
+    }, 1000);
+    return (): void => { for (const u of unsubs) u(); clearInterval(iv); };
+  }, [setNodes]);
+
+  // Broadcast our pointer (graph coords) at ~10/s for presence.
+  const handlePaneMouseMove = useCallback((e: React.MouseEvent): void => {
+    const now = Date.now();
+    if (now - lastCursorSentRef.current < 100) return;
+    const inst = rfInstanceRef.current as unknown as { screenToFlowPosition?: (p: { x: number; y: number }) => { x: number; y: number } } | null;
+    if (!inst?.screenToFlowPosition) return;
+    const p = inst.screenToFlowPosition({ x: e.clientX, y: e.clientY });
+    lastCursorSentRef.current = now;
+    emitCursorUpdate(p.x, p.y);
+  }, []);
+
   return (
+    <div className="w-full h-full" onMouseMove={handlePaneMouseMove}>
     <ReactFlow
       nodes={displayNodes}
       edges={edges}
@@ -650,6 +594,7 @@ export function NetworkGraph({
       onNodesChange={onNodesChange}
       onEdgesChange={onEdgesChange}
       onNodeDragStart={handleNodeDragStart}
+      onNodeDrag={handleNodeDrag}
       onNodeDragStop={handleNodeDragStop}
       onNodeClick={handleNodeClick}
       onNodeMouseEnter={handleNodeMouseEnter}
@@ -658,6 +603,8 @@ export function NetworkGraph({
       onPaneClick={handlePaneClick}
       onInit={handleInit}
       deleteKeyCode={null}
+      minZoom={0.15}
+      maxZoom={4}
       proOptions={{ hideAttribution: true }}
     >
       <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="var(--color-border)" />
@@ -684,6 +631,8 @@ export function NetworkGraph({
           return "#707070";
         }}
       />
+      <RemoteCursors cursors={cursors} />
     </ReactFlow>
+    </div>
   );
 }

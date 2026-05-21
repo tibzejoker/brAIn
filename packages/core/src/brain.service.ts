@@ -41,6 +41,8 @@ import { CLIRegistry, type CLIStatus } from "./llm/cli-registry";
 import { LLMConfigStore } from "./llm/llm-config";
 import { StoreService } from "./store";
 import { AgentDirectory, type AgentDirectoryOptions } from "./agents";
+import { NetworkDirectory } from "./network";
+import { resolveHubId } from "./network/hub-identity";
 import { MCPBridge } from "./mcp";
 
 /**
@@ -94,6 +96,9 @@ export class BrainService extends EventEmitter {
   llmConfig!: LLMConfigStore;  // initialised in bootstrap() once nodeDataRoot is known
   store!: StoreService;  // wired in bootstrap() once we know siblingsRoot
   readonly agents: AgentDirectory;
+  /** Peer-hub registry — merges other machines' `brain.network.snapshot`
+   *  feeds so the dashboard can show one machine-grouped view. */
+  readonly network: NetworkDirectory;
   readonly mcpBridge: MCPBridge;
 
   /**
@@ -123,6 +128,8 @@ export class BrainService extends EventEmitter {
     this.authority = new AuthorityService();
     this.agents = new AgentDirectory(this.bus, opts?.agentDirectory);
     this.agents.attach();
+    this.network = new NetworkDirectory(this.bus, resolveHubId(this.db));
+    this.network.attach();
     this.mcpBridge = new MCPBridge(this.bus);
     this.mcpBridge.install();
     this.agents.on("agent:expired", (ann: { agent_id: string }) => {

@@ -17,8 +17,8 @@ import type { HostGroupData, HostKind } from "./HostGroup";
 // and its container vanishes from the graph + the AgentsPanel.
 
 export const HOST_NODE_TYPE = "hostGroup";
-const HOST_ID_LOCAL = "host-local";
-const HOST_PREFIX_AGENT = "host-agent-";
+export const HOST_ID_LOCAL = "host-local";
+export const HOST_PREFIX_AGENT = "host-agent-";
 const HOST_PADDING_TOP = 30;       // room for the host header
 const HOST_PADDING_INNER = 16;     // gutter between header / children / sides
 const CHILD_W = 220;
@@ -69,6 +69,9 @@ function hostIcon(kind: HostKind, agent: AgentSnapshot | null): string {
 export function buildHostLayer(
   snapshots: NodeSnapshot[],
   agents: AgentSnapshot[],
+  // Synced container positions keyed by host id (host-local / host-agent-<id>).
+  // When present for a host, its block is placed there instead of the auto row.
+  canvasPosByHost?: Map<string, { x: number; y: number }>,
 ): {
   hostNodes: Node[];
   parentIdOf: Map<string, string>;
@@ -82,12 +85,23 @@ export function buildHostLayer(
   // but the dashboard shouldn't strand zombies meanwhile.
   const childrenByHost = new Map<string, NodeSnapshot[]>();
   const parentIdOf = new Map<string, string>();
+  // Peer hubs discovered via `owner_hub` (machine-level guest mode). hub_id
+  // equals the peer's agent_id, so we key on the SAME `host-agent-<id>` slot
+  // an announced agent would use — a peer that also announces presence shares
+  // one container instead of duplicating. label/http_url feed its spec below.
+  const peerHubs = new Map<string, { hub_id: string; hub_label: string; http_url?: string }>();
   for (const s of snapshots) {
-    const remoteId = (s as unknown as { target_agent_id?: string }).target_agent_id;
-    const targetAgent = s.transport === "remote" && remoteId
-      ? agentById.get(remoteId) ?? null
-      : null;
-    const hostId = hostIdFor(targetAgent);
+    let hostId: string;
+    if (s.owner_hub) {
+      hostId = hostIdFor({ agent_id: s.owner_hub.hub_id });
+      if (!peerHubs.has(hostId)) peerHubs.set(hostId, s.owner_hub);
+    } else {
+      const remoteId = (s as unknown as { target_agent_id?: string }).target_agent_id;
+      const targetAgent = s.transport === "remote" && remoteId
+        ? agentById.get(remoteId) ?? null
+        : null;
+      hostId = hostIdFor(targetAgent);
+    }
     parentIdOf.set(s.id, hostId);
     const bucket = childrenByHost.get(hostId) ?? [];
     bucket.push(s);
@@ -108,6 +122,19 @@ export function buildHostLayer(
       label: a.host,
       sublabel: a.agent_id.slice(0, 12),
       agent: a,
+    });
+  }
+  // Peer hubs that aren't already shown as an announced agent get their own
+  // container, labelled with the machine's hub label.
+  const specIds = new Set(specs.map((sp) => sp.id));
+  for (const [hostId, hub] of peerHubs) {
+    if (specIds.has(hostId)) continue;
+    specs.push({
+      id: hostId,
+      kind: "active-agent",
+      label: hub.hub_label,
+      sublabel: hub.hub_id.slice(0, 12),
+      agent: null,
     });
   }
 
@@ -147,10 +174,11 @@ export function buildHostLayer(
       icon: hostIcon(spec.kind, spec.agent),
       isEmpty: (childrenByHost.get(spec.id) ?? []).length === 0,
     };
+    const synced = canvasPosByHost?.get(spec.id);
     hostNodes.push({
       id: spec.id,
       type: HOST_NODE_TYPE,
-      position: { x: cursorX, y: 50 },
+      position: synced ?? { x: cursorX, y: 50 },
       data: data,
       style: { width: size.w, height: size.h },
       draggable: true,

@@ -4,6 +4,11 @@ import type {
   Message,
   StateChangeEvent,
   KillEvent,
+  HubSnapshotEvent,
+  HubExpiredEvent,
+  LayoutUpdate,
+  CursorUpdate,
+  HostLayoutUpdate,
 } from "./types";
 import type { AgentSnapshot } from "./client";
 
@@ -70,4 +75,61 @@ export function onAgentExpired(cb: (agent: AgentSnapshot) => void): () => void {
   return (): void => {
     s.off("agent:expired", cb);
   };
+}
+
+// Peer-hub network channel — a remote machine's live registry arriving or
+// refreshing. Each node carries `owner_hub`, so the merged graph can group
+// it under its owning machine and route its UI to that hub's HTTP base.
+export function onNetworkHubSnapshot(cb: (e: HubSnapshotEvent) => void): () => void {
+  const s = getSocket();
+  s.on("network:hub_snapshot", cb);
+  return (): void => {
+    s.off("network:hub_snapshot", cb);
+  };
+}
+
+export function onNetworkHubExpired(cb: (e: HubExpiredEvent) => void): () => void {
+  const s = getSocket();
+  s.on("network:hub_expired", cb);
+  return (): void => {
+    s.off("network:hub_expired", cb);
+  };
+}
+
+// === Collaborative layout + presence (client → server emits) ===
+
+/** Tell our API a node moved → it persists if it owns it + broadcasts to peers. */
+export function emitLayoutUpdate(nodeId: string, x: number, y: number): void {
+  getSocket().emit("layout:update", { node_id: nodeId, x, y });
+}
+
+/** Broadcast our pointer position (graph coords) to peers. */
+export function emitCursorUpdate(x: number, y: number): void {
+  getSocket().emit("cursor:update", { x, y });
+}
+
+/** A node moved on some machine — apply it to our graph live. */
+export function onLayoutUpdate(cb: (u: LayoutUpdate) => void): () => void {
+  const s = getSocket();
+  s.on("layout:update", cb);
+  return (): void => { s.off("layout:update", cb); };
+}
+
+/** Another client's pointer moved. */
+export function onCursorUpdate(cb: (c: CursorUpdate) => void): () => void {
+  const s = getSocket();
+  s.on("cursor:update", cb);
+  return (): void => { s.off("cursor:update", cb); };
+}
+
+/** Tell our API a machine's container moved → owner persists + peers update. */
+export function emitHostLayout(hubId: string, x: number, y: number): void {
+  getSocket().emit("host:layout", { hub_id: hubId, x, y });
+}
+
+/** A machine's container moved on some view — reposition its block. */
+export function onHostLayout(cb: (h: HostLayoutUpdate) => void): () => void {
+  const s = getSocket();
+  s.on("host:layout", cb);
+  return (): void => { s.off("host:layout", cb); };
 }

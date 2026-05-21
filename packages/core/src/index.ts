@@ -45,6 +45,19 @@ export {
   startAgentPresence,
 } from "./agents";
 export type { AgentAnnouncement, AgentDirectoryOptions, AgentPresenceOptions, AgentPresenceHandle } from "./agents";
+export {
+  NETWORK_SNAPSHOT_TOPIC, NETWORK_BYE_TOPIC, NETWORK_SNAPSHOT_DEFAULT_MS,
+  NETWORK_LAYOUT_TOPIC, NETWORK_CURSOR_TOPIC, NETWORK_HOST_LAYOUT_TOPIC,
+  resolveHubId, resolveHubLabel, buildHubRef, resolveHubCanvasPos, setHubCanvasPos,
+  NetworkDirectory, startNetworkPublisher,
+  UriConnector, ConnectorRegistry, createDefaultConnectorRegistry,
+} from "./network";
+export type {
+  NetworkSnapshot, NetworkBye, NetworkDirectoryOptions,
+  NetworkPublisherOptions, NetworkPublisherHandle,
+  LayoutUpdate, CursorUpdate, HostLayoutUpdate,
+  JoinDescriptor, PeerConnector,
+} from "./network";
 export { StoreService } from "./store";
 export type {
   StoreRegistry, StoreRepo, StoreNode, StoreNodeStatus, StoreInstallResult,
