@@ -9,10 +9,8 @@ import {
   Query,
   HttpException,
   HttpStatus,
-  UseGuards,
 } from "@nestjs/common";
 import { BrainService } from "@brain/core";
-import { BrokerTokenGuard } from "../auth/broker-token.guard";
 import {
   type NodeInstanceConfig,
   type NodeInfo,
@@ -50,7 +48,6 @@ export class NodesController {
   }
 
   @Post()
-  @UseGuards(BrokerTokenGuard)
   async spawn(@Body() config: NodeInstanceConfig): Promise<NodeInfo> {
     try {
       return await this.brain.spawnNode(config);
@@ -61,7 +58,6 @@ export class NodesController {
   }
 
   @Delete(":id")
-  @UseGuards(BrokerTokenGuard)
   kill(
     @Param("id") id: string,
     @Body("reason") reason?: string,
@@ -74,7 +70,6 @@ export class NodesController {
   }
 
   @Post(":id/stop")
-  @UseGuards(BrokerTokenGuard)
   stop(
     @Param("id") id: string,
     @Body("reason") reason?: string,
@@ -88,7 +83,6 @@ export class NodesController {
   }
 
   @Post(":id/start")
-  @UseGuards(BrokerTokenGuard)
   async start(
     @Param("id") id: string,
     @Body("message") message?: string,
