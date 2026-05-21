@@ -117,14 +117,28 @@ describe("NetworkDirectory", () => {
     expect(dir.hubs()).toHaveLength(0);
   });
 
-  it("prunes hubs whose last snapshot is older than ttl", () => {
+  it("keeps a hub even if its snapshot ts is far behind our clock (skew-proof)", () => {
     const bus = new BusService();
-    dir = new NetworkDirectory(bus, SELF, { ttlMs: 1_000 });
+    dir = new NetworkDirectory(bus, SELF, { ttlMs: 9_000 });
     dir.attach();
 
-    publishSnapshot(bus, "stale", [node("z")], { ts: Date.now() - 5_000 });
+    // Peer's clock is 1h behind ours — must NOT be treated as expired,
+    // since we just received it. Expiry is about local receipt time.
+    publishSnapshot(bus, "skewed", [node("z")], { ts: Date.now() - 3_600_000 });
 
-    // Accessor runs the sweep — stale entry is gone.
+    expect(dir.hubs()).toHaveLength(1);
+    expect(dir.mergedNodes()).toHaveLength(1);
+  });
+
+  it("prunes a hub we stop hearing from past ttl", async () => {
+    const bus = new BusService();
+    dir = new NetworkDirectory(bus, SELF, { ttlMs: 30 });
+    dir.attach();
+
+    publishSnapshot(bus, "gone", [node("z")]);
+    expect(dir.hubs()).toHaveLength(1);
+
+    await new Promise((r) => setTimeout(r, 50)); // no further snapshots
     expect(dir.hubs()).toHaveLength(0);
     expect(dir.mergedNodes()).toHaveLength(0);
   });

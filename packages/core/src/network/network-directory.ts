@@ -38,6 +38,15 @@ export interface NetworkDirectoryOptions {
 
 export class NetworkDirectory extends EventEmitter {
   private readonly seen = new Map<string, NetworkSnapshot>();
+  /**
+   * Local-clock receipt time per hub. Expiry is measured against THIS, not
+   * the snapshot's own `ts` — that `ts` is stamped on the *publisher's*
+   * clock, and any skew between machines (a remote peer a few seconds
+   * behind) would otherwise make every snapshot look instantly stale and
+   * the peer would never render. Liveness = "did we hear from it recently",
+   * which only our own clock can answer consistently.
+   */
+  private readonly lastSeen = new Map<string, number>();
   private readonly ttlMs: number;
   private readonly sweepIntervalMs: number;
   private sweepTimer: NodeJS.Timeout | null = null;
@@ -87,6 +96,7 @@ export class NetworkDirectory extends EventEmitter {
     if (snap.hub.hub_id === this.selfHubId) return; // never track self
     const isNew = !this.seen.has(snap.hub.hub_id);
     this.seen.set(snap.hub.hub_id, snap);
+    this.lastSeen.set(snap.hub.hub_id, Date.now());
     if (isNew) this.emit("hub:added", snap.hub);
     this.emit("hub:snapshot", snap);
   }
@@ -96,15 +106,15 @@ export class NetworkDirectory extends EventEmitter {
     try { bye = JSON.parse(content) as NetworkBye; } catch { return; }
     if (!bye?.hub_id || bye.hub_id === this.selfHubId) return;
     const snap = this.seen.get(bye.hub_id);
-    if (snap) { this.seen.delete(bye.hub_id); this.emit("hub:expired", snap.hub); }
+    if (snap) { this.drop(bye.hub_id); this.emit("hub:expired", snap.hub); }
   }
 
   /** Live peer hubs, most-recently-seen first. Pruned by ttl. */
   hubs(): HubRef[] {
     this.sweepExpired();
-    return Array.from(this.seen.values())
-      .sort((a, b) => b.ts - a.ts)
-      .map((s) => s.hub);
+    return Array.from(this.seen.keys())
+      .sort((a, b) => (this.lastSeen.get(b) ?? 0) - (this.lastSeen.get(a) ?? 0))
+      .map((id) => this.seen.get(id)!.hub);
   }
 
   /** Raw peer snapshots (hub + its nodes). Pruned by ttl. */
@@ -132,10 +142,15 @@ export class NetworkDirectory extends EventEmitter {
   private sweepExpired(): void {
     const cutoff = Date.now() - this.ttlMs;
     for (const [id, snap] of this.seen) {
-      if (snap.ts < cutoff) {
-        this.seen.delete(id);
+      if ((this.lastSeen.get(id) ?? 0) < cutoff) {
+        this.drop(id);
         this.emit("hub:expired", snap.hub);
       }
     }
+  }
+
+  private drop(hubId: string): void {
+    this.seen.delete(hubId);
+    this.lastSeen.delete(hubId);
   }
 }
