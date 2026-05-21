@@ -5,7 +5,7 @@ import {
 } from "@nestjs/websockets";
 import { Logger } from "@nestjs/common";
 import { Server } from "socket.io";
-import { BrainService, type NetworkSnapshot } from "@brain/core";
+import { BrainService, resolveHubId, getDb, type NetworkSnapshot } from "@brain/core";
 import type { HubRef } from "@brain/sdk";
 
 /**
@@ -78,7 +78,11 @@ export class DashboardGateway implements OnGatewayInit {
     // directory fires `agent:announced` on every announce/refresh and
     // `agent:expired` when an entry lapses its TTL; we mirror both to clients
     // so host containers appear/update/vanish in real time.
+    // Skip our own announcement — we already render as the "Local" host;
+    // echoing it would add an empty duplicate agent card on our own graph.
+    const selfId = resolveHubId(getDb());
     this.brain.agents.on("agent:announced", (ann) => {
+      if (ann.agent_id === selfId) return;
       this.server.emit("agent:announced", ann);
     });
 
