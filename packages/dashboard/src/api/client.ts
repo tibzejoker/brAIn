@@ -22,6 +22,8 @@ export interface TransportInfo {
   lan_ips: string[];
   /** NATS auth token enforced by the embedded broker (null in external mode). */
   token: string | null;
+  /** This hub's id — used to filter our own presence cursor out of the view. */
+  hub_id: string;
   /** Our own externally-reachable HTTP base (best guess, first of
    *  `http_urls`) — used by the invite URI `&api=`. */
   http_url: string | null;

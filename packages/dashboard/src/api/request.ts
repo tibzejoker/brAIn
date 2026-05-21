@@ -18,6 +18,12 @@ export function setApiToken(token: string | null): void {
   apiToken = token;
 }
 
+/** This hub's own id — set from `GET /network/transport` at startup, used
+ *  to filter our own presence cursor out of the view. */
+let selfHubId = "";
+export function setSelfHubId(id: string): void { selfHubId = id; }
+export function getSelfHubId(): string { return selfHubId; }
+
 export async function request<T>(
   path: string,
   opts?: RequestInit & { baseUrl?: string },

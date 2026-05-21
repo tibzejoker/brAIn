@@ -19,6 +19,7 @@ import "@xyflow/react/dist/style.css";
 import type { NodeSnapshot, NodeTypeConfig } from "../../api/types";
 import { getAgents, type AgentSnapshot } from "../../api/client";
 import { emitLayoutUpdate, emitCursorUpdate, onLayoutUpdate, onCursorUpdate } from "../../api/socket";
+import { getSelfHubId } from "../../api/request";
 import type { CursorUpdate } from "../../api/types";
 import { RemoteCursors } from "./RemoteCursors";
 import { onAgentAnnounced, onAgentExpired } from "../../api/socket";
@@ -677,6 +678,7 @@ export function NetworkGraph({
         ));
       }),
       onCursorUpdate((c) => {
+        if (c.hub_id === getSelfHubId()) return; // never render our own pointer
         const rx = { ...c, ts: Date.now() };
         setCursors((prev) => [...prev.filter((p) => p.hub_id !== c.hub_id), rx]);
       }),
@@ -717,6 +719,8 @@ export function NetworkGraph({
       onPaneClick={handlePaneClick}
       onInit={handleInit}
       deleteKeyCode={null}
+      minZoom={0.15}
+      maxZoom={4}
       proOptions={{ hideAttribution: true }}
     >
       <Background variant={BackgroundVariant.Dots} gap={20} size={1} color="var(--color-border)" />

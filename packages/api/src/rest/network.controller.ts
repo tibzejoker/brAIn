@@ -1,5 +1,5 @@
 import { Controller, Get, Post, Delete, Body, Query, Param, HttpException, HttpStatus, Logger } from "@nestjs/common";
-import { BrainService, BrokerService, readBrokerPrefs, writeBrokerPrefs, readExternalBrokerPrefs, writeExternalBrokerPrefs, clearExternalBrokerPrefs, getDb, getSetting, setSetting, type HistoryEntry, type ProviderStatus, type CLIStatus } from "@brain/core";
+import { BrainService, BrokerService, readBrokerPrefs, writeBrokerPrefs, readExternalBrokerPrefs, writeExternalBrokerPrefs, clearExternalBrokerPrefs, getDb, getSetting, setSetting, resolveHubId, type HistoryEntry, type ProviderStatus, type CLIStatus } from "@brain/core";
 import { type Message, type NodeInfo, type NodeState } from "@brain/sdk";
 import { networkInterfaces } from "node:os";
 import { randomBytes } from "node:crypto";
@@ -186,6 +186,9 @@ export class NetworkController {
     bind_address: string;
     lan_ips: string[];
     token: string | null;
+    /** This hub's stable id — lets the dashboard filter out its own
+     *  presence cursor (never render your own pointer). */
+    hub_id: string;
     /** Our own externally-reachable HTTP base (best guess, first of
      *  `http_urls`) — used by the invite URI `&api=`. */
     http_url: string | null;
@@ -211,6 +214,7 @@ export class NetworkController {
       bind_address: prefs.bindAddress,
       lan_ips: getLanIps(),
       token,
+      hub_id: resolveHubId(getDb()),
       http_url: resolveSelfHttpUrls()[0] ?? null,
       http_urls: resolveSelfHttpUrls(),
       joined_hub: fileExternal
