@@ -18,6 +18,7 @@ import {
 import "@xyflow/react/dist/style.css";
 import type { NodeSnapshot, NodeTypeConfig } from "../../api/types";
 import { updateNodePosition, getAgents, type AgentSnapshot } from "../../api/client";
+import { getLayoutPos, setLayoutPos } from "../../api/layout-store";
 import { onAgentAnnounced, onAgentExpired } from "../../api/socket";
 import { NodeBlock } from "./NodeBlock";
 import { HostGroup } from "./HostGroup";
@@ -89,10 +90,16 @@ function snapshotToFlowNode(
   // `expandParent: true` makes the parent grow automatically if the child is
   // dragged past the current border, rather than clamping the child like
   // `extent: "parent"` would.
+  // A per-viewer layout override (localStorage) wins over everything: it's
+  // how THIS machine arranged the merged graph, and it must survive reloads
+  // and snapshot churn — crucial for remote peer nodes we can't persist
+  // server-side. Falls back to the stored/grid position otherwise.
+  const override = getLayoutPos(n.id);
   const hasStoredPos = n.position.x !== 0 || n.position.y !== 0;
-  const position = parentId && !hasStoredPos && gridSlot
-    ? gridSlot
-    : { x: n.position.x, y: n.position.y };
+  const position = override
+    ?? (parentId && !hasStoredPos && gridSlot
+      ? gridSlot
+      : { x: n.position.x, y: n.position.y });
 
   return {
     id: n.id,
@@ -592,11 +599,12 @@ export function NetworkGraph({
     // Host containers are synthetic — rebuilt from agents/snapshots every
     // poll — so we never persist their drag position.
     if (node.type === HOST_NODE_TYPE) return;
-    // For child nodes the position is now RELATIVE to its parent. We persist
-    // those relative coords directly; on next load, snapshotToFlowNode treats
-    // them as relative when the snapshot still has a parent. If the host
-    // layer is ever disabled, the existing absolute-vs-relative meaning
-    // would need a migration — flagged in the host-layout.ts header.
+    // For child nodes the position is now RELATIVE to its parent. Save it to
+    // our per-viewer layout (so it survives reload + snapshot churn for ALL
+    // nodes, incl. remote peers) AND, for nodes we host, persist server-side
+    // so this hub's other clients agree. A remote node isn't in our registry,
+    // so the PATCH is a harmless no-op there — the localStorage copy carries it.
+    setLayoutPos(node.id, node.position.x, node.position.y);
     updateNodePosition(node.id, node.position.x, node.position.y).catch(noop);
     // Re-run the rebuild so the host hugs all four sides around the dropped
     // position (the live drag only sized right/bottom).
