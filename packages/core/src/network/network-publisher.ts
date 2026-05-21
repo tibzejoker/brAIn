@@ -33,8 +33,11 @@ const CHANGE_DEBOUNCE_MS = 100;
 
 export interface NetworkPublisherOptions {
   bus: IBusService;
-  /** Who we are — `buildHubRef(db, httpUrl)`. */
-  hub: HubRef;
+  /** Who we are. Pass a GETTER (`() => buildHubRef(db, httpUrls)`) so
+   *  mutable fields like `canvas_pos` are re-read on every snapshot — a
+   *  cached value would freeze the hub's block position for peers. A static
+   *  `HubRef` is still accepted for tests that don't mutate it. */
+  hub: HubRef | (() => HubRef);
   /** Current nodes this hub hosts (caller filters out remote stubs). */
   snapshot: () => NodeInfo[];
   /** Emitter whose change events trigger an immediate (debounced)
@@ -52,11 +55,13 @@ export interface NetworkPublisherHandle {
 export function startNetworkPublisher(opts: NetworkPublisherOptions): NetworkPublisherHandle {
   const { bus, hub, snapshot, changes } = opts;
   const intervalMs = opts.intervalMs ?? NETWORK_SNAPSHOT_DEFAULT_MS;
+  const hubRef = (): HubRef => (typeof hub === "function" ? hub() : hub);
 
   const publishNow = (): void => {
-    const snap: NetworkSnapshot = { hub, nodes: snapshot(), ts: Date.now() };
+    const h = hubRef();
+    const snap: NetworkSnapshot = { hub: h, nodes: snapshot(), ts: Date.now() };
     bus.publish({
-      from: `hub:${hub.hub_id}`,
+      from: `hub:${h.hub_id}`,
       topic: NETWORK_SNAPSHOT_TOPIC,
       type: "text",
       criticality: 0,
@@ -82,9 +87,10 @@ export function startNetworkPublisher(opts: NetworkPublisherOptions): NetworkPub
       clearInterval(timer);
       if (debounce) { clearTimeout(debounce); debounce = null; }
       if (changes) for (const ev of CHANGE_EVENTS) changes.off(ev, onChange);
-      const bye: NetworkBye = { hub_id: hub.hub_id, ts: Date.now() };
+      const selfId = hubRef().hub_id;
+      const bye: NetworkBye = { hub_id: selfId, ts: Date.now() };
       bus.publish({
-        from: `hub:${hub.hub_id}`,
+        from: `hub:${selfId}`,
         topic: NETWORK_BYE_TOPIC,
         type: "text",
         criticality: 0,
