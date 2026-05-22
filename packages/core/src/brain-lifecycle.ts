@@ -58,6 +58,11 @@ export interface LifecycleDeps {
    * route the kill request to the right agent.
    */
   remoteNodes: Map<string, string>;
+  /** Resolve the owning hub (== agent id) of a node we did NOT spawn but
+   *  discovered on a peer via the network snapshot. Lets lifecycle commands
+   *  route to ANY node by id — local, remote-spawned-by-us, or peer-owned —
+   *  over the same `brain.agents.<hub>.*` command channel. */
+  ownerHubOf?: (nodeId: string) => string | undefined;
   /** Forwarded into every runner so `ctx.llm.*` resolves models against
    *  the live registry + config. */
   llmRegistry?: LLMRegistry;
@@ -224,8 +229,10 @@ export function killNode(
   reason?: string,
 ): boolean {
   // Route remote nodes through NATS — the API never owned a runner
-  // for them, so there's nothing local to stop.
-  const remoteAgent = deps.remoteNodes.get(nodeId);
+  // for them, so there's nothing local to stop. Either we spawned it
+  // remotely (remoteNodes) or it's a peer-owned node we found by id
+  // (ownerHubOf) — both reach the owning hub's command channel.
+  const remoteAgent = deps.remoteNodes.get(nodeId) ?? deps.ownerHubOf?.(nodeId);
   if (remoteAgent) {
     deps.bus.publish({
       from: callerNodeId ?? "system.api",

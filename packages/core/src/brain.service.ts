@@ -166,6 +166,9 @@ export class BrainService extends EventEmitter {
       runners: this.runners,
       globalRunMode: this.globalRunMode, loadHandler: this.loadHandler.bind(this),
       remoteNodes: this.remoteNodes,
+      // Peer-owned node → its hub id, so lifecycle commands route by id to
+      // whichever machine actually hosts the node (location-transparent).
+      ownerHubOf: (nodeId) => this.network.mergedNodes().find((n) => n.id === nodeId)?.owner_hub?.hub_id,
       peerNodes: () => this.network.mergedNodes(),
       llmRegistry: this.llm,
       llmConfig: this.llmConfig,
