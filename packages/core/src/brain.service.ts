@@ -19,7 +19,7 @@ import { AuthorityService } from "./authority";
 import { type BaseRunner, setNodeDataRoot } from "./runner";
 import { logger } from "./logger";
 import {
-  getDb, clearAll, updateNodePosition, recordHistory, getHistory,
+  getDb, clearAll, updateNodePosition, updateNodeConfig as dbUpdateNodeConfig, recordHistory, getHistory,
   type HistoryEntry, type HistoryAction,
 } from "./db";
 import {
@@ -376,6 +376,17 @@ export class BrainService extends EventEmitter {
     if (!n) return false;
     n.position.x = x; n.position.y = y;
     updateNodePosition(this.db, id, x, y);
+    return true;
+  }
+
+  /** Apply a node's config_overrides to the live registry AND persist them,
+   *  so a change (model, cli, …) survives an API restart instead of being
+   *  reverted to the seeded config by restoreNodes. */
+  updateNodeConfig(id: string, overrides: Record<string, unknown>): boolean {
+    const n = this.instanceRegistry.get(id);
+    if (!n) return false;
+    n.config_overrides = overrides;
+    dbUpdateNodeConfig(this.db, id, overrides);
     return true;
   }
 

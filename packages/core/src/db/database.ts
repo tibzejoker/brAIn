@@ -172,6 +172,15 @@ export function updateNodePosition(
   db.prepare("UPDATE node_instances SET position_x = ?, position_y = ? WHERE id = ?").run(x, y, nodeId);
 }
 
+export function updateNodeConfig(
+  db: Database.Database,
+  nodeId: string,
+  configOverrides: Record<string, unknown>,
+): void {
+  db.prepare("UPDATE node_instances SET config_overrides = ? WHERE id = ?")
+    .run(JSON.stringify(configOverrides), nodeId);
+}
+
 export function deleteNode(db: Database.Database, nodeId: string): void {
   db.prepare("DELETE FROM node_instances WHERE id = ?").run(nodeId);
 }

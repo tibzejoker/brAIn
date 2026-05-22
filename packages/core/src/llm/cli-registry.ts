@@ -1,5 +1,7 @@
-import { exec } from "child_process";
+import { spawn } from "child_process";
+import { mkdirSync } from "fs";
 import { logger } from "../logger";
+import { execCommand } from "../util/exec";
 
 export interface CLIStatus {
   name: string;
@@ -23,6 +25,29 @@ interface CLIEntry {
   installCommand: string;
   loginCommand: string;
   homepage: string;
+}
+
+export interface CLIRunResult {
+  /** The assistant's answer, extracted from the CLI's output envelope. */
+  text: string;
+  /** Untouched stdout — useful for debugging an unexpected envelope. */
+  raw: string;
+  exitCode: number;
+  /** Set when the CLI errored (non-zero exit, timeout, abort). */
+  error?: string;
+}
+
+export interface CLIRunOptions {
+  /** Working directory the CLI runs in. brAIn scopes this to the calling
+   *  node's dataDir so an agent's file ops stay in its own sandbox. */
+  cwd?: string;
+  /** Hard wall-clock cap. Agentic CLIs can run long; default 120s. */
+  timeoutMs?: number;
+  /** Abort signal — wired from `ctx.signal` so a killed wake stops the CLI. */
+  signal?: AbortSignal;
+  /** Optional line-by-line stream of stdout/stderr as the CLI works —
+   *  the developer node uses this to push live progress to its UI. */
+  onLine?: (line: string) => void;
 }
 
 const BUILTIN_CLIS: CLIEntry[] = [
@@ -57,21 +82,37 @@ const BUILTIN_CLIS: CLIEntry[] = [
 
 let instance: CLIRegistry | null = null;
 
-function runCommand(cmd: string, timeoutMs: number): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  return new Promise((resolve) => {
-    exec(cmd, { timeout: timeoutMs }, (err, stdout, stderr) => {
-      resolve({
-        stdout,
-        stderr,
-        exitCode: err ? (err.code ?? 1) : 0,
-      });
-    });
-  });
+/** Pull the assistant's answer out of a CLI's stdout. Each agentic CLI
+ *  has its own envelope; we parse the known shape and fall back to common
+ *  field names, then to the raw text — so an unrecognised format degrades
+ *  to "show what we got" rather than throwing. */
+function parseCliOutput(name: string, stdout: string): string {
+  const raw = stdout.trim();
+  if (!raw) return "";
+  // codex `exec` streams plain text — no JSON envelope.
+  if (name === "codex") return raw;
+  try {
+    const json = JSON.parse(raw) as Record<string, unknown>;
+    // claude-code: { type, subtype, result, ... }; gemini: { response, ... }.
+    for (const key of ["result", "response", "text", "content", "output"]) {
+      const v = json[key];
+      if (typeof v === "string" && v.length > 0) return v;
+    }
+    return raw;
+  } catch {
+    return raw; // not JSON (or partial) — hand back what the CLI printed.
+  }
 }
 
 export class CLIRegistry {
   private readonly clis = new Map<string, CLIEntry>();
   private readonly statuses = new Map<string, CLIStatus>();
+  // Absolute path resolved by `which` at detection. We spawn THIS, not the
+  // bare command name: detection runs through a shell (PATH-aware) but
+  // spawn() does not, so a CLI installed via a version-manager shim is found
+  // by `which` yet fails `spawn(name)` with ENOENT. Spawning the absolute
+  // path sidesteps the PATH mismatch entirely.
+  private readonly resolvedPaths = new Map<string, string>();
   private initialized = false;
 
   static getInstance(): CLIRegistry {
@@ -95,7 +136,7 @@ export class CLIRegistry {
     const checks = Array.from(this.clis.entries()).map(
       async ([key, cli]) => {
         try {
-          const result = await runCommand(`which ${cli.command}`, 5000);
+          const result = await execCommand(`which ${cli.command}`, { timeoutMs: 5000 });
 
           if (result.exitCode !== 0) {
             this.statuses.set(key, {
@@ -111,8 +152,12 @@ export class CLIRegistry {
             return;
           }
 
+          // Capture the absolute path so run() can spawn it directly.
+          const resolvedPath = result.stdout.trim().split("\n")[0];
+          if (resolvedPath) this.resolvedPaths.set(key, resolvedPath);
+
           // Try to get version
-          const versionResult = await runCommand(`${cli.command} ${cli.versionFlag}`, 10000);
+          const versionResult = await execCommand(`${cli.command} ${cli.versionFlag}`, { timeoutMs: 10000 });
           const version = versionResult.stdout.trim().split("\n")[0];
 
           this.statuses.set(key, {
@@ -165,6 +210,106 @@ export class CLIRegistry {
     return template.replace("{prompt}", `'${escaped}'`);
   }
 
+  /** CLI args for a stdin-piped invocation. Mirrors the developer node's
+   *  proven approach: the prompt goes in on stdin (no shell escaping), and
+   *  claude gets the agentic flags (`--max-turns`, skip interactive perms)
+   *  so it actually runs its tool loop instead of stalling on a prompt.
+   *  codex/gemini and unknowns stick to the portable `-p -` subset. */
+  buildCliArgs(name: string): string[] {
+    const stdinPrompt = ["-p", "-"];
+    if (name === "claude") {
+      return [...stdinPrompt, "--max-turns", "40", "--dangerously-skip-permissions"];
+    }
+    return stdinPrompt;
+  }
+
+  /** The CLI a node should use, in priority order: an explicit per-message
+   *  `cli` → the node's `config_overrides.cli` → the first available CLI.
+   *  Mirrors the developer node's `pickCli` so selection is consistent. */
+  pickCli(configCli?: string, messageCli?: string): string | undefined {
+    return messageCli ?? configCli ?? this.getAvailableCLIs()[0];
+  }
+
+  /** Run a detected CLI agent with a prompt and return its answer.
+   *
+   *  The CLI runs its OWN agentic tool loop (claude-code, codex, gemini
+   *  are themselves agents); brAIn just hands it a prompt over stdin, a
+   *  scoped cwd, and a deadline, then parses the answer out of its output
+   *  envelope. Shares the spawn+stdin path the developer node pioneered
+   *  (see buildCliArgs) so both go through one execution route. */
+  async run(name: string, prompt: string, opts: CLIRunOptions = {}): Promise<CLIRunResult> {
+    await this.initialize();
+    const cli = this.clis.get(name);
+    if (!cli) {
+      throw new Error(`Unknown CLI: ${name}. Available: ${Array.from(this.clis.keys()).join(", ")}`);
+    }
+    if (!this.isAvailable(name)) {
+      const status = this.statuses.get(name);
+      throw new Error(
+        `CLI '${name}' is not available: ${status?.error ?? "not installed"}. ` +
+        `Install with: ${status?.installCommand ?? "see dashboard"}`,
+      );
+    }
+    // Spawn the absolute path resolved at detection (PATH-independent),
+    // falling back to the bare command if detection didn't capture one.
+    const command = this.resolvedPaths.get(name) ?? cli.command;
+    const result = await this.spawnCli(command, this.buildCliArgs(name), prompt, opts);
+    const text = parseCliOutput(name, result.stdout);
+    if (result.exitCode !== 0) {
+      return {
+        text,
+        raw: result.stdout,
+        exitCode: result.exitCode,
+        error: result.stderr.trim() || `CLI '${name}' exited with code ${result.exitCode}`,
+      };
+    }
+    return { text, raw: result.stdout, exitCode: 0 };
+  }
+
+  /** Spawn a CLI with the prompt piped to stdin, capturing stdout/stderr
+   *  and optionally streaming lines as they arrive. Never rejects — a
+   *  spawn error resolves with a non-zero exitCode so callers branch on
+   *  the result rather than try/catch. */
+  private spawnCli(
+    command: string,
+    args: string[],
+    prompt: string,
+    opts: CLIRunOptions,
+  ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+    // A cwd that doesn't exist makes spawn fail with a misleading ENOENT
+    // (looks like the binary is missing). Node dataDirs are created lazily,
+    // so the sandbox dir may not exist yet — ensure it before spawning.
+    if (opts.cwd) {
+      try { mkdirSync(opts.cwd, { recursive: true }); } catch { /* best effort */ }
+    }
+    return new Promise((resolve) => {
+      const proc = spawn(command, args, {
+        cwd: opts.cwd,
+        timeout: opts.timeoutMs ?? 120_000,
+        signal: opts.signal,
+        stdio: ["pipe", "pipe", "pipe"],
+        shell: process.platform === "win32",
+      });
+      let stdout = "";
+      let stderr = "";
+      proc.stdin.on("error", () => { /* CLI may close stdin early — ignore EPIPE */ });
+      proc.stdin.write(prompt);
+      proc.stdin.end();
+      proc.stdout.on("data", (chunk: Buffer) => {
+        const text = chunk.toString();
+        stdout += text;
+        if (opts.onLine) for (const line of text.split("\n").filter(Boolean)) opts.onLine(line);
+      });
+      proc.stderr.on("data", (chunk: Buffer) => {
+        const text = chunk.toString();
+        stderr += text;
+        if (opts.onLine) for (const line of text.split("\n").filter(Boolean)) opts.onLine(`[stderr] ${line}`);
+      });
+      proc.on("close", (code) => resolve({ stdout, stderr, exitCode: code ?? 1 }));
+      proc.on("error", (err) => resolve({ stdout, stderr: stderr + err.message, exitCode: 1 }));
+    });
+  }
+
   getStatuses(): CLIStatus[] {
     return Array.from(this.statuses.values());
   }
@@ -184,6 +329,7 @@ export class CLIRegistry {
   async refresh(): Promise<void> {
     this.initialized = false;
     this.statuses.clear();
+    this.resolvedPaths.clear();
     await this.initialize();
   }
 }

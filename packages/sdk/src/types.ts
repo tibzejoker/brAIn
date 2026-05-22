@@ -439,9 +439,43 @@ export interface LLMMultiToolResult {
   args: Record<string, unknown>;
 }
 
+export interface LLMAgentOptions {
+  /** The task / prompt handed to the CLI agent. A message array is
+   *  flattened to a single prompt string (CLIs take one prompt). */
+  prompt: string | Array<{ role: "system" | "user" | "assistant"; content: string }>;
+  /** Prepended as guidance ahead of the prompt. */
+  system?: string;
+  /** Which CLI agent to run ("claude" | "codex" | "gemini" | …). Defaults
+   *  to the node's `config_overrides.cli`. Throws if neither is set. */
+  cli?: string;
+  /** Working directory for the agent. Defaults to the node's dataDir, so
+   *  file ops stay sandboxed to the node — the brAIn isolation model. */
+  cwd?: string;
+  /** Wall-clock cap (ms). Default 120_000. */
+  timeoutMs?: number;
+  /** Override the abort signal — defaults to `ctx.signal`. */
+  signal?: AbortSignal;
+}
+
+export interface LLMAgentResult {
+  /** The agent's final answer, extracted from its output envelope. */
+  text: string;
+  /** Which CLI produced it. */
+  cli: string;
+  /** Raw stdout, for debugging an unexpected envelope. */
+  raw: string;
+}
+
 export interface LLMFacade {
   /** Plain text generation. Returns the extracted answer. */
   text(opts: LLMTextOptions): Promise<string>;
+  /** Delegate a task to an installed agentic CLI (claude-code, codex,
+   *  gemini). The CLI runs its OWN tool loop; brAIn hands it a prompt,
+   *  a sandboxed cwd and a deadline, then returns its answer. Routed by
+   *  `opts.cli` → node's `config_overrides.cli`. Emits a `cli` usage
+   *  event. Throws if no CLI is selected or the selected one isn't
+   *  installed. */
+  agent(opts: LLMAgentOptions): Promise<LLMAgentResult>;
   /** Forced tool call — the model MUST emit a structured `inputSchema`-
    *  validated object. No client-side JSON parsing needed; the ai-sdk
    *  schema-validates the result. Returns the tool args. Throws if every

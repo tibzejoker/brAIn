@@ -4,6 +4,7 @@ export {
   saveNode,
   saveSubscription,
   updateNodePosition,
+  updateNodeConfig,
   deleteNode,
   loadAllNodes,
   loadSubscriptions,

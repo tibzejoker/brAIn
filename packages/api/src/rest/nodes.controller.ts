@@ -123,7 +123,9 @@ export class NodesController {
         overrides[key] = value;
       }
     }
-    node.config_overrides = overrides;
+    // Persist to the DB (not just the in-memory node) so the change survives
+    // an API restart — otherwise restoreNodes reverts it to the seeded config.
+    this.brain.updateNodeConfig(id, overrides);
     // Type-aware side effects after a config change. Publishing from
     // `system.api` (not the node id) keeps anti-loop happy so the
     // node actually receives its own reload signal.

@@ -24,6 +24,8 @@ export type { LogEntry } from "./runner";
 // from this so they land next to brain.db instead of in process.cwd().
 export { getNodeDataRoot } from "./runner/context-builder";
 export { logger, createNodeLogger } from "./logger";
+export { execCommand } from "./util/exec";
+export type { ExecResult, ExecOptions } from "./util/exec";
 export { getDb, closeDb, getSetting, setSetting, deleteSetting } from "./db";
 export type { HistoryEntry, HistoryAction } from "./db";
 export { loadSeedFile, scanSeedsDirectory } from "./seed";
