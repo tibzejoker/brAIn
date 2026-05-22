@@ -100,6 +100,29 @@ describe("ctx.llm.agent()", () => {
     await expect(llm.agent({ prompt: "x" })).rejects.toThrow(/boom/);
   });
 
+  it("routes ctx.llm.tools() through the CLI when the node is CLI-backed", async () => {
+    // The node calls tools() exactly as with a model; the framework runs the
+    // CLI and parses its {tool,args} reply into the same MultiToolResult shape.
+    const cli = fakeCli({ text: '{"tool":"respond","args":{"content":"I am a test"}}', raw: "", exitCode: 0 });
+    const llm = facade({ bus: new BusService(), cli, nodeCli: "claude" });
+
+    const picked = await llm.tools({
+      tools: { respond: { description: "reply to the user", inputSchema: { type: "object" } } },
+      prompt: "Quel modèle es-tu ?",
+    });
+
+    expect(picked.toolName).toBe("respond");
+    expect(picked.args).toEqual({ content: "I am a test" });
+    expect(cli.calls).toHaveLength(1); // went to the CLI, not a model
+  });
+
+  it("throws if the CLI picks a tool that isn't offered", async () => {
+    const cli = fakeCli({ text: '{"tool":"launch_missiles","args":{}}', raw: "", exitCode: 0 });
+    const llm = facade({ bus: new BusService(), cli, nodeCli: "claude" });
+    await expect(llm.tools({ tools: { respond: { description: "r", inputSchema: { type: "object" } } }, prompt: "x" }))
+      .rejects.toThrow(/no valid \{tool,args\}/);
+  });
+
   it("emits a `cli` usage event on the bus", async () => {
     const bus = new BusService();
     const published: Array<{ topic: string; metadata?: { call_kind?: string } }> = [];

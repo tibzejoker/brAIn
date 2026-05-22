@@ -13,133 +13,20 @@
  * and means provider swaps don't ripple into nodes.
  */
 import { generateText, tool as aiTool } from "ai";
-import type { IBusService } from "../bus/bus.interface";
-import type { LLMRegistry } from "./llm-registry";
-import type { LLMConfigStore } from "./llm-config";
-import { CLIRegistry, type CLIRunResult, type CLIRunOptions } from "./cli-registry";
+import { CLIRegistry } from "./cli-registry";
 import { extractReasoningText } from "./reasoning";
-import { wrapInputSchema, STOP_TOOL, warnIfUnionSchema } from "./llm-facade-helpers";
+import { wrapInputSchema, STOP_TOOL, warnIfUnionSchema, parseToolChoice } from "./llm-facade-helpers";
+import type {
+  LLMFacadeDeps, TextOptions, ToolOptions, MultiToolOptions, MultiToolResult,
+  AgentOptions, AgentResult, ResolutionTrace, UsageEvent,
+} from "./llm-facade-types";
 
-export interface LLMFacadeDeps {
-  registry: LLMRegistry;
-  config: LLMConfigStore;
-  bus: IBusService;
-  nodeId: string;
-  nodeName: string;
-  nodeType: string;
-  /** Per-instance preferred model (from config_overrides). Wins over
-   *  global default but falls back to it when unavailable. */
-  nodeModel?: string;
-  /** Per-instance CLI agent (from config_overrides.cli). Routes
-   *  `ctx.llm.agent()` to claude-code / codex / gemini for this node. */
-  nodeCli?: string;
-  /** This node's data directory — the default sandbox cwd for `agent()`. */
-  nodeDataDir?: string;
-  /** CLI agent runner. Defaults to the process-wide `CLIRegistry`
-   *  singleton; injectable so tests can supply a fake without a real
-   *  claude/codex/gemini binary on PATH. */
-  cli?: { run(name: string, prompt: string, opts?: CLIRunOptions): Promise<CLIRunResult> };
-  signal: AbortSignal;
-}
-
-export interface TextOptions {
-  prompt: string | Array<{ role: "system" | "user" | "assistant"; content: string }>;
-  system?: string;
-  /** Override the resolved model just for this call (rare — usually
-   *  prefer the node config or the global default). */
-  model?: string;
-  /** Override the fallback chain just for this call. */
-  fallback?: string[];
-  maxTokens?: number;
-  stripReasoning?: boolean;
-  /** Override the abort signal for this call. Defaults to `ctx.signal`
-   *  which lives for one handler iteration — pass a fresh signal here
-   *  if you fire LLM calls from a background task that outlives the
-   *  current iteration (e.g. a cache refill loop). */
-  signal?: AbortSignal;
-}
-
-export interface ToolOptions<Schema = unknown> {
-  tool: {
-    name: string;
-    description: string;
-    inputSchema: Schema;
-  };
-  prompt: string | Array<{ role: "system" | "user" | "assistant"; content: string }>;
-  system?: string;
-  model?: string;
-  fallback?: string[];
-  maxTokens?: number;
-  /** Retries with a stricter "you MUST call the tool" prompt if the
-   *  model emits text without a tool call. Default 1. */
-  retries?: number;
-  /** Optional observer of the raw ai-sdk result — handy for telemetry
-   *  / debugging without monkey-patching the facade. */
-  onResult?: (result: unknown) => void;
-  /** Override the abort signal — see TextOptions.signal. */
-  signal?: AbortSignal;
-}
-
-export interface MultiToolOptions {
-  tools: Record<string, { description: string; inputSchema: unknown }>;
-  prompt: string | Array<{ role: "system" | "user" | "assistant"; content: string }>;
-  system?: string;
-  model?: string;
-  fallback?: string[];
-  maxTokens?: number;
-  toolChoice?: "required" | "auto";
-  retries?: number;
-  signal?: AbortSignal;
-  onResult?: (result: unknown) => void;
-  /** Default true — see SDK LLMMultiToolOptions for semantics. */
-  allowStop?: boolean;
-}
-
-export interface MultiToolResult {
-  toolName: string;
-  args: Record<string, unknown>;
-}
-
-export interface AgentOptions {
-  prompt: string | Array<{ role: "system" | "user" | "assistant"; content: string }>;
-  system?: string;
-  /** Which CLI agent to run. Defaults to the node's config_overrides.cli. */
-  cli?: string;
-  /** Sandbox cwd — defaults to the node's dataDir. */
-  cwd?: string;
-  timeoutMs?: number;
-  signal?: AbortSignal;
-}
-
-export interface AgentResult {
-  text: string;
-  cli: string;
-  raw: string;
-}
-
-export interface ResolutionTrace {
-  requested: string;
-  resolved: string;
-  layer: "node-override" | "global-default" | "fallback" | "explicit";
-  fell_back: boolean;
-  fallback_reason?: string;
-}
-
-export interface UsageEvent {
-  node_id: string;
-  node_name: string;
-  node_type: string;
-  call_kind: "text" | "tool" | "tools" | "agent" | "cli";
-  requested_model: string;
-  resolution_layer: ResolutionTrace["layer"];
-  resolved_model: string;
-  provider: string;
-  fell_back: boolean;
-  fallback_reason?: string;
-  latency_ms: number;
-  tokens?: { input?: number; output?: number; total?: number };
-  error?: string;
-}
+// Re-export so existing imports `from "./llm-facade"` (and the package index)
+// keep working after the types moved to a sibling module.
+export type {
+  LLMFacadeDeps, TextOptions, ToolOptions, MultiToolOptions, MultiToolResult,
+  AgentOptions, AgentResult, ResolutionTrace, UsageEvent,
+} from "./llm-facade-types";
 
 export class LLMFacade {
   constructor(private readonly deps: LLMFacadeDeps) {}
@@ -157,6 +44,12 @@ export class LLMFacade {
    *  Each attempt emits its own `llm.usage` event so the dashboard sees
    *  the failover trail, not just the final result. */
   async text(opts: TextOptions): Promise<string> {
+    // CLI-backed node (and no per-call model override): the framework runs the
+    // CLI and hands back its text. The node just asked for an answer.
+    if (this.deps.nodeCli && !opts.model) {
+      const result = await this.agent({ prompt: opts.prompt, system: opts.system, signal: opts.signal });
+      return result.text;
+    }
     const candidates = this.buildCandidates(opts.model, opts.fallback);
     if (candidates.length === 0) {
       throw new Error("ctx.llm.text: no candidate models available");
@@ -355,10 +248,6 @@ export class LLMFacade {
     if (opts.allowStop !== false && "stop" in opts.tools) {
       throw new Error("ctx.llm.tools: `stop` is a framework-reserved tool name. Rename your tool or pass allowStop: false.");
     }
-    const candidates = this.buildCandidates(opts.model, opts.fallback);
-    if (candidates.length === 0) {
-      throw new Error("ctx.llm.tools: no candidate models available");
-    }
     // Warn per-tool on oneOf — same discipline as `tool()`. Multi-tool
     // is precisely the right replacement for oneOf at the dispatcher
     // level; warning here is a belt-and-suspenders catch when someone
@@ -371,10 +260,23 @@ export class LLMFacade {
       ? opts.tools
       : { ...opts.tools, stop: STOP_TOOL };
     const toolNames = Object.keys(effectiveTools);
+
+    // Backend selection is the framework's job, not the node's: if this node
+    // runs on a CLI agent (and the call didn't force a model), route there and
+    // return the SAME {toolName,args} shape. The handler never knows whether a
+    // model or a CLI fulfilled the request — it just sent an instruction.
+    if (this.deps.nodeCli && !opts.model) {
+      return this.toolsViaCli(this.deps.nodeCli, opts, effectiveTools, toolNames);
+    }
+
+    const candidates = this.buildCandidates(opts.model, opts.fallback);
+    if (candidates.length === 0) {
+      throw new Error("ctx.llm.tools: no candidate models available");
+    }
     const top = candidates[0].spec;
     const failedProviders = new Set<string>();
     let lastError: Error | undefined;
-    const messages = this.normaliseMessages(opts.prompt);
+    const baseMessages = this.normaliseMessages(opts.prompt);
     const wrapped = Object.fromEntries(
       Object.entries(effectiveTools).map(([name, t]) => [
         name,
@@ -385,7 +287,10 @@ export class LLMFacade {
       ]),
     );
     const toolChoice = opts.toolChoice ?? "required";
-    const maxRetries = Math.max(0, opts.retries ?? 1);
+    // Default 2 retries (3 tries): try 0 with full context, then up to two
+    // context-stripped "reissue as a tool call" corrections — small models
+    // often ramble in prose first but comply once the noise is removed.
+    const maxRetries = Math.max(0, opts.retries ?? 2);
 
     for (const candidate of candidates) {
       const provider = candidate.spec.split("/")[0];
@@ -401,16 +306,30 @@ export class LLMFacade {
         fell_back: candidate.spec !== top,
         fallback_reason: candidate.spec !== top ? (lastError?.message ?? `${top} unavailable`) : undefined,
       };
+      // Text the model emitted instead of a tool call on the previous try —
+      // fed back (without the original conversation) to focus the correction.
+      let lastText = "";
       for (let attempt = 0; attempt <= maxRetries; attempt++) {
         const start = Date.now();
         try {
           const model = this.deps.registry.getModel(candidate.spec);
-          const stricterSuffix = attempt === 0
-            ? ""
-            : `\n\n>>> Previous attempt did not call a tool. You MUST call exactly one of: ${toolNames.join(", ")}. Do not reply in plain text.`;
+          // Try 0: the real prompt. Retries: drop the conversation and ask the
+          // model to reissue ITS OWN failed output as a tool call. Stripping
+          // the context stops a small model re-rambling about the question.
+          const system = attempt === 0
+            ? (opts.system ?? "")
+            : "You are a tool-calling interface. Respond ONLY by calling exactly one of the available tools — never plain text.";
+          const messages = attempt === 0
+            ? baseMessages
+            : [{
+                role: "user" as const,
+                content:
+                  `Your previous reply was plain text, not a tool call:\n\n"""${lastText.slice(0, 600)}"""\n\n` +
+                  `That is invalid. Call EXACTLY ONE of these tools now: ${toolNames.join(", ")}. Output only the tool call, nothing else.`,
+              }];
           const result = await generateText({
             model,
-            system: (opts.system ?? "") + stricterSuffix,
+            system,
             messages,
             tools: wrapped,
             toolChoice,
@@ -433,6 +352,8 @@ export class LLMFacade {
             });
             return picked;
           }
+          // Remember the prose so the next attempt can quote it back.
+          lastText = (result as { text?: string }).text ?? lastText;
           this.emitUsage({
             call_kind: "tools", resolution, latency_ms: Date.now() - start,
             tokens: usage ? { input: usage.inputTokens, output: usage.outputTokens, total: usage.totalTokens } : undefined,
@@ -456,6 +377,46 @@ export class LLMFacade {
       }
     }
     throw lastError ?? new Error("ctx.llm.tools: every candidate failed");
+  }
+
+  /** The CLI backend for `tools()`. Hands the CLI the tool catalog + the
+   *  conversation and asks for a single `{tool,args}` JSON, then parses it
+   *  back into the uniform MultiToolResult — so a node gets the identical
+   *  shape whether a model or a CLI made the choice. */
+  private async toolsViaCli(
+    cli: string,
+    opts: MultiToolOptions,
+    effectiveTools: Record<string, { description: string; inputSchema: unknown }>,
+    toolNames: string[],
+  ): Promise<MultiToolResult> {
+    const registry = this.deps.cli ?? CLIRegistry.getInstance();
+    const catalog = Object.entries(effectiveTools)
+      .map(([name, t]) => `- ${name}: ${t.description}\n    args JSON Schema: ${JSON.stringify(t.inputSchema)}`)
+      .join("\n");
+    const prompt =
+      `${this.renderPrompt(opts.prompt, opts.system)}\n\n## Decide the next action\n` +
+      `Choose EXACTLY ONE tool from this catalog:\n${catalog}\n\n` +
+      `Reply with ONLY a JSON object: {"tool":"<name>","args":{...}} — no prose, no ` +
+      `markdown fences. "args" must satisfy that tool's schema.`;
+    const resolution: ResolutionTrace = { requested: `cli/${cli}`, resolved: `cli/${cli}`, layer: "explicit", fell_back: false };
+    const start = Date.now();
+    try {
+      const result = await registry.run(cli, prompt, {
+        cwd: this.deps.nodeDataDir,
+        signal: opts.signal ?? this.deps.signal,
+      });
+      if (result.error) throw new Error(result.error);
+      const picked = parseToolChoice(result.text, toolNames);
+      this.emitUsage({ call_kind: "cli", resolution, latency_ms: Date.now() - start, error: picked ? undefined : "no tool choice parsed" });
+      if (!picked) {
+        throw new Error(`ctx.llm.tools(${cli}): no valid {tool,args} for one of ${toolNames.join(", ")}`);
+      }
+      return picked;
+    } catch (err) {
+      const m = err instanceof Error ? err.message : String(err);
+      this.emitUsage({ call_kind: "cli", resolution, latency_ms: Date.now() - start, error: m });
+      throw err instanceof Error ? err : new Error(m);
+    }
   }
 
   /** Delegate a task to an installed agentic CLI (claude-code, codex,

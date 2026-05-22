@@ -5,6 +5,26 @@
  */
 import { jsonSchema } from "ai";
 import { logger } from "../logger";
+import { parseTolerantJson } from "./json-repair";
+
+/** Parse a CLI agent's `{ "tool": "...", "args": {...} }` reply into the
+ *  same shape `ctx.llm.tools()` returns for a model. Pulls the first JSON
+ *  object out of the text (CLIs sometimes wrap it in prose/fences) and
+ *  validates the tool name. Returns null when nothing usable is found. */
+export function parseToolChoice(
+  text: string,
+  toolNames: string[],
+): { toolName: string; args: Record<string, unknown> } | null {
+  const match = text.match(/\{[\s\S]*\}/);
+  if (!match) return null;
+  try {
+    const obj = parseTolerantJson<{ tool?: string; args?: Record<string, unknown> }>(match[0]);
+    if (obj.tool && toolNames.includes(obj.tool)) {
+      return { toolName: obj.tool, args: obj.args ?? {} };
+    }
+  } catch { /* not valid JSON — fall through */ }
+  return null;
+}
 
 /** Detect plain-JSON-Schema vs zod. Zod schemas expose `parse()`; JSON
  *  Schema is a plain object. ai-sdk's `tool()` accepts both but needs
