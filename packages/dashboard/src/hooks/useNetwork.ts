@@ -22,7 +22,7 @@ interface UseNetworkResult {
  *  changed we must NOT replace the nodes array, or React Flow re-lays-out
  *  the whole graph on a timer — which pegs a phone until it reloads. */
 function nodeSig(n: NodeSnapshot): string {
-  return `${n.id}:${n.state}:${Math.round(n.position?.x ?? 0)},${Math.round(n.position?.y ?? 0)}`;
+  return `${n.id}:${n.state}:${Math.round(n.position.x)},${Math.round(n.position.y)}`;
 }
 function sameNodeSet(a: NodeSnapshot[], b: NodeSnapshot[]): boolean {
   if (a.length !== b.length) return false;
