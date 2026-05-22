@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { NodeSnapshot } from "../api/types";
-import { onMessagePublished } from "../api/socket";
+import { onMessagePublished, isInfraTopic } from "../api/socket";
 import { getMessages } from "../api/client";
 
 interface Flow {
@@ -25,6 +25,12 @@ export function useMessageFlows(nodes: NodeSnapshot[]): Flow[] {
   // Map: "sourceId->targetId:topic" -> Flow
   const flowMapRef = useRef(new Map<string, Flow>());
   const [flows, setFlows] = useState<Flow[]>([]);
+  // Hold nodes in a ref so recordMessage stays referentially stable. Without
+  // this it was recreated on every nodes change (~every snapshot, 2+ hubs),
+  // which re-fired the seed effect below → a getMessages({last:100}) storm +
+  // full recompute on a loop that wedged the tab.
+  const nodesRef = useRef(nodes);
+  nodesRef.current = nodes;
 
   const computeFlows = useCallback((): void => {
     setFlows(Array.from(flowMapRef.current.values()));
@@ -32,7 +38,10 @@ export function useMessageFlows(nodes: NodeSnapshot[]): Flow[] {
 
   const recordMessage = useCallback(
     (fromNodeId: string, topic: string): void => {
-      for (const node of nodes) {
+      // Infra topics (snapshots/cursors/discovery/telemetry/commands) aren't
+      // node-to-node conversation flows — skip them entirely.
+      if (isInfraTopic(topic)) return;
+      for (const node of nodesRef.current) {
         if (node.id === fromNodeId) continue;
 
         for (const sub of node.subscriptions) {
@@ -55,12 +64,12 @@ export function useMessageFlows(nodes: NodeSnapshot[]): Flow[] {
         }
       }
     },
-    [nodes],
+    [],
   );
 
-  // Seed from history on mount
+  // Seed from history on mount (once — recordMessage is now stable).
   useEffect(() => {
-    getMessages({ last: 100 })
+    getMessages({ last: 100, exclude: "brain.network.*,brain.agents.*,llm.usage" })
       .then((msgs) => {
         for (const msg of msgs) {
           recordMessage(msg.from, msg.topic);

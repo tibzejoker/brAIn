@@ -29,6 +29,8 @@ export function App(): React.ReactElement {
     setTopicFilter,
     minCriticality,
     setMinCriticality,
+    showInfra,
+    setShowInfra,
   } = useMessages();
   const { types } = useNodeTypes();
   const { node: selectedNode, select: selectNode, refresh: refreshNode } = useSelectedNode();
@@ -191,6 +193,8 @@ export function App(): React.ReactElement {
           onTopicFilterChange={setTopicFilter}
           minCriticality={minCriticality}
           onMinCriticalityChange={setMinCriticality}
+          showInfra={showInfra}
+          onShowInfraChange={setShowInfra}
         />
       )}
 
