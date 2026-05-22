@@ -78,15 +78,25 @@ export class NetworkController {
     @Query("from") from?: string,
     @Query("last") last?: string,
     @Query("min_criticality") minCriticality?: string,
+    @Query("exclude") exclude?: string,
   ): Message[] {
-    return this.brain.bus.getMessageHistory({
-      topic,
-      from,
-      last: last ? parseInt(last, 10) : undefined,
-      min_criticality: minCriticality
-        ? parseInt(minCriticality, 10)
-        : undefined,
-    });
+    const lastN = last ? parseInt(last, 10) : undefined;
+    const minCrit = minCriticality ? parseInt(minCriticality, 10) : undefined;
+    // No exclude → fast path, let the bus apply `last` itself.
+    if (!exclude) {
+      return this.brain.bus.getMessageHistory({ topic, from, last: lastN, min_criticality: minCrit });
+    }
+    // With exclude we must filter BEFORE capping, or a window full of
+    // infra topics (cursor/snapshot) would leave nothing meaningful. Pull
+    // the full retained history, drop excluded topics, then take the last N.
+    // Comma-separated; a trailing `*` is a prefix wildcard (`brain.network.*`).
+    const patterns = exclude.split(",").map((s) => s.trim()).filter(Boolean);
+    const blocked = (t: string): boolean =>
+      patterns.some((p) => (p.endsWith("*") ? t.startsWith(p.slice(0, -1)) : t === p));
+    const filtered = this.brain.bus
+      .getMessageHistory({ topic, from, min_criticality: minCrit })
+      .filter((m) => !blocked(m.topic));
+    return lastN ? filtered.slice(-lastN) : filtered;
   }
 
   /**
