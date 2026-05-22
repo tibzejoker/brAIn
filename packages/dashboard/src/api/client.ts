@@ -101,12 +101,15 @@ export function getMessages(opts?: {
   last?: number;
   topic?: string;
   min_criticality?: number;
+  /** Comma-separated topic patterns to drop (trailing `*` = prefix). */
+  exclude?: string;
 }): Promise<Message[]> {
   const params = new URLSearchParams();
   if (opts?.last !== undefined) params.set("last", String(opts.last));
   if (opts?.topic) params.set("topic", opts.topic);
   if (opts?.min_criticality !== undefined)
     params.set("min_criticality", String(opts.min_criticality));
+  if (opts?.exclude) params.set("exclude", opts.exclude);
   const qs = params.toString();
   const suffix = qs ? `?${qs}` : "";
   return request(`/network/messages${suffix}`);

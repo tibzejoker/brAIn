@@ -9,6 +9,8 @@ interface MessageLogProps {
   onTopicFilterChange: (v: string) => void;
   minCriticality: number;
   onMinCriticalityChange: (v: number) => void;
+  showInfra: boolean;
+  onShowInfraChange: (v: boolean) => void;
 }
 
 function formatTime(ts: number): string {
@@ -46,6 +48,8 @@ export function MessageLog({
   onTopicFilterChange,
   minCriticality,
   onMinCriticalityChange,
+  showInfra,
+  onShowInfraChange,
 }: MessageLogProps): React.ReactElement {
   const scrollRef = useRef<HTMLDivElement>(null);
   const [openTraceId, setOpenTraceId] = useState<string | null>(null);
@@ -82,6 +86,15 @@ export function MessageLog({
               </option>
             ))}
           </select>
+        </label>
+        <label className="flex items-center gap-1 text-text-muted cursor-pointer" title="Show framework infra topics (snapshots, cursors, discovery, telemetry) — hidden by default to avoid spam">
+          <input
+            type="checkbox"
+            checked={showInfra}
+            onChange={(e) => onShowInfraChange(e.target.checked)}
+            className="accent-accent"
+          />
+          infra
         </label>
         <span className="ml-auto text-text-muted">
           {messages.length} messages

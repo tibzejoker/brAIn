@@ -40,8 +40,13 @@ export function HostGroup({ data }: NodeProps): React.ReactElement {
   const accent = ACCENT_BY_KIND[d.kind];
   const isMe = d.kind === "local";
   return (
+    // NOTE: do NOT add `backdrop-blur` here. On iOS Safari, backdrop-filter on
+    // these large host containers re-rasterises everything behind them on every
+    // pan/zoom — it reliably crashes the WebKit renderer (the whole page reloads
+    // then "a problem repeatedly occurred"), especially in the merged peer view.
+    // Confirmed by A/B: re-adding the blur crashes mobile, removing it fixes it.
     <div
-      className="w-full h-full rounded-lg border-2 border-dashed bg-surface/30 backdrop-blur-[2px] flex flex-col"
+      className="w-full h-full rounded-lg border-2 border-dashed bg-surface/30 flex flex-col"
       style={{
         borderColor: accent,
         // Subtle violet wash on the user's own host so it reads as

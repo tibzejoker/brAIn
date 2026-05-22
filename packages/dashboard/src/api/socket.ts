@@ -12,6 +12,17 @@ import type {
 } from "./types";
 import type { AgentSnapshot } from "./client";
 
+/** Framework-internal high-frequency topics (peer-sync snapshots/cursors,
+ *  agent discovery, LLM telemetry, control commands). They flood the human
+ *  message monitor and the flow graph with no conversational value — and
+ *  with 2+ hubs cross-publishing they can churn the dashboard hard enough
+ *  to make the tab unresponsive. Filtered out of the monitor + flow hooks. */
+export function isInfraTopic(topic: string): boolean {
+  return topic.startsWith("brain.network.")
+    || topic.startsWith("brain.agents.")
+    || topic === "llm.usage";
+}
+
 let socket: Socket | null = null;
 
 export function getSocket(): Socket {
