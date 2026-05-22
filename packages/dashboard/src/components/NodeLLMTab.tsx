@@ -2,36 +2,51 @@ import { useCallback, useEffect, useState } from "react";
 import {
   getLLMModels,
   getLLMResolutionForNode,
+  getCLIAgents,
+  refreshCLIAgents,
   patchNodeConfig,
   type LLMModelChoice,
   type LLMResolutionPreview,
+  type CLIAgentStatus,
 } from "../api/client";
 
 interface NodeLLMTabProps {
   nodeId: string;
   currentModelOverride?: string;
+  currentCliOverride?: string;
   onAction: () => void;
 }
 
 function noop(): void { /* best-effort */ }
 
 /**
- * Per-node LLM panel. Shows the currently-resolved model + provider,
- * lets the user either inherit the global default or pick a specific
- * `provider/model`. The actual setting lives in `config_overrides.model`
- * and is shipped to the existing PATCH /nodes/:id/config endpoint, so
- * nothing about the persistence path is new.
+ * Per-node LLM panel. Two independent levers:
+ *
+ *  1. **Model override** — which `provider/model` this node's `ctx.llm`
+ *     text/tool/tools calls resolve to. Lives in `config_overrides.model`.
+ *  2. **Agent CLI** — which installed agentic CLI (claude-code / codex /
+ *     gemini) this node's `ctx.llm.agent()` delegates to. Lives in
+ *     `config_overrides.cli`. We only let the user pick a CLI that's
+ *     actually bound (detected on PATH); the rest are shown greyed with
+ *     their install hint so it's obvious why they're unavailable.
+ *
+ * Both ship to the existing PATCH /nodes/:id/config endpoint — nothing
+ * about the persistence path is new.
  */
-export function NodeLLMTab({ nodeId, currentModelOverride, onAction }: NodeLLMTabProps): React.ReactElement {
+export function NodeLLMTab({ nodeId, currentModelOverride, currentCliOverride, onAction }: NodeLLMTabProps): React.ReactElement {
   const [models, setModels] = useState<LLMModelChoice[]>([]);
   const [resolution, setResolution] = useState<LLMResolutionPreview | null>(null);
-  const [draft, setDraft] = useState<string>(currentModelOverride ?? "");
+  const [clis, setClis] = useState<CLIAgentStatus[]>([]);
+  const [modelDraft, setModelDraft] = useState<string>(currentModelOverride ?? "");
+  const [cliDraft, setCliDraft] = useState<string>(currentCliOverride ?? "");
   const [saving, setSaving] = useState(false);
+  const [recheckingClis, setRecheckingClis] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback((): void => {
     getLLMModels().then(setModels).catch(noop);
     getLLMResolutionForNode(nodeId).then(setResolution).catch(noop);
+    getCLIAgents().then(setClis).catch(noop);
   }, [nodeId]);
 
   useEffect(() => {
@@ -39,23 +54,39 @@ export function NodeLLMTab({ nodeId, currentModelOverride, onAction }: NodeLLMTa
   }, [refresh]);
 
   useEffect(() => {
-    setDraft(currentModelOverride ?? "");
+    setModelDraft(currentModelOverride ?? "");
   }, [currentModelOverride]);
+
+  useEffect(() => {
+    setCliDraft(currentCliOverride ?? "");
+  }, [currentCliOverride]);
+
+  const dirty = modelDraft !== (currentModelOverride ?? "") || cliDraft !== (currentCliOverride ?? "");
 
   const save = useCallback((): void => {
     setSaving(true);
     setError(null);
-    // null clears the field server-side (existing PATCH /config semantic);
-    // an empty string means "use the global default" so we send null.
-    const next = draft.trim() === "" ? null : draft.trim();
-    patchNodeConfig(nodeId, { model: next })
+    // Empty string → "inherit / none" → send null so PATCH clears the key.
+    const patch: Record<string, string | null> = {
+      model: modelDraft.trim() === "" ? null : modelDraft.trim(),
+      cli: cliDraft.trim() === "" ? null : cliDraft.trim(),
+    };
+    patchNodeConfig(nodeId, patch)
       .then(() => {
         onAction();
         refresh();
       })
       .catch((err: Error) => setError(err.message))
       .finally(() => setSaving(false));
-  }, [draft, nodeId, onAction, refresh]);
+  }, [modelDraft, cliDraft, nodeId, onAction, refresh]);
+
+  const recheckClis = useCallback((): void => {
+    setRecheckingClis(true);
+    refreshCLIAgents()
+      .then(setClis)
+      .catch(noop)
+      .finally(() => setRecheckingClis(false));
+  }, []);
 
   const layerLabel: Record<string, string> = {
     "node-override": "from this node's override",
@@ -63,6 +94,9 @@ export function NodeLLMTab({ nodeId, currentModelOverride, onAction }: NodeLLMTa
     "fallback": "from the framework fallback chain",
     "explicit": "explicit per-call",
   };
+
+  const availableClis = clis.filter((c) => c.available);
+  const unavailableClis = clis.filter((c) => !c.available);
 
   return (
     <div className="space-y-4 text-sm">
@@ -95,8 +129,8 @@ export function NodeLLMTab({ nodeId, currentModelOverride, onAction }: NodeLLMTa
         </label>
         <select
           id="llm-model-select"
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
+          value={modelDraft}
+          onChange={(e) => setModelDraft(e.target.value)}
           className="w-full bg-bg border border-border rounded px-2 py-1 font-mono text-xs"
         >
           <option value="">(use global default)</option>
@@ -111,11 +145,61 @@ export function NodeLLMTab({ nodeId, currentModelOverride, onAction }: NodeLLMTa
         )}
       </div>
 
+      <div>
+        <div className="flex items-center justify-between mb-2">
+          <label htmlFor="llm-cli-select" className="block text-text-muted text-xs uppercase tracking-wider">
+            Agent CLI for this node
+          </label>
+          <button
+            type="button"
+            onClick={recheckClis}
+            disabled={recheckingClis}
+            className="text-xs text-text-muted hover:text-text disabled:opacity-40"
+          >
+            {recheckingClis ? "checking…" : "re-check"}
+          </button>
+        </div>
+        <select
+          id="llm-cli-select"
+          value={cliDraft}
+          onChange={(e) => setCliDraft(e.target.value)}
+          className="w-full bg-bg border border-border rounded px-2 py-1 font-mono text-xs"
+        >
+          <option value="">(none — uses model calls)</option>
+          {availableClis.map((c) => (
+            <option key={c.name} value={c.name}>
+              {c.name}{c.version ? ` · ${c.version}` : ""}
+            </option>
+          ))}
+        </select>
+        <p className="text-xs text-text-muted mt-1">
+          Routes <code className="font-mono">ctx.llm.agent()</code> to an installed agentic CLI. The CLI runs its own
+          tool loop in this node's sandbox.
+        </p>
+        {availableClis.length === 0 && (
+          <p className="text-xs text-node-sleeping mt-1 italic">
+            No CLI agents detected on PATH. Install one (e.g. claude-code), then “re-check”.
+          </p>
+        )}
+        {unavailableClis.length > 0 && (
+          <div className="mt-2 space-y-1">
+            {unavailableClis.map((c) => (
+              <div key={c.name} className="flex items-center gap-2 text-xs text-text-muted">
+                <span className="inline-block w-1.5 h-1.5 rounded-full bg-node-stopped" />
+                <span className="font-mono">{c.name}</span>
+                <span className="opacity-60">not installed · </span>
+                <code className="font-mono opacity-60">{c.installCommand}</code>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
       <div className="flex items-center gap-2">
         <button
           type="button"
           onClick={save}
-          disabled={saving || draft === (currentModelOverride ?? "")}
+          disabled={saving || !dirty}
           className="px-3 py-1 rounded bg-accent text-accent-fg text-xs font-semibold disabled:opacity-40 disabled:cursor-not-allowed"
         >
           {saving ? "Saving…" : "Save"}
@@ -124,8 +208,8 @@ export function NodeLLMTab({ nodeId, currentModelOverride, onAction }: NodeLLMTa
       </div>
 
       <div className="text-xs text-text-muted">
-        Models are resolved in order: this node's override → global default → framework fallback chain.
-        Changes apply on the node's next LLM call — no restart needed.
+        Models resolve in order: this node's override → global default → framework fallback chain.
+        The agent CLI is a separate, explicit choice. Changes apply on the node's next LLM call — no restart needed.
       </div>
     </div>
   );

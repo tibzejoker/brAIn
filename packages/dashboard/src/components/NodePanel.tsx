@@ -270,6 +270,7 @@ export function NodePanel({
           <NodeLLMTab
             nodeId={node.id}
             currentModelOverride={node.config_overrides?.model as string | undefined}
+            currentCliOverride={node.config_overrides?.cli as string | undefined}
             onAction={onAction}
           />
         </div>

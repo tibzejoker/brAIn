@@ -193,6 +193,7 @@ function buildLLMFacade(deps: BuildContextDeps, nodeInfo: NodeInfo, signal: Abor
       text: (): Promise<string> => { err(); return Promise.reject(new Error("unreachable")); },
       tool: (): Promise<never> => { err(); return Promise.reject(new Error("unreachable")); },
       tools: (): Promise<never> => { err(); return Promise.reject(new Error("unreachable")); },
+      agent: (): Promise<never> => { err(); return Promise.reject(new Error("unreachable")); },
       resolveModel: (): never => err(),
       listModels: (): never => err(),
     };
@@ -205,6 +206,8 @@ function buildLLMFacade(deps: BuildContextDeps, nodeInfo: NodeInfo, signal: Abor
     nodeName: nodeInfo.name,
     nodeType: nodeInfo.type,
     nodeModel: nodeInfo.config_overrides?.model as string | undefined,
+    nodeCli: nodeInfo.config_overrides?.cli as string | undefined,
+    nodeDataDir: path.join(DATA_ROOT, nodeInfo.id),
     signal,
   });
 }

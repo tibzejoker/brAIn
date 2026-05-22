@@ -12,12 +12,13 @@
  * anymore — go through ctx.llm. That keeps the boilerplate centralised
  * and means provider swaps don't ripple into nodes.
  */
-import { generateText, tool as aiTool, jsonSchema } from "ai";
+import { generateText, tool as aiTool } from "ai";
 import type { IBusService } from "../bus/bus.interface";
 import type { LLMRegistry } from "./llm-registry";
 import type { LLMConfigStore } from "./llm-config";
+import { CLIRegistry, type CLIRunResult, type CLIRunOptions } from "./cli-registry";
 import { extractReasoningText } from "./reasoning";
-import { logger } from "../logger";
+import { wrapInputSchema, STOP_TOOL, warnIfUnionSchema } from "./llm-facade-helpers";
 
 export interface LLMFacadeDeps {
   registry: LLMRegistry;
@@ -29,6 +30,15 @@ export interface LLMFacadeDeps {
   /** Per-instance preferred model (from config_overrides). Wins over
    *  global default but falls back to it when unavailable. */
   nodeModel?: string;
+  /** Per-instance CLI agent (from config_overrides.cli). Routes
+   *  `ctx.llm.agent()` to claude-code / codex / gemini for this node. */
+  nodeCli?: string;
+  /** This node's data directory — the default sandbox cwd for `agent()`. */
+  nodeDataDir?: string;
+  /** CLI agent runner. Defaults to the process-wide `CLIRegistry`
+   *  singleton; injectable so tests can supply a fake without a real
+   *  claude/codex/gemini binary on PATH. */
+  cli?: { run(name: string, prompt: string, opts?: CLIRunOptions): Promise<CLIRunResult> };
   signal: AbortSignal;
 }
 
@@ -88,6 +98,23 @@ export interface MultiToolOptions {
 export interface MultiToolResult {
   toolName: string;
   args: Record<string, unknown>;
+}
+
+export interface AgentOptions {
+  prompt: string | Array<{ role: "system" | "user" | "assistant"; content: string }>;
+  system?: string;
+  /** Which CLI agent to run. Defaults to the node's config_overrides.cli. */
+  cli?: string;
+  /** Sandbox cwd — defaults to the node's dataDir. */
+  cwd?: string;
+  timeoutMs?: number;
+  signal?: AbortSignal;
+}
+
+export interface AgentResult {
+  text: string;
+  cli: string;
+  raw: string;
 }
 
 export interface ResolutionTrace {
@@ -431,6 +458,63 @@ export class LLMFacade {
     throw lastError ?? new Error("ctx.llm.tools: every candidate failed");
   }
 
+  /** Delegate a task to an installed agentic CLI (claude-code, codex,
+   *  gemini). Unlike text()/tool()/tools() — which drive a model through
+   *  ai-sdk — this shells out to a CLI that runs its OWN tool loop. brAIn
+   *  supplies the prompt, a sandboxed cwd (the node's dataDir by default)
+   *  and a deadline, then returns the answer.
+   *
+   *  Routing: opts.cli → node's config_overrides.cli. There is no model
+   *  fallback chain here — a CLI is an explicit, all-or-nothing choice.
+   *  Emits a `cli` usage event for the same observability as model calls. */
+  async agent(opts: AgentOptions): Promise<AgentResult> {
+    const cli = opts.cli ?? this.deps.nodeCli;
+    if (!cli) {
+      throw new Error(
+        "ctx.llm.agent: no CLI selected. Set this node's config_overrides.cli " +
+        "(e.g. \"claude\") or pass opts.cli.",
+      );
+    }
+    const registry = this.deps.cli ?? CLIRegistry.getInstance();
+    const prompt = this.renderPrompt(opts.prompt, opts.system);
+    const resolution: ResolutionTrace = {
+      requested: `cli/${cli}`,
+      resolved: `cli/${cli}`,
+      layer: "explicit",
+      fell_back: false,
+    };
+    const start = Date.now();
+    try {
+      const result = await registry.run(cli, prompt, {
+        cwd: opts.cwd ?? this.deps.nodeDataDir,
+        timeoutMs: opts.timeoutMs,
+        signal: opts.signal ?? this.deps.signal,
+      });
+      if (result.error) {
+        this.emitUsage({ call_kind: "cli", resolution, latency_ms: Date.now() - start, error: result.error });
+        throw new Error(`ctx.llm.agent(${cli}): ${result.error}`);
+      }
+      this.emitUsage({ call_kind: "cli", resolution, latency_ms: Date.now() - start });
+      return { text: result.text, cli, raw: result.raw };
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      this.emitUsage({ call_kind: "cli", resolution, latency_ms: Date.now() - start, error: message });
+      throw err instanceof Error ? err : new Error(message);
+    }
+  }
+
+  /** Flatten the prompt (string or message array) + optional system into
+   *  the single prompt string a CLI agent expects. */
+  private renderPrompt(
+    prompt: string | Array<{ role: "system" | "user" | "assistant"; content: string }>,
+    system?: string,
+  ): string {
+    const body = typeof prompt === "string"
+      ? prompt
+      : prompt.map((m) => `${m.role}: ${m.content}`).join("\n\n");
+    return system ? `${system}\n\n${body}` : body;
+  }
+
   /** Pull the first call to ANY of the supplied tool names out of a
    *  generateText result. Returns null if the model emitted nothing. */
   private extractFirstToolCall(result: unknown, toolNames: string[]): MultiToolResult | null {
@@ -561,57 +645,5 @@ export class LLMFacade {
     } catch {
       // Telemetry must never break a call.
     }
-  }
-}
-
-// === Shared helpers ===
-
-/** Detect plain-JSON-Schema vs zod. Zod schemas expose `parse()`; JSON
- *  Schema is a plain object. ai-sdk's `tool()` accepts both but needs
- *  JSON schemas explicitly wrapped via `jsonSchema()` so its validator
- *  knows what to do. */
-function wrapInputSchema(raw: unknown): unknown {
-  if (typeof raw === "object" && raw !== null
-      && typeof (raw as { parse?: unknown }).parse === "function") {
-    return raw; // already zod
-  }
-  return jsonSchema(raw as Parameters<typeof jsonSchema>[0]);
-}
-
-/** Framework-injected escape hatch for `ctx.llm.tools()`.
- *
- *  Every LLM-driven handler that picks among several tools needs a
- *  canonical "nothing more to do" choice. Without it, `toolChoice:
- *  "required"` (the safe default on local models) forces the LLM to
- *  fabricate a noisy fake action on observation-only wakes. Exposing
- *  `stop` framework-side means every node gets the escape for free,
- *  with identical semantics across the network. Callers detect it via
- *  `picked.toolName === "stop"` and exit their step loop. */
-const STOP_TOOL = {
-  description:
-    "End this wake intentionally. Call this when no further action and no message to the user is needed for the messages you just received. " +
-    "The framework will park your node; you'll be re-invoked on the next subscribed message. " +
-    "Prefer `stop` over emitting an empty `respond` — a respond goes to the user.",
-  inputSchema: {
-    type: "object" as const,
-    additionalProperties: false,
-    properties: {},
-  },
-};
-
-/** Warn loudly when a schema uses `oneOf` / `anyOf`. Local LLMs handle
- *  discriminated unions unreliably; for branching dispatch use
- *  `ctx.llm.tools({tools: {...}})` with one flat tool per branch. */
-function warnIfUnionSchema(schema: unknown, label: string): void {
-  if (typeof schema !== "object" || schema === null) return;
-  const s = schema as { oneOf?: unknown; anyOf?: unknown };
-  if (Array.isArray(s.oneOf) || Array.isArray(s.anyOf)) {
-    logger.warn(
-      { tool: label },
-      `[ctx.llm] tool uses oneOf/anyOf in its inputSchema. ` +
-      `Local LLMs (Gemma, smaller Llamas) handle discriminated unions ` +
-      `unreliably — prefer ctx.llm.tools({tools: {...}}) with one flat ` +
-      `tool per branch. See @brain/sdk LLMToolOptions JSDoc.`,
-    );
   }
 }
