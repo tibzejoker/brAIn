@@ -292,7 +292,13 @@ export class AppModule implements OnModuleInit, OnModuleDestroy {
     // so it can't spawn nodes targeted at us. Stable per-install
     // agent_id persisted in kv_settings so reconnects are recognized
     // as the same host.
-    if (this.broker.getMode() === "external") {
+    // Agent presence — the control channel (brain.agents.<hub>.{spawn,kill,
+    // stop,start,…}) + announce — runs in BOTH modes. The embedded HOST must
+    // also listen so peers can control its nodes by id over the command bus
+    // (location-transparent), mirroring the network publisher below. The
+    // agentId is the same value as the network hub_id (kv `api_agent_id`),
+    // so brain.agents.<hub_id>.* and owner_hub.hub_id refer to the same hub.
+    {
       const db = getDb();
       let agentId = getSetting(db, "api_agent_id");
       if (!agentId) {
@@ -305,7 +311,7 @@ export class AppModule implements OnModuleInit, OnModuleDestroy {
         agentId,
         host: hostname(),
       });
-      this.log.log(`agent presence active as ${agentId} (external broker)`);
+      this.log.log(`agent presence active as ${agentId} (${this.broker.getMode()} broker)`);
     }
 
     // Advertise this hub's live registry on the network channel so peers
