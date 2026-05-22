@@ -39,6 +39,8 @@ export interface RunnerDeps {
    *  when absent `ctx.llm` is a stub that throws on use. */
   llmRegistry?: LLMRegistry;
   llmConfig?: LLMConfigStore;
+  /** Peer-hub nodes (other machines), merged into `ctx.tools.list()`. */
+  peerNodes?: () => NodeInfo[];
 }
 
 /**
@@ -291,6 +293,7 @@ export abstract class BaseRunner {
         llmRegistry: this.deps.llmRegistry,
         llmConfig: this.deps.llmConfig,
         instanceRegistry: this.deps.registry,
+        peerNodes: this.deps.peerNodes,
       },
       messages, signal, preemption,
     );

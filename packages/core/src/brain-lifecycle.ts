@@ -62,6 +62,9 @@ export interface LifecycleDeps {
    *  the live registry + config. */
   llmRegistry?: LLMRegistry;
   llmConfig?: LLMConfigStore;
+  /** Peer-hub nodes (other machines on the bus), merged into the runner's
+   *  `ctx.tools.list()` so the consciousness sees + can invoke them. */
+  peerNodes?: () => NodeInfo[];
 }
 
 export async function spawnNode(
@@ -185,6 +188,7 @@ export async function spawnNode(
       killNode: (id, caller, reason) => killNode(deps, id, caller, reason),
       llmRegistry: deps.llmRegistry,
       llmConfig: deps.llmConfig,
+      peerNodes: deps.peerNodes,
     },
     deps.globalRunMode,
     teardown,
@@ -320,6 +324,7 @@ export async function startNode(
       killNode: (id, caller, reason) => killNode(deps, id, caller, reason),
       llmRegistry: deps.llmRegistry,
       llmConfig: deps.llmConfig,
+      peerNodes: deps.peerNodes,
     },
     deps.globalRunMode,
     teardown,

@@ -55,6 +55,12 @@ export interface BuildContextDeps {
   /** Live instance registry — powers `ctx.tools.list()` so the LLM
    *  can discover every public subscription on the network. */
   instanceRegistry?: { list(): NodeInfo[] };
+  /** Peer hubs' nodes (other machines on the bus), already tagged with
+   *  `owner_hub`. Merged into `ctx.tools.list()` so the consciousness is
+   *  aware of — and can invoke — remote nodes. Invocation is just a bus
+   *  publish on the node's topic, which NATS delivers cross-machine, so
+   *  discovery is the only thing the local registry was missing. */
+  peerNodes?: () => NodeInfo[];
 }
 
 export interface BuildContextRuntime {
@@ -218,9 +224,18 @@ function buildToolsFacade(deps: BuildContextDeps): ToolsFacade {
   };
   const registry = deps.instanceRegistry;
   if (!registry) return empty;
+  // Local nodes plus peer-hub nodes (other machines). De-dup by id so a
+  // node never appears twice if it surfaces in both lists; local wins.
+  const allNodes = (): NodeInfo[] => {
+    const local = registry.list();
+    const peers = deps.peerNodes?.() ?? [];
+    if (peers.length === 0) return local;
+    const seen = new Set(local.map((n) => n.id));
+    return [...local, ...peers.filter((n) => !seen.has(n.id))];
+  };
   const collect = (filterNodeId?: string): ToolDescriptor[] => {
     const out: ToolDescriptor[] = [];
-    for (const node of registry.list()) {
+    for (const node of allNodes()) {
       if (filterNodeId && node.id !== filterNodeId) continue;
       for (const sub of node.subscriptions) {
         if (sub.internal === true) continue;
