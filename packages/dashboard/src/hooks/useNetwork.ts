@@ -17,6 +17,21 @@ interface UseNetworkResult {
   refresh: () => void;
 }
 
+/** Cheap render-relevant signature of a node. Peer hubs re-publish their
+ *  full snapshot every few seconds; if nothing that affects rendering
+ *  changed we must NOT replace the nodes array, or React Flow re-lays-out
+ *  the whole graph on a timer — which pegs a phone until it reloads. */
+function nodeSig(n: NodeSnapshot): string {
+  return `${n.id}:${n.state}:${Math.round(n.position?.x ?? 0)},${Math.round(n.position?.y ?? 0)}`;
+}
+function sameNodeSet(a: NodeSnapshot[], b: NodeSnapshot[]): boolean {
+  if (a.length !== b.length) return false;
+  const sa = a.map(nodeSig).sort();
+  const sb = b.map(nodeSig).sort();
+  for (let i = 0; i < sa.length; i++) if (sa[i] !== sb[i]) return false;
+  return true;
+}
+
 export function useNetwork(): UseNetworkResult {
   const [snapshot, setSnapshot] = useState<NetworkSnapshot>({
     node_count: 0,
@@ -70,6 +85,10 @@ export function useNetwork(): UseNetworkResult {
       // replace it with the fresh set (each node already tagged owner_hub).
       onNetworkHubSnapshot((event) => {
         setSnapshot((prev) => {
+          // No-op when this hub's set is unchanged — avoids a full graph
+          // re-render on every periodic snapshot (the mobile-killer).
+          const mine = prev.nodes.filter((n) => n.owner_hub?.hub_id === event.hub.hub_id);
+          if (sameNodeSet(mine, event.nodes)) return prev;
           const others = prev.nodes.filter((n) => n.owner_hub?.hub_id !== event.hub.hub_id);
           const nodes = [...others, ...event.nodes];
           return { node_count: nodes.length, nodes };
