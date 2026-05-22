@@ -166,6 +166,7 @@ export class BrainService extends EventEmitter {
       runners: this.runners,
       globalRunMode: this.globalRunMode, loadHandler: this.loadHandler.bind(this),
       remoteNodes: this.remoteNodes,
+      peerNodes: () => this.network.mergedNodes(),
       llmRegistry: this.llm,
       llmConfig: this.llmConfig,
     };
@@ -280,6 +281,7 @@ export class BrainService extends EventEmitter {
       killNode: (id, caller, reason) => this.killNode(id, caller, reason),
       llmRegistry: this.llm,
       llmConfig: this.llmConfig,
+      peerNodes: () => this.network.mergedNodes(),
     });
   }
 

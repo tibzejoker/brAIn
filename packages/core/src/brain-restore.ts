@@ -22,6 +22,7 @@ export async function restoreNodes(opts: {
   killNode?: (id: string, caller?: string, reason?: string) => boolean;
   llmRegistry?: LLMRegistry;
   llmConfig?: LLMConfigStore;
+  peerNodes?: () => NodeInfo[];
 }): Promise<number> {
   const savedNodes = loadAllNodes(opts.db);
   let restored = 0;
@@ -116,6 +117,7 @@ export async function restoreNodes(opts: {
         killNode: opts.killNode,
         llmRegistry: opts.llmRegistry,
         llmConfig: opts.llmConfig,
+        peerNodes: opts.peerNodes,
       },
       opts.globalRunMode,
       mod.teardown,
