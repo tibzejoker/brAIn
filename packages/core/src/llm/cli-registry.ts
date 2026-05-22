@@ -1,4 +1,5 @@
 import { spawn } from "child_process";
+import { mkdirSync } from "fs";
 import { logger } from "../logger";
 import { execCommand } from "../util/exec";
 
@@ -106,6 +107,12 @@ function parseCliOutput(name: string, stdout: string): string {
 export class CLIRegistry {
   private readonly clis = new Map<string, CLIEntry>();
   private readonly statuses = new Map<string, CLIStatus>();
+  // Absolute path resolved by `which` at detection. We spawn THIS, not the
+  // bare command name: detection runs through a shell (PATH-aware) but
+  // spawn() does not, so a CLI installed via a version-manager shim is found
+  // by `which` yet fails `spawn(name)` with ENOENT. Spawning the absolute
+  // path sidesteps the PATH mismatch entirely.
+  private readonly resolvedPaths = new Map<string, string>();
   private initialized = false;
 
   static getInstance(): CLIRegistry {
@@ -144,6 +151,10 @@ export class CLIRegistry {
             logger.warn({ cli: key }, "CLI not found");
             return;
           }
+
+          // Capture the absolute path so run() can spawn it directly.
+          const resolvedPath = result.stdout.trim().split("\n")[0];
+          if (resolvedPath) this.resolvedPaths.set(key, resolvedPath);
 
           // Try to get version
           const versionResult = await execCommand(`${cli.command} ${cli.versionFlag}`, { timeoutMs: 10000 });
@@ -239,7 +250,10 @@ export class CLIRegistry {
         `Install with: ${status?.installCommand ?? "see dashboard"}`,
       );
     }
-    const result = await this.spawnCli(cli.command, this.buildCliArgs(name), prompt, opts);
+    // Spawn the absolute path resolved at detection (PATH-independent),
+    // falling back to the bare command if detection didn't capture one.
+    const command = this.resolvedPaths.get(name) ?? cli.command;
+    const result = await this.spawnCli(command, this.buildCliArgs(name), prompt, opts);
     const text = parseCliOutput(name, result.stdout);
     if (result.exitCode !== 0) {
       return {
@@ -262,6 +276,12 @@ export class CLIRegistry {
     prompt: string,
     opts: CLIRunOptions,
   ): Promise<{ stdout: string; stderr: string; exitCode: number }> {
+    // A cwd that doesn't exist makes spawn fail with a misleading ENOENT
+    // (looks like the binary is missing). Node dataDirs are created lazily,
+    // so the sandbox dir may not exist yet — ensure it before spawning.
+    if (opts.cwd) {
+      try { mkdirSync(opts.cwd, { recursive: true }); } catch { /* best effort */ }
+    }
     return new Promise((resolve) => {
       const proc = spawn(command, args, {
         cwd: opts.cwd,
@@ -309,6 +329,7 @@ export class CLIRegistry {
   async refresh(): Promise<void> {
     this.initialized = false;
     this.statuses.clear();
+    this.resolvedPaths.clear();
     await this.initialize();
   }
 }
