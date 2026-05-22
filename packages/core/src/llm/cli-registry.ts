@@ -1,5 +1,6 @@
-import { exec, spawn } from "child_process";
+import { spawn } from "child_process";
 import { logger } from "../logger";
+import { execCommand } from "../util/exec";
 
 export interface CLIStatus {
   name: string;
@@ -80,24 +81,6 @@ const BUILTIN_CLIS: CLIEntry[] = [
 
 let instance: CLIRegistry | null = null;
 
-function runCommand(
-  cmd: string,
-  timeoutMs: number,
-  opts: { cwd?: string; signal?: AbortSignal } = {},
-): Promise<{ stdout: string; stderr: string; exitCode: number }> {
-  return new Promise((resolve) => {
-    exec(
-      cmd,
-      // 8MB buffer: agentic CLIs can be chatty on stdout (JSON envelope +
-      // reasoning). Default 1MB truncates and surfaces as a spurious error.
-      { timeout: timeoutMs, cwd: opts.cwd, signal: opts.signal, maxBuffer: 8 * 1024 * 1024 },
-      (err, stdout, stderr) => {
-        resolve({ stdout, stderr, exitCode: err ? (err.code ?? 1) : 0 });
-      },
-    );
-  });
-}
-
 /** Pull the assistant's answer out of a CLI's stdout. Each agentic CLI
  *  has its own envelope; we parse the known shape and fall back to common
  *  field names, then to the raw text — so an unrecognised format degrades
@@ -146,7 +129,7 @@ export class CLIRegistry {
     const checks = Array.from(this.clis.entries()).map(
       async ([key, cli]) => {
         try {
-          const result = await runCommand(`which ${cli.command}`, 5000);
+          const result = await execCommand(`which ${cli.command}`, { timeoutMs: 5000 });
 
           if (result.exitCode !== 0) {
             this.statuses.set(key, {
@@ -163,7 +146,7 @@ export class CLIRegistry {
           }
 
           // Try to get version
-          const versionResult = await runCommand(`${cli.command} ${cli.versionFlag}`, 10000);
+          const versionResult = await execCommand(`${cli.command} ${cli.versionFlag}`, { timeoutMs: 10000 });
           const version = versionResult.stdout.trim().split("\n")[0];
 
           this.statuses.set(key, {
