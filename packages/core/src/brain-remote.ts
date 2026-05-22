@@ -82,7 +82,9 @@ export function dispatchRemoteAction(
   callerNodeId?: string,
   message?: string,
 ): boolean {
-  const agentId = deps.remoteNodes.get(nodeId);
+  // Remote-spawned-by-us (remoteNodes) or peer-owned-by-id (ownerHubOf):
+  // both route to the owning hub's command channel.
+  const agentId = deps.remoteNodes.get(nodeId) ?? deps.ownerHubOf?.(nodeId);
   if (!agentId) return false;
 
   const payload = { node_id: nodeId, message };
