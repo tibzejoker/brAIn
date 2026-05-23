@@ -45,7 +45,7 @@ export class NodeCallController {
 
   @Get(":nodeId/ui/*")
   async serveUi(@Param("nodeId") nodeId: string, @Res() res: Response): Promise<void> {
-    const reqPath = (res.req.params as Record<string, string>)[0] || "index.html";
+    const reqPath = (res.req.params as Record<string, string | undefined>)[0] ?? "index.html";
     let ownerHub: string;
     try {
       ownerHub = ownerHubOf(this.brain, nodeId);
@@ -78,7 +78,7 @@ export class NodeCallController {
     @Body() body: unknown,
     @Req() req: Request,
   ): Promise<{ message_id: string }> {
-    const topic = (req.params as Record<string, string>)[0] ?? "";
+    const topic = (req.params as Record<string, string | undefined>)[0] ?? "";
     if (!topic) throw new HttpException("topic missing in path", HttpStatus.BAD_REQUEST);
 
     const ownerHub = ownerHubOf(this.brain, nodeId);
