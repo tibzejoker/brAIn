@@ -16,6 +16,15 @@ export default defineConfig({
     // without an API_BASE rewrite — same-origin requests proxied to 3000.
     host: process.env.DASHBOARD_HOST ?? "0.0.0.0",
     proxy: {
+      // `/node/` (trailing slash, NO 's') is the UI-over-NATS surface
+      // exposed by NodeCallController — POST /node/:id/:topic, GET
+      // /node/:id/messages, GET /node/:id/ui/*. Without this proxy entry
+      // Vite's SPA fallback intercepts the iframe load and serves
+      // index.html recursively, which flickers then crashes.
+      // Listed BEFORE `/nodes/` so the longer-prefix rule wins; the
+      // trailing slash in the key prevents `/nodes/foo` from matching
+      // `/node` by accident.
+      "/node/": PROXY_OPT,
       "/nodes": PROXY_OPT,
       "/types": PROXY_OPT,
       "/network": PROXY_OPT,
