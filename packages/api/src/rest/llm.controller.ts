@@ -1,7 +1,7 @@
 import {
-  Controller, Get, Patch, Post, Param, Body, HttpException, HttpStatus,
+  Controller, Get, Patch, Post, Param, Body, Query, HttpException, HttpStatus,
 } from "@nestjs/common";
-import { BrainService, type LLMConfig, type CLIStatus } from "@brain/core";
+import { BrainService, resolveHubId, getDb, type LLMConfig, type CLIStatus, type NatsBusService } from "@brain/core";
 
 /**
  * REST surface for the project-wide LLM configuration + per-node
@@ -41,13 +41,29 @@ export class LLMController {
   }
 
   @Get("models")
-  listModels(): Array<{ spec: string; provider: string; model: string }> {
+  async listModels(@Query("hub") hub?: string): Promise<Array<{ spec: string; provider: string; model: string }>> {
+    // Editing a peer-owned node from this dashboard? We ask the OWNING hub
+    // for its reachable models so the dropdown can't offer something only
+    // present here (the runtime resolution happens on the owner, not us).
+    const remote = await this.routeToPeer<Array<{ spec: string; provider: string; model: string }>>(hub, "read.llm.models", {});
+    if (remote !== null) return remote;
     const out: Array<{ spec: string; provider: string; model: string }> = [];
     for (const s of this.brain.llm.getStatuses()) {
       if (!s.available) continue;
       for (const m of s.models) out.push({ spec: `${s.name}/${m}`, provider: s.name, model: m });
     }
     return out;
+  }
+
+  /** Returns `null` when `hub` is missing or refers to self → caller falls
+   *  through to the local path. Returns the peer's response otherwise. */
+  private async routeToPeer<T>(hub: string | undefined, op: string, payload: Record<string, unknown>): Promise<T | null> {
+    if (!hub) return null;
+    const self = resolveHubId(getDb());
+    if (hub === self) return null;
+    const bus = this.brain.bus as { requestRemote?: NatsBusService["requestRemote"] };
+    if (!bus.requestRemote) return null;
+    return bus.requestRemote<T>(`brain.agents.${hub}.${op}`, payload);
   }
 
   @Get("providers")
@@ -92,7 +108,9 @@ export class LLMController {
   }
 
   @Get("clis")
-  async listCLIs(): Promise<CLIStatus[]> {
+  async listCLIs(@Query("hub") hub?: string): Promise<CLIStatus[]> {
+    const remote = await this.routeToPeer<CLIStatus[]>(hub, "read.llm.clis", {});
+    if (remote !== null) return remote;
     // The CLI registry initialises lazily; if a `which claude` check is
     // still in flight, kick it.
     await this.brain.cli.initialize();
@@ -106,11 +124,22 @@ export class LLMController {
   }
 
   @Get("nodes/:id/preview")
-  previewForNode(@Param("id") id: string): {
+  async previewForNode(@Param("id") id: string): Promise<{
     requested: string; resolved: string; layer: string; fell_back: boolean; fallback_reason?: string;
-  } {
-    const node = this.brain.instanceRegistry.get(id);
-    if (!node) throw new HttpException("Node not found", HttpStatus.NOT_FOUND);
+  }> {
+    const local = this.brain.instanceRegistry.get(id);
+    if (!local) {
+      // Peer-owned: ask the owning hub to resolve against its own config
+      // + reachable providers. We do NOT try to second-guess locally with
+      // a model list we don't fully see.
+      const peer = this.brain.network.mergedNodes().find((n) => n.id === id);
+      const hub = peer?.owner_hub?.hub_id;
+      if (!hub) throw new HttpException("Node not found", HttpStatus.NOT_FOUND);
+      const remote = await this.routeToPeer<{ requested: string; resolved: string; layer: string; fell_back: boolean; fallback_reason?: string }>(hub, "read.llm.preview", { node_id: id });
+      if (remote) return remote;
+      throw new HttpException("Peer unreachable", HttpStatus.BAD_GATEWAY);
+    }
+    const node = local;
     const cfg = this.brain.llmConfig.get();
     const candidates: string[] = [];
     const nodeModel = node.config_overrides?.model as string | undefined;

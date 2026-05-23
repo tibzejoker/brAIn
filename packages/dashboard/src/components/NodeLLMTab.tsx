@@ -12,6 +12,11 @@ import {
 
 interface NodeLLMTabProps {
   nodeId: string;
+  /** Set when this node is owned by a peer hub; the dropdown then lists the
+   *  OWNER's reachable models / CLIs instead of ours — picking an Ollama
+   *  model only available on this machine for a node living elsewhere would
+   *  silently fail at runtime. */
+  ownerHubId?: string;
   currentModelOverride?: string;
   currentCliOverride?: string;
   onAction: () => void;
@@ -30,7 +35,7 @@ const CLI_PREFIX = "cli:";
  * — selecting one clears the other. Persists to config_overrides.model /
  * config_overrides.cli via the existing PATCH /nodes/:id/config.
  */
-export function NodeLLMTab({ nodeId, currentModelOverride, currentCliOverride, onAction }: NodeLLMTabProps): React.ReactElement {
+export function NodeLLMTab({ nodeId, ownerHubId, currentModelOverride, currentCliOverride, onAction }: NodeLLMTabProps): React.ReactElement {
   const [models, setModels] = useState<LLMModelChoice[]>([]);
   const [resolution, setResolution] = useState<LLMResolutionPreview | null>(null);
   const [clis, setClis] = useState<CLIAgentStatus[]>([]);
@@ -42,10 +47,13 @@ export function NodeLLMTab({ nodeId, currentModelOverride, currentCliOverride, o
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback((): void => {
-    getLLMModels().then(setModels).catch(noop);
+    // The resolution preview is node-scoped — the controller resolves the
+    // peer hub from the node id automatically. Models + CLIs are not node-
+    // scoped so we pass ownerHubId explicitly when relevant.
+    getLLMModels(ownerHubId).then(setModels).catch(noop);
     getLLMResolutionForNode(nodeId).then(setResolution).catch(noop);
-    getCLIAgents().then(setClis).catch(noop);
-  }, [nodeId]);
+    getCLIAgents(ownerHubId).then(setClis).catch(noop);
+  }, [nodeId, ownerHubId]);
 
   useEffect(() => { refresh(); }, [refresh]);
   useEffect(() => {

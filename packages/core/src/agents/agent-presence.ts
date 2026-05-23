@@ -145,6 +145,46 @@ export function startAgentPresence(opts: AgentPresenceOptions): AgentPresenceHan
       return brain.getNodeDeadLetters(node_id);
     });
 
+    // LLM availability + per-node resolution preview from a peer's side
+    // panel. The dropdown shows the OWNER hub's reachable models — picking
+    // an Ollama model that only exists on our Mac while the node lives on
+    // the PC would be silently broken otherwise.
+    natsBus.respondToRequests(`brain.agents.${agentId}.read.llm.models`, () => {
+      const out: Array<{ spec: string; provider: string; model: string }> = [];
+      for (const s of brain.llm.getStatuses()) {
+        if (!s.available) continue;
+        for (const m of s.models) out.push({ spec: `${s.name}/${m}`, provider: s.name, model: m });
+      }
+      return out;
+    });
+    natsBus.respondToRequests(`brain.agents.${agentId}.read.llm.clis`, async () => {
+      await brain.cli.initialize();
+      return brain.cli.getStatuses();
+    });
+    natsBus.respondToRequests(`brain.agents.${agentId}.read.llm.preview`, (payload) => {
+      const { node_id } = payload as { node_id: string };
+      const node = brain.instanceRegistry.get(node_id);
+      if (!node) return { requested: "", resolved: "", layer: "fallback", fell_back: false, error: "Node not found on this hub" };
+      const cfg = brain.llmConfig.get();
+      const candidates: string[] = [];
+      const nodeModel = node.config_overrides?.model as string | undefined;
+      if (nodeModel) candidates.push(nodeModel);
+      if (cfg.defaultModel) candidates.push(cfg.defaultModel);
+      candidates.push(...cfg.fallbackChain);
+      const layers: ("node-override" | "global-default" | "fallback")[] = [];
+      if (nodeModel) layers.push("node-override");
+      if (cfg.defaultModel) layers.push("global-default");
+      for (let i = 0; i < cfg.fallbackChain.length; i++) layers.push("fallback");
+      const top = candidates[0] ?? "ollama/gemma4:e4b";
+      for (let i = 0; i < candidates.length; i++) {
+        const spec = candidates[i];
+        if (brain.llm.isSpecAvailable(spec)) {
+          return { requested: top, resolved: spec, layer: layers[i] ?? "fallback", fell_back: spec !== top, fallback_reason: spec !== top ? `${top} unavailable` : undefined };
+        }
+      }
+      return { requested: top, resolved: top, layer: layers[0] ?? "fallback", fell_back: false };
+    });
+
     // Config patch from a peer's dashboard side-panel (edit LLM model, dev
     // mode, etc.). Applies the same merge logic as the local controller —
     // null clears a key, anything else overwrites — then persists via
