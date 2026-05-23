@@ -21,6 +21,12 @@ async function bootstrap(): Promise<void> {
   log.log(BANNER);
 
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // POST /node/:id/:topic accepts the raw payload as-is — a string, number,
+  // or array is a valid body (e.g. tts.speak takes `"hello"`, tts.cancel
+  // takes `""`). Express body-parser defaults to strict mode which rejects
+  // any top-level non-object JSON, so we relax it here. Same for `urlencoded`
+  // for consistency, even though we don't currently use form posts.
+  app.useBodyParser("json", { strict: false });
   app.enableCors();
   // Required for OnModuleDestroy to fire on SIGINT/SIGTERM — without
   // this, the embedded NATS broker leaks as an orphan process.
@@ -38,7 +44,7 @@ async function bootstrap(): Promise<void> {
     // during app.listen(), AFTER this app.use() is registered, so we
     // can't rely on "if no route matched, fall through". The explicit
     // prefix list is the reliable way to keep API routes addressable.
-    const apiPrefixes = ["/nodes", "/network", "/types", "/store", "/agents", "/mcp", "/socket.io"];
+    const apiPrefixes = ["/nodes", "/node", "/network", "/types", "/store", "/agents", "/mcp", "/socket.io"];
     const indexHtml = path.join(dashboardDir, "index.html");
     app.use((req: { method: string; path: string }, res: { sendFile: (p: string) => void }, next: () => void) => {
       if (req.method !== "GET") return next();

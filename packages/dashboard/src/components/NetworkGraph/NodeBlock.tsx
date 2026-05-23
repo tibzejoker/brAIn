@@ -347,7 +347,7 @@ export function NodeBlock({ id, data, selected }: NodeProps<NodeBlockData>): Rea
       {data.isExpanded && data.hasUi && (
         <div className="flex-1 mx-2 mb-2 rounded border border-border bg-surface overflow-hidden">
           <iframe
-            src={`/nodes/${id}/ui/`}
+            src={`/node/${id}/ui/`}
             title={`${data.label} UI`}
             className="nodrag nowheel"
             style={{ width: "100%", height: "100%", border: 0, display: "block" }}
