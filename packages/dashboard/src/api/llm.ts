@@ -44,8 +44,12 @@ export function patchLLMConfig(patch: Partial<LLMGlobalConfig>): Promise<LLMGlob
   });
 }
 
-export function getLLMModels(): Promise<LLMModelChoice[]> {
-  return request("/llm/models");
+/** Optional `hub` query — when editing a peer-owned node, the panel passes
+ *  the owner's hub_id so the dropdown reflects what THAT hub can actually
+ *  reach (we'd silently configure a Mac-only Ollama model on a PC node
+ *  otherwise). */
+export function getLLMModels(hub?: string): Promise<LLMModelChoice[]> {
+  return request(hub ? `/llm/models?hub=${encodeURIComponent(hub)}` : "/llm/models");
 }
 
 export function getLLMProviders(): Promise<LLMProviderStatus[]> {
@@ -67,8 +71,8 @@ export interface CLIAgentStatus {
   homepage: string;
 }
 
-export function getCLIAgents(): Promise<CLIAgentStatus[]> {
-  return request("/llm/clis");
+export function getCLIAgents(hub?: string): Promise<CLIAgentStatus[]> {
+  return request(hub ? `/llm/clis?hub=${encodeURIComponent(hub)}` : "/llm/clis");
 }
 
 export function refreshCLIAgents(): Promise<CLIAgentStatus[]> {

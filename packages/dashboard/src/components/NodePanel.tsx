@@ -269,6 +269,7 @@ export function NodePanel({
         <div className="flex-1 overflow-y-auto p-4">
           <NodeLLMTab
             nodeId={node.id}
+            ownerHubId={node.owner_hub?.hub_id}
             currentModelOverride={node.config_overrides?.model as string | undefined}
             currentCliOverride={node.config_overrides?.cli as string | undefined}
             onAction={onAction}
