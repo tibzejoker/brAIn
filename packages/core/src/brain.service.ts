@@ -421,7 +421,7 @@ export class BrainService extends EventEmitter {
   }
 
   async getNodeDeadLettersAny(id: string): Promise<ReturnType<BaseRunner["getDeadLetters"]>> {
-    const agentId = this.remoteNodes.get(id);
+    const agentId = this.ownerAgentOf(id);
     if (!agentId) return this.getNodeDeadLetters(id);
     const bus = this.bus as { requestRemote?: typeof NatsBusService.prototype.requestRemote };
     if (!bus.requestRemote) return [];
@@ -437,11 +437,22 @@ export class BrainService extends EventEmitter {
    * agent doesn't respond within the timeout (the controller turns
    * that into an empty list rather than 500-ing).
    */
+  /**
+   * Resolve the owning hub for a node id: it might be a node we spawned
+   * remotely (`remoteNodes`) OR a node a peer announced on the snapshot
+   * channel (`network.mergedNodes()`). Returns undefined for purely-local
+   * nodes — caller short-circuits to the in-process accessor.
+   */
+  private ownerAgentOf(nodeId: string): string | undefined {
+    return this.remoteNodes.get(nodeId)
+      ?? this.network.mergedNodes().find((n) => n.id === nodeId)?.owner_hub?.hub_id;
+  }
+
   async getNodeLogsAny(
     id: string,
     last?: number,
   ): Promise<Array<{ timestamp: number; level: string; message: string; data?: Record<string, unknown> }>> {
-    const agentId = this.remoteNodes.get(id);
+    const agentId = this.ownerAgentOf(id);
     if (!agentId) return this.getNodeLogs(id, last);
     const bus = this.bus as { requestRemote?: typeof NatsBusService.prototype.requestRemote };
     if (!bus.requestRemote) return [];
@@ -455,7 +466,7 @@ export class BrainService extends EventEmitter {
    * semantics as `getNodeLogsAny` above.
    */
   async getNodeMailboxesAny(id: string): Promise<ReturnType<BusService["getMailboxes"]>> {
-    const agentId = this.remoteNodes.get(id);
+    const agentId = this.ownerAgentOf(id);
     if (!agentId) return this.getNodeMailboxes(id);
     const bus = this.bus as { requestRemote?: typeof NatsBusService.prototype.requestRemote };
     if (!bus.requestRemote) return [];

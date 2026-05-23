@@ -145,6 +145,23 @@ export function startAgentPresence(opts: AgentPresenceOptions): AgentPresenceHan
       return brain.getNodeDeadLetters(node_id);
     });
 
+    // Config patch from a peer's dashboard side-panel (edit LLM model, dev
+    // mode, etc.). Applies the same merge logic as the local controller —
+    // null clears a key, anything else overwrites — then persists via
+    // updateNodeConfig so the change survives an API restart on the owner.
+    natsBus.respondToRequests(`brain.agents.${agentId}.update_config`, (payload) => {
+      const { node_id, patch } = payload as { node_id: string; patch: Record<string, unknown> };
+      const node = brain.instanceRegistry.get(node_id);
+      if (!node) return { ok: false, error: "Node not found on this hub" };
+      const overrides = node.config_overrides ?? {};
+      for (const [k, v] of Object.entries(patch)) {
+        if (v === null) delete overrides[k];
+        else overrides[k] = v;
+      }
+      brain.updateNodeConfig(node_id, overrides);
+      return { ok: true, config_overrides: overrides };
+    });
+
     // ─── Cross-machine UI/RPC proxy ────────────────────────────────────────
     // The local API on ANOTHER machine sees a node owned by us (owner_hub ==
     // this agent) and routes node-UI calls through these channels rather than

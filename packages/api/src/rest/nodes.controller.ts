@@ -10,7 +10,7 @@ import {
   HttpException,
   HttpStatus,
 } from "@nestjs/common";
-import { BrainService } from "@brain/core";
+import { BrainService, type NatsBusService } from "@brain/core";
 import {
   type NodeInstanceConfig,
   type NodeInfo,
@@ -36,15 +36,25 @@ export class NodesController {
 
   @Get(":id")
   get(@Param("id") id: string): Omit<NodeInfo, "subscriptions"> & { subscriptions: Array<{ id: string; pattern: string }> } {
-    const node = this.brain.instanceRegistry.get(id);
-    if (!node) {
-      throw new HttpException("Node not found", HttpStatus.NOT_FOUND);
+    const local = this.brain.instanceRegistry.get(id);
+    if (local) {
+      return { ...local, subscriptions: this.brain.bus.getSubscriptions(id) };
     }
-
-    return {
-      ...node,
-      subscriptions: this.brain.bus.getSubscriptions(id),
-    };
+    // Peer-owned: fall back to the merged network view so the side panel
+    // can open on a remote node (kill/stop/start + config edit then route
+    // via NATS to the owning hub — the lifecycle helpers already handle
+    // this for us as long as the controller's lookup succeeds here).
+    const peer = this.brain.network.mergedNodes().find((n) => n.id === id);
+    if (peer) {
+      // mergedNodes() keeps the raw Subscription[] shape ({id, topic, …});
+      // reshape to {id, pattern} so the side panel's wiring matches what
+      // it receives for local nodes via bus.getSubscriptions(id).
+      return {
+        ...peer,
+        subscriptions: peer.subscriptions.map((s) => ({ id: `${peer.id}:${s.topic}`, pattern: s.topic })),
+      };
+    }
+    throw new HttpException("Node not found", HttpStatus.NOT_FOUND);
   }
 
   @Post()
@@ -107,13 +117,33 @@ export class NodesController {
   }
 
   @Patch(":id/config")
-  updateConfig(
+  async updateConfig(
     @Param("id") id: string,
     @Body() body: Record<string, unknown>,
-  ): { updated: boolean; node_id: string; config_overrides: Record<string, unknown> } {
+  ): Promise<{ updated: boolean; node_id: string; config_overrides: Record<string, unknown> }> {
     const node = this.brain.instanceRegistry.get(id);
     if (!node) {
-      throw new HttpException("Node not found", HttpStatus.NOT_FOUND);
+      // Peer-owned: forward the patch over NATS to the owning hub. Same
+      // merge contract (null clears, anything else overwrites) — the
+      // owner-side handler in agent-presence applies it via the local
+      // updateNodeConfig and persists.
+      const peer = this.brain.network.mergedNodes().find((n) => n.id === id);
+      const ownerHub = peer?.owner_hub?.hub_id;
+      if (!ownerHub) {
+        throw new HttpException("Node not found", HttpStatus.NOT_FOUND);
+      }
+      const bus = this.brain.bus as { requestRemote?: NatsBusService["requestRemote"] };
+      if (!bus.requestRemote) {
+        throw new HttpException("Bus does not support remote calls", HttpStatus.NOT_IMPLEMENTED);
+      }
+      const reply = await bus.requestRemote<{ ok: boolean; error?: string; config_overrides?: Record<string, unknown> }>(
+        `brain.agents.${ownerHub}.update_config`,
+        { node_id: id, patch: body },
+      );
+      if (!reply.ok) {
+        throw new HttpException(reply.error ?? "Remote config update failed", HttpStatus.BAD_GATEWAY);
+      }
+      return { updated: true, node_id: id, config_overrides: reply.config_overrides ?? {} };
     }
     const overrides = node.config_overrides ?? {};
     for (const [key, value] of Object.entries(body)) {
