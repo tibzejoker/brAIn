@@ -288,8 +288,13 @@ export class LLMFacade {
     );
     const toolChoice = opts.toolChoice ?? "required";
     // Default 2 retries (3 tries): try 0 with full context, then up to two
-    // context-stripped "reissue as a tool call" corrections — small models
-    // often ramble in prose first but comply once the noise is removed.
+    // corrections that REPLAY the conversation, append the model's failed
+    // prose as an assistant turn, and ask it to retry the last user request
+    // as a tool call. The earlier strategy stripped context completely and
+    // produced obedient-but-empty tool calls (the model would call the right
+    // tool with garbage args, or apologise via the `stop` tool / a sycophant
+    // "Understood, I will obey" line) — because it no longer knew WHAT it
+    // was meant to be doing.
     const maxRetries = Math.max(0, opts.retries ?? 2);
 
     for (const candidate of candidates) {
@@ -313,20 +318,28 @@ export class LLMFacade {
         const start = Date.now();
         try {
           const model = this.deps.registry.getModel(candidate.spec);
-          // Try 0: the real prompt. Retries: drop the conversation and ask the
-          // model to reissue ITS OWN failed output as a tool call. Stripping
-          // the context stops a small model re-rambling about the question.
+          // Try 0: the real prompt verbatim.
+          // Retries: keep the WHOLE conversation (so the model still sees the
+          // user's actual request), append its previous prose as an assistant
+          // turn (so it sees its own slip), then a tight user-side correction
+          // that forbids meta-acknowledgement and forces a real answer.
           const system = attempt === 0
             ? (opts.system ?? "")
-            : "You are a tool-calling interface. Respond ONLY by calling exactly one of the available tools — never plain text.";
+            : `${opts.system ?? ""}\n\nIMPORTANT: respond to the user's latest message by calling EXACTLY ONE of the available tools. Never reply with plain text, never apologise, never acknowledge instructions — just call the appropriate tool.`.trim();
           const messages = attempt === 0
             ? baseMessages
-            : [{
-                role: "user" as const,
-                content:
-                  `Your previous reply was plain text, not a tool call:\n\n"""${lastText.slice(0, 600)}"""\n\n` +
-                  `That is invalid. Call EXACTLY ONE of these tools now: ${toolNames.join(", ")}. Output only the tool call, nothing else.`,
-              }];
+            : [
+                ...baseMessages,
+                ...(lastText ? [{ role: "assistant" as const, content: lastText }] : []),
+                {
+                  role: "user" as const,
+                  content:
+                    `That reply was plain text, not a tool call. ` +
+                    `Do NOT apologise, do NOT say "understood" or "I will", do NOT explain. ` +
+                    `Now answer my previous request above by calling EXACTLY ONE of: ${toolNames.join(", ")}. ` +
+                    `Output only the tool call.`,
+                },
+              ];
           const result = await generateText({
             model,
             system,
