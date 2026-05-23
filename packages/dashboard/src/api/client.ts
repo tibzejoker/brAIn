@@ -192,19 +192,19 @@ export function patchNodeConfig(
 }
 
 /**
- * Publish a message into a node from the dashboard. Wraps the
- * existing `/nodes/:id/ui/send` endpoint that turns the dashboard
- * into a bus publisher addressed at one node.
+ * Publish a message into a node from the dashboard. Routes through
+ * `/node/:id/:topic` which the framework proxies over NATS to the
+ * node's owner hub, so a remote node is just as reachable as a local
+ * one. `body` is forwarded verbatim as the message content.
  */
 export function sendToNode(
   id: string,
   topic: string,
-  content: string,
-  metadata?: Record<string, unknown>,
-): Promise<{ published: boolean }> {
-  return request(`/nodes/${id}/ui/send`, {
+  body: unknown,
+): Promise<{ message_id: string }> {
+  return request(`/node/${id}/${topic}`, {
     method: "POST",
-    body: JSON.stringify({ topic, content, metadata }),
+    body: JSON.stringify(body),
   });
 }
 

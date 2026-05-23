@@ -23,6 +23,8 @@ import type { BrainService } from "../brain.service";
 import type { NatsBusService } from "../bus";
 import type { IBusService } from "../bus/bus.interface";
 import { logger } from "../logger";
+import * as path from "path";
+import * as fs from "fs";
 import { AGENT_ANNOUNCE_TOPIC, AGENT_ANNOUNCE_DEFAULT_MS, type AgentAnnouncement } from "./agent-directory";
 
 export interface AgentPresenceOptions {
@@ -141,6 +143,103 @@ export function startAgentPresence(opts: AgentPresenceOptions): AgentPresenceHan
     natsBus.respondToRequests(`brain.agents.${agentId}.read.dead_letters`, (payload) => {
       const { node_id } = payload as { node_id: string };
       return brain.getNodeDeadLetters(node_id);
+    });
+
+    // ─── Cross-machine UI/RPC proxy ────────────────────────────────────────
+    // The local API on ANOTHER machine sees a node owned by us (owner_hub ==
+    // this agent) and routes node-UI calls through these channels rather than
+    // hitting our HTTP directly. Result: a UI loaded in any dashboard can
+    // drive a node hosted anywhere, with the bus as the only transport.
+
+    // RPC: publish a bus message on a node's input topic (new shape — body is
+    // the payload, topic is the URL path component).
+    natsBus.respondToRequests(`brain.agents.${agentId}.node_call`, (payload) => {
+      const { nodeId, topic, body } = payload as { nodeId: string; topic: string; body: unknown };
+      const content = typeof body === "string" ? body : JSON.stringify(body ?? {});
+      // `from: nodeId` matches the legacy /ui/send semantic — the UI is the
+      // node's mouth, so its outbound messages should appear in the node's
+      // sent-history (getMessageHistory({from: nodeId})). Without this, an
+      // input topic the node doesn't subscribe to (e.g. chat.input, which
+      // chat *emits*) would be invisible in /node/:id/messages.
+      const msg = brain.bus.publish({
+        from: nodeId,
+        topic,
+        type: "text",
+        criticality: 3,
+        payload: { content },
+        metadata: { via: "node-call" },
+      });
+      return { message_id: msg.id };
+    });
+
+    // Legacy /ui/send equivalent (kept while we migrate node UIs to the new
+    // shape). Same publish but the caller chooses `from` / `criticality`.
+    natsBus.respondToRequests(`brain.agents.${agentId}.ui_send`, (payload) => {
+      const p = payload as {
+        nodeId: string; topic: string; content: string;
+        from?: string; criticality?: number; metadata?: Record<string, unknown>;
+      };
+      const msg = brain.bus.publish({
+        from: p.from ?? p.nodeId,
+        topic: p.topic,
+        type: "text",
+        criticality: p.criticality ?? 3,
+        payload: { content: p.content },
+        metadata: p.metadata,
+      });
+      return { message_id: msg.id };
+    });
+
+    // Read this node's mailbox + recent sent traffic. Mirrors the local
+    // GET /nodes/:id/ui/messages so the remote dashboard polls one endpoint.
+    natsBus.respondToRequests(`brain.agents.${agentId}.ui_messages`, (payload) => {
+      const { nodeId } = payload as { nodeId: string };
+      const received = brain.bus.readMessages(nodeId, { mode: "all", limit: 50 });
+      const sent = brain.bus.getMessageHistory({ from: nodeId, last: 50 });
+      const seen = new Set<string>();
+      const all: typeof received = [];
+      for (const m of [...received, ...sent]) {
+        if (seen.has(m.id)) continue;
+        seen.add(m.id);
+        all.push(m);
+      }
+      all.sort((a, b) => a.timestamp - b.timestamp);
+      return all.slice(-50);
+    });
+
+    // Static UI file. Returns base64 content + content-type so the remote
+    // API can serve the same bytes its local sendFile would. We honour the
+    // same uiDir confinement as the HTTP route — no path traversal escapes
+    // the node's `ui/` folder even over NATS.
+    natsBus.respondToRequests(`brain.agents.${agentId}.ui_file`, (payload) => {
+      const { nodeId, subpath } = payload as { nodeId: string; subpath?: string };
+      const node = brain.instanceRegistry.get(nodeId);
+      if (!node) return { status: 404, error: "node not found" };
+      const typeConfig = brain.typeRegistry.get(node.type);
+      if (!typeConfig?.has_ui) return { status: 404, error: "no ui" };
+      const typePath = brain.typeRegistry.getPath(node.type);
+      if (!typePath) return { status: 404, error: "type path missing" };
+      const uiDir = path.join(typePath, "ui");
+      const filePath = path.join(uiDir, subpath || "index.html");
+      if (!filePath.startsWith(uiDir)) return { status: 403, error: "forbidden" };
+      if (!fs.existsSync(filePath)) return { status: 404, error: "file not found" };
+      const buf = fs.readFileSync(filePath);
+      const ext = path.extname(filePath).toLowerCase();
+      const mime = ({
+        ".html": "text/html; charset=utf-8",
+        ".js":   "application/javascript; charset=utf-8",
+        ".mjs":  "application/javascript; charset=utf-8",
+        ".css":  "text/css; charset=utf-8",
+        ".json": "application/json; charset=utf-8",
+        ".svg":  "image/svg+xml",
+        ".png":  "image/png",
+        ".jpg":  "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".ico":  "image/x-icon",
+        ".woff": "font/woff",
+        ".woff2":"font/woff2",
+      } as Record<string,string>)[ext] || "application/octet-stream";
+      return { status: 200, contentType: mime, base64: buf.toString("base64") };
     });
   };
 

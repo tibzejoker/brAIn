@@ -79,9 +79,12 @@ export interface LayoutUpdate {
 
 /** A client's pointer position — broadcast on `NETWORK_CURSOR_TOPIC`.
  *  `x`/`y` are React Flow graph coordinates so every view maps them the
- *  same way regardless of pan/zoom. */
+ *  same way regardless of pan/zoom. `client_id` distinguishes multiple
+ *  dashboards connected to the same hub — without it, all clients of one
+ *  hub would collide on a single cursor slot and flicker between positions. */
 export interface CursorUpdate {
   hub_id: string;
+  client_id?: string;
   label: string;
   x: number;
   y: number;

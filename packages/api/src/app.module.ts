@@ -8,7 +8,7 @@ import { NodesController } from "./rest/nodes.controller";
 import { TypesController } from "./rest/types.controller";
 import { NetworkController } from "./rest/network.controller";
 import { SeedsController } from "./rest/seeds.controller";
-import { NodeUiController } from "./rest/node-ui.controller";
+import { NodeCallController } from "./rest/node-call.controller";
 import { StoreController } from "./rest/store.controller";
 import { AgentsController } from "./rest/agents.controller";
 import { MCPOAuthController } from "./rest/mcp-oauth.controller";
@@ -246,7 +246,7 @@ const brainServiceProvider = {
 };
 
 @Module({
-  controllers: [NodesController, TypesController, NetworkController, SeedsController, NodeUiController, StoreController, AgentsController, MCPOAuthController, MCPController, LLMController, ToolsController],
+  controllers: [NodesController, TypesController, NetworkController, SeedsController, NodeCallController, StoreController, AgentsController, MCPOAuthController, MCPController, LLMController, ToolsController],
   providers: [brokerProvider, brainServiceProvider, DashboardGateway],
 })
 export class AppModule implements OnModuleInit, OnModuleDestroy {

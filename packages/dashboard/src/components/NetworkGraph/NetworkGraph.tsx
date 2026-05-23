@@ -251,7 +251,7 @@ export function NetworkGraph({
 
   // === In-place node UI expansion ==========================================
   // Any number of nodes may be expanded at once — each grows to a default
-  // 480x360 panel that renders an `<iframe src="/nodes/:id/ui/">` and
+  // 480x360 panel that renders an `<iframe src="/node/:id/ui/">` and
   // exposes a NodeResizer handle on its right/bottom edges so the user
   // can drag it to whatever size suits the embedded UI. Per-node sizes
   // are kept in `expandedSizes` so collapsing then re-expanding restores
@@ -558,9 +558,16 @@ export function NetworkGraph({
         ));
       }),
       onCursorUpdate((c) => {
-        if (c.hub_id === getSelfHubId()) return; // never render our own pointer
+        // Socket.IO's `broadcast` excludes our own socket, and the bus
+        // subscriber drops same-hub re-loops — so anything reaching this
+        // callback is, by construction, NOT our own cursor. (We used to
+        // filter by hub_id here, which incorrectly hid every other client
+        // on our hub.) Cursors are keyed by client_id when present so two
+        // dashboards on one hub each get their own slot; falling back to
+        // hub_id keeps cross-machine peers (pre-client_id) compatible.
+        const key = (u: typeof c): string => u.client_id ?? u.hub_id;
         const rx = { ...c, ts: Date.now() };
-        setCursors((prev) => [...prev.filter((p) => p.hub_id !== c.hub_id), rx]);
+        setCursors((prev) => [...prev.filter((p) => key(p) !== key(c)), rx]);
       }),
       onHostLayout((h) => {
         const hostId = h.hub_id === getSelfHubId() ? HOST_ID_LOCAL : `${HOST_PREFIX_AGENT}${h.hub_id}`;

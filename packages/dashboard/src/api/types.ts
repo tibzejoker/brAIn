@@ -67,6 +67,9 @@ export interface LayoutUpdate {
 /** Presence: another client's pointer in graph coordinates. */
 export interface CursorUpdate {
   hub_id: string;
+  /** Per-connection id (Socket.IO socket id). Lets two dashboards on
+   *  the same hub be told apart — without it they collide on one key. */
+  client_id?: string;
   label: string;
   x: number;
   y: number;

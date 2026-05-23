@@ -4,9 +4,10 @@ import {
   OnGatewayInit,
   SubscribeMessage,
   MessageBody,
+  ConnectedSocket,
 } from "@nestjs/websockets";
 import { Logger } from "@nestjs/common";
-import { Server } from "socket.io";
+import { Server, Socket } from "socket.io";
 import {
   BrainService, resolveHubId, resolveHubLabel, getDb, setHubCanvasPos,
   NETWORK_LAYOUT_TOPIC, NETWORK_CURSOR_TOPIC, NETWORK_HOST_LAYOUT_TOPIC,
@@ -164,12 +165,25 @@ export class DashboardGateway implements OnGatewayInit {
     }
   }
 
-  /** A dashboard moved a node → persist if ours + broadcast to peers. */
+  // Each collab event takes TWO fan-out paths:
+  //   1. socket.broadcast.emit → every OTHER local client on this gateway.
+  //      Needed because the bus subscriber below drops same-hub re-loops
+  //      (by hub_id) to avoid echoing our own publish back to the originator,
+  //      which would otherwise also block client-to-client sync within one hub.
+  //   2. bus.publish → peer hubs (other machines) consume via their own
+  //      gateway and fan-out to THEIR local clients.
+  // Two paths, zero overlap.
+
+  /** A dashboard moved a node → persist if ours + fan-out to local peers + bus to remote hubs. */
   @SubscribeMessage("layout:update")
-  onLayoutIn(@MessageBody() body: { node_id: string; x: number; y: number }): void {
+  onLayoutIn(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() body: { node_id: string; x: number; y: number },
+  ): void {
     if (!body.node_id) return;
     this.persistIfOwned(body.node_id, body.x, body.y);
     const u: LayoutUpdate = { node_id: body.node_id, x: body.x, y: body.y, by: this.hubId, ts: Date.now() };
+    socket.broadcast.emit("layout:update", u);
     this.brain.bus.publish({
       from: `hub:${this.hubId}`, topic: NETWORK_LAYOUT_TOPIC, type: "text",
       criticality: 0, payload: { content: JSON.stringify(u) },
@@ -177,22 +191,35 @@ export class DashboardGateway implements OnGatewayInit {
   }
 
   /** A dashboard moved a machine's container → persist if it's OURS +
-   *  broadcast so every view places that block the same. */
+   *  fan-out to local peers + broadcast to remote hubs. */
   @SubscribeMessage("host:layout")
-  onHostLayoutIn(@MessageBody() body: { hub_id: string; x: number; y: number }): void {
+  onHostLayoutIn(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() body: { hub_id: string; x: number; y: number },
+  ): void {
     if (!body.hub_id) return;
     if (body.hub_id === this.hubId) setHubCanvasPos(getDb(), body.x, body.y);
     const h: HostLayoutUpdate = { hub_id: body.hub_id, x: body.x, y: body.y, by: this.hubId, ts: Date.now() };
+    socket.broadcast.emit("host:layout", h);
     this.brain.bus.publish({
       from: `hub:${this.hubId}`, topic: NETWORK_HOST_LAYOUT_TOPIC, type: "text",
       criticality: 0, payload: { content: JSON.stringify(h) },
     });
   }
 
-  /** A dashboard's pointer moved → broadcast presence to peers. */
+  /** A dashboard's pointer moved → fan-out to local peers + broadcast to remote hubs.
+   *  `client_id` carries the originating socket.id so multiple dashboards on the
+   *  same hub end up as distinct entries in the receiver's cursor state map. */
   @SubscribeMessage("cursor:update")
-  onCursorIn(@MessageBody() body: { x: number; y: number }): void {
-    const c: CursorUpdate = { hub_id: this.hubId, label: this.hubLabel, x: body.x, y: body.y, ts: Date.now() };
+  onCursorIn(
+    @ConnectedSocket() socket: Socket,
+    @MessageBody() body: { x: number; y: number },
+  ): void {
+    const c: CursorUpdate = {
+      hub_id: this.hubId, client_id: socket.id, label: this.hubLabel,
+      x: body.x, y: body.y, ts: Date.now(),
+    };
+    socket.broadcast.emit("cursor:update", c);
     this.brain.bus.publish({
       from: `hub:${this.hubId}`, topic: NETWORK_CURSOR_TOPIC, type: "text",
       criticality: 0, payload: { content: JSON.stringify(c) },
