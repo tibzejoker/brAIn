@@ -555,40 +555,64 @@ export function NetworkGraph({
    * client helpers (POST /nodes/:id/subscriptions / publishes route
    * through brain.agents.<hub>.update_{...} for non-local nodes).
    */
+  type ParsedHandle =
+    | { kind: "out-topic"; topic: string }
+    | { kind: "in-topic"; topic: string }
+    | { kind: "out-add" }
+    | { kind: "in-add" }
+    | { kind: "other" };
+  const parseHandle = useCallback((h: string): ParsedHandle => {
+    if (h === "out-add") return { kind: "out-add" };
+    if (h === "in-add") return { kind: "in-add" };
+    if (h.startsWith("out-")) return { kind: "out-topic", topic: h.slice(4) };
+    if (h.startsWith("in-")) return { kind: "in-topic", topic: h.slice(3) };
+    return { kind: "other" };
+  }, []);
+
+  /**
+   * Drag-to-connect → live wiring.
+   *
+   * Two flavours of handle on each node:
+   *   - `in-<topic>` / `out-<topic>` — real subscription / publish anchors
+   *   - `in-add` / `out-add` — always-on "+" placeholders (dashed). Drop
+   *     here to grow the node's wiring even when it currently has zero of
+   *     that kind.
+   *
+   * The handler finds which end carries a TOPIC (a real handle) and which
+   * is the receiver (real or +add). The receiver's SIDE (left/right)
+   * decides whether we add a subscription or a publish on its node:
+   *   - receiver on the input side (in-* or in-add) → add subscription
+   *   - receiver on the output side (out-* or out-add) → add publish
+   *
+   * Self-loops + host containers are filtered. Peer-routing handled by
+   * the client helpers. If both ends are `+add` placeholders (no topic
+   * anywhere) the drag is a no-op — there's nothing to wire.
+   */
   const handleConnect = useCallback(async (c: Connection): Promise<void> => {
     if (!c.source || !c.target || c.source === c.target) return;
     const isHostId = (id: string): boolean => id === HOST_ID_LOCAL || id.startsWith(HOST_PREFIX_AGENT);
     if (isHostId(c.source) || isHostId(c.target)) return;
 
-    const srcH = c.sourceHandle ?? "";
-    const tgtH = c.targetHandle ?? "";
+    const src = parseHandle(c.sourceHandle ?? "");
+    const tgt = parseHandle(c.targetHandle ?? "");
 
-    // Find the publish side (out-<topic>) and the OTHER node. Either end of
-    // the drag can be the publisher because connectionMode="loose" lets the
-    // user grab from either direction.
-    let outNode: string | null = null;
-    let outTopic: string | null = null;
-    let otherNode: string | null = null;
-    if (srcH.startsWith("out-")) { outNode = c.source; outTopic = srcH.slice(4); otherNode = c.target; }
-    else if (tgtH.startsWith("out-")) { outNode = c.target; outTopic = tgtH.slice(4); otherNode = c.source; }
+    let topic: string | null = null;
+    let topicOnSource = false;
+    if (src.kind === "out-topic" || src.kind === "in-topic") { topic = src.topic; topicOnSource = true; }
+    else if (tgt.kind === "out-topic" || tgt.kind === "in-topic") { topic = tgt.topic; topicOnSource = false; }
+    if (!topic || topic === "default") return;
 
-    if (outNode && outTopic && outTopic !== "default" && otherNode) {
-      // Wire = "the OTHER side now subscribes to this publisher's topic".
-      try { await addNodeSubscription(otherNode, { topic: outTopic, internal: true }); }
-      catch { /* TODO: toast — for now the snapshot refresh tells the story */ }
-      return;
-    }
+    const receiverNode = topicOnSource ? c.target : c.source;
+    const receiverHandle = topicOnSource ? tgt : src;
 
-    // No publish side touched → both ends are input handles. Interpret as
-    // "make the OTHER side publish the topic the user grabbed".
-    let inTopic: string | null = null;
-    if (srcH.startsWith("in-")) { inTopic = srcH.slice(3); otherNode = c.target; }
-    else if (tgtH.startsWith("in-")) { inTopic = tgtH.slice(3); otherNode = c.source; }
-    if (inTopic && inTopic !== "default" && otherNode) {
-      try { await addNodePublish(otherNode, inTopic); }
-      catch { /* TODO: toast */ }
-    }
-  }, []);
+    try {
+      if (receiverHandle.kind === "in-topic" || receiverHandle.kind === "in-add") {
+        await addNodeSubscription(receiverNode, { topic, internal: true });
+      } else if (receiverHandle.kind === "out-topic" || receiverHandle.kind === "out-add") {
+        await addNodePublish(receiverNode, topic);
+      }
+    } catch { /* TODO: toast — snapshot refresh will reflect success */ }
+  }, [parseHandle]);
 
   // Track hovered node only when the capability layer is on — otherwise
   // we'd be re-rendering the edges array on every mouse-over for no gain.

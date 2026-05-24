@@ -370,9 +370,24 @@ export function NodeBlock({ id, data, selected }: NodeProps<NodeBlockData>): Rea
           className="!w-2.5 !h-2.5 !border-0"
         />
       ))}
-      {data.subscribes.length === 0 && (
-        <Handle type="target" position={Position.Left} id="in-default" className="opacity-0" />
-      )}
+      {/* Always-on "+ subscription" drop target — sits one row below the
+          last existing input handle (or at the first slot when there are
+          zero). The wiring handler reads the source's `out-<topic>`,
+          drops it here, and adds that topic as a sub on this node.
+          Without it, a node with 0 subs has no visible target — you
+          can't drag anything onto it. */}
+      <Handle
+        type="target"
+        position={Position.Left}
+        id="in-add"
+        style={{
+          top: `${ioRowTop(data.subscribes.length)}px`,
+          background: "transparent",
+          border: "1.5px dashed var(--color-text-muted)",
+        }}
+        className="!w-3 !h-3 !rounded-full hover:!border-accent hover:!bg-accent/20"
+        title="Drag any output handle here to subscribe this node to its topic"
+      />
 
       {data.publishes.map((topic, i) => (
         <Handle
@@ -384,6 +399,27 @@ export function NodeBlock({ id, data, selected }: NodeProps<NodeBlockData>): Rea
           className="!w-2.5 !h-2.5 !border-0"
         />
       ))}
+      {/* Mirror "+ publish" drop target on the right. With connectionMode
+          loose, the user can also drag from an input handle onto this and
+          have the node take on the source's topic as a publish. */}
+      <Handle
+        type="source"
+        position={Position.Right}
+        id="out-add"
+        style={{
+          top: `${ioRowTop(data.publishes.length)}px`,
+          background: "transparent",
+          border: "1.5px dashed var(--color-text-muted)",
+        }}
+        className="!w-3 !h-3 !rounded-full hover:!border-accent hover:!bg-accent/20"
+        title="Drag any input handle here to publish on its topic"
+      />
+      {/* Kept for backwards-compat with edge ids generated against the
+          old default handle name — invisible so it doesn't crowd the
+          new visible "+" marker. */}
+      {data.subscribes.length === 0 && (
+        <Handle type="target" position={Position.Left} id="in-default" className="opacity-0" />
+      )}
       {data.publishes.length === 0 && (
         <Handle type="source" position={Position.Right} id="out-default" className="opacity-0" />
       )}
