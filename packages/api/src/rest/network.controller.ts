@@ -183,6 +183,27 @@ export class NetworkController {
   }
 
   /**
+   * Every topic currently visible across the merged network — union of every
+   * node's `default_subscriptions[].topic` and `default_publishes[]`. Powers
+   * the live-wiring autocomplete in the dashboard side panel. Wildcards
+   * (`chat.response.*`, `memory.>`) are returned verbatim so the user can
+   * pick them as-is. Sorted alphabetically, deduplicated. No payload schema
+   * here — that lives on the subscriptions themselves and is enforced at
+   * publish-time by the bus.
+   */
+  @Get("topics")
+  listTopics(): { topics: string[] } {
+    const set = new Set<string>();
+    const localNodes = this.brain.instanceRegistry.list();
+    const peerNodes = this.brain.network.mergedNodes();
+    for (const n of [...localNodes, ...peerNodes]) {
+      for (const s of n.subscriptions) set.add(s.topic);
+      for (const p of n.default_publishes ?? []) set.add(p);
+    }
+    return { topics: [...set].sort() };
+  }
+
+  /**
    * Surface the bus broker info for the dashboard. `lan_ips` lists
    * this machine's IPv4 addresses (non-loopback) so the user can
    * build a URL reachable from another host without `ifconfig`.

@@ -19,7 +19,7 @@ import { AuthorityService } from "./authority";
 import { type BaseRunner, setNodeDataRoot } from "./runner";
 import { logger } from "./logger";
 import {
-  getDb, clearAll, updateNodePosition, updateNodeConfig as dbUpdateNodeConfig, recordHistory, getHistory,
+  getDb, clearAll, updateNodePosition, updateNodeConfig as dbUpdateNodeConfig, recordHistory, getHistory, saveSubscription, deleteSubscription as dbDeleteSubscription,
   type HistoryEntry, type HistoryAction,
 } from "./db";
 import {
@@ -391,6 +391,111 @@ export class BrainService extends EventEmitter {
     n.config_overrides = overrides;
     dbUpdateNodeConfig(this.db, id, overrides);
     return true;
+  }
+
+  /**
+   * Live rewiring — add a subscription to a running node. Idempotent: if a
+   * sub on the same topic already exists, returns the existing one untouched
+   * (no second listener, no double persist). Used by the dashboard's
+   * drag-to-connect + side-panel `+ sub`. Persists to the DB so the change
+   * survives a restart. Emits `node:rewired` so dashboards re-fetch.
+   *
+   * `opts.internal` defaults to `true` (private listener, not surfaced as an
+   * MCP tool). Pass `internal: false` with an `inputSchema` to promote the
+   * sub to a public tool the brain can discover and call.
+   */
+  addNodeSubscription(
+    nodeId: string,
+    topic: string,
+    opts: { description?: string; inputSchema?: Record<string, unknown>; internal?: boolean; min_criticality?: number } = {},
+  ): { added: boolean; existed: boolean; subscription_id: string } {
+    const n = this.instanceRegistry.get(nodeId);
+    if (!n) throw new Error(`Node not found: ${nodeId}`);
+    const existing = this.bus.getSubscriptions(nodeId).find((s) => s.pattern === topic);
+    if (existing) return { added: false, existed: true, subscription_id: existing.id };
+    const internal = opts.internal ?? true;
+    const subId = this.bus.subscribe(nodeId, topic, { min_criticality: opts.min_criticality });
+    // Append to the live NodeInfo so /network and snapshots reflect it.
+    n.subscriptions = [
+      ...n.subscriptions,
+      internal
+        ? { topic, description: opts.description ?? "added at runtime via dashboard", internal: true, inputSchema: opts.inputSchema }
+        : { topic, description: opts.description ?? "added at runtime via dashboard", inputSchema: opts.inputSchema ?? { type: "object" } },
+    ];
+    saveSubscription(this.db, {
+      node_id: nodeId,
+      topic,
+      description: opts.description ?? "added at runtime via dashboard",
+      input_schema: opts.inputSchema ? JSON.stringify(opts.inputSchema) : null,
+      min_criticality: opts.min_criticality ?? null,
+      // Use the table's DEFAULT 100 / 'latest' — no per-add mailbox tuning
+      // exposed in the live-wiring API yet (callers who want it use the
+      // initial config.json declaration).
+      mailbox_max_size: 100,
+      mailbox_retention: "latest",
+    });
+    recordHistory(this.db, { action: "node.rewired", node_id: nodeId, node_name: n.name, node_type: n.type, details: { op: "add_subscription", topic, internal } });
+    this.emit("node:rewired", { nodeId, op: "add_subscription", topic });
+    return { added: true, existed: false, subscription_id: subId };
+  }
+
+  /** Remove a subscription by topic. Idempotent: returns `removed: false`
+   *  if the node wasn't subscribed to that topic in the first place. */
+  removeNodeSubscription(nodeId: string, topic: string): { removed: boolean } {
+    const n = this.instanceRegistry.get(nodeId);
+    if (!n) throw new Error(`Node not found: ${nodeId}`);
+    const removedFromBus = this.bus.unsubscribe(nodeId, topic);
+    n.subscriptions = n.subscriptions.filter((s) => s.topic !== topic);
+    const removedFromDb = dbDeleteSubscription(this.db, nodeId, topic);
+    const removed = removedFromBus || removedFromDb;
+    if (removed) {
+      recordHistory(this.db, { action: "node.rewired", node_id: nodeId, node_name: n.name, node_type: n.type, details: { op: "remove_subscription", topic } });
+      this.emit("node:rewired", { nodeId, op: "remove_subscription", topic });
+    }
+    return { removed };
+  }
+
+  /**
+   * Per-instance publish list mutation. Stored as a complete list in
+   * `config_overrides._publishes` — on first edit we snapshot the type's
+   * `default_publishes` so the override is self-contained (the framework
+   * doesn't have to merge type + delta at load time). Snapshots advertised
+   * on the bus pick the override up via the same `default_publishes` field.
+   */
+  private currentPublishes(n: NodeInfo): string[] {
+    const ov = n.config_overrides?._publishes;
+    if (Array.isArray(ov)) return [...ov as string[]];
+    return [...(n.default_publishes ?? [])];
+  }
+
+  addNodePublish(nodeId: string, topic: string): { added: boolean; existed: boolean } {
+    const n = this.instanceRegistry.get(nodeId);
+    if (!n) throw new Error(`Node not found: ${nodeId}`);
+    const list = this.currentPublishes(n);
+    if (list.includes(topic)) return { added: false, existed: true };
+    list.push(topic);
+    n.default_publishes = list;
+    const overrides = { ...(n.config_overrides ?? {}), _publishes: list };
+    n.config_overrides = overrides;
+    dbUpdateNodeConfig(this.db, nodeId, overrides);
+    recordHistory(this.db, { action: "node.rewired", node_id: nodeId, node_name: n.name, node_type: n.type, details: { op: "add_publish", topic } });
+    this.emit("node:rewired", { nodeId, op: "add_publish", topic });
+    return { added: true, existed: false };
+  }
+
+  removeNodePublish(nodeId: string, topic: string): { removed: boolean } {
+    const n = this.instanceRegistry.get(nodeId);
+    if (!n) throw new Error(`Node not found: ${nodeId}`);
+    const before = this.currentPublishes(n);
+    const after = before.filter((t) => t !== topic);
+    if (after.length === before.length) return { removed: false };
+    n.default_publishes = after;
+    const overrides = { ...(n.config_overrides ?? {}), _publishes: after };
+    n.config_overrides = overrides;
+    dbUpdateNodeConfig(this.db, nodeId, overrides);
+    recordHistory(this.db, { action: "node.rewired", node_id: nodeId, node_name: n.name, node_type: n.type, details: { op: "remove_publish", topic } });
+    this.emit("node:rewired", { nodeId, op: "remove_publish", topic });
+    return { removed: true };
   }
 
   tickNode(id: string): boolean { const r = this.runners.get(id); if (!r) return false; r.tick(); return true; }
