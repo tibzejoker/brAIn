@@ -231,6 +231,12 @@ export interface HubRef {
    *  + persists its own block position and broadcasts it, so every viewer
    *  places the machine's box in the same spot. Absent until first moved. */
   canvas_pos?: { x: number; y: number };
+  /** Whether THIS hub is currently running its own NATS broker
+   *  (`embedded` → the would-be host) or has joined someone else's
+   *  (`external` → client/joiner). Dashboards use it to badge hosts vs
+   *  clients in the merged network view. Absent on old peers — treat
+   *  missing as "unknown" rather than defaulting either way. */
+  broker_mode?: "embedded" | "external";
 }
 
 // === Node info ===
