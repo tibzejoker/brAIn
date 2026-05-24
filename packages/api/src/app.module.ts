@@ -324,7 +324,10 @@ export class AppModule implements OnModuleInit, OnModuleDestroy {
       bus: this.brain.bus,
       // Getter, not a cached ref — so canvas_pos (block placement) updates
       // are re-read from the DB on every snapshot and reach peers.
-      hub: () => buildHubRef(getDb(), httpUrls),
+      // `broker.getMode()` is read EVERY tick — if the user later joins
+      // an external broker (mode flips from "embedded" to "external"), the
+      // next snapshot reflects it without a publisher restart.
+      hub: () => buildHubRef(getDb(), httpUrls, this.broker.getMode()),
       // Only nodes WE host — drop `remote` stubs, which belong to a peer
       // that advertises them itself.
       snapshot: () => this.brain.getNetworkSnapshot().filter((n) => n.transport !== "remote"),

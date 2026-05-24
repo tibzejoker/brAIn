@@ -24,6 +24,11 @@ export interface HostGroupData extends Record<string, unknown> {
   sublabel?: string;   // agent_id short / OS / etc.
   icon: string;        // emoji glyph rendered in the header
   isEmpty: boolean;    // no hosted children
+  /** Broker role: `embedded` → this hub runs its own NATS (would-be host),
+   *  `external` → it joined someone else's broker (client). Drives the
+   *  host/client badge on the right of the header. Undefined for passive
+   *  hosts or before the value lands on first paint. */
+  brokerMode?: "embedded" | "external";
 }
 
 // Violet for self-identification — the user's own host stands out in
@@ -54,7 +59,9 @@ export function HostGroup({ data }: NodeProps): React.ReactElement {
         backgroundColor: isMe ? "rgba(168, 85, 247, 0.04)" : undefined,
       }}
     >
-      {/* Header — non-interactive, lives at the top of the container */}
+      {/* Header — non-interactive, lives at the top of the container.
+          Left cluster: icon · label · "me" · sublabel.
+          Right cluster (ml-auto pushes it to the edge): role badge. */}
       <div
         className="px-3 py-1.5 flex items-center gap-2 text-text-muted text-[11px] border-b border-dashed shrink-0"
         style={{ borderColor: accent }}
@@ -70,6 +77,20 @@ export function HostGroup({ data }: NodeProps): React.ReactElement {
           </span>
         )}
         {d.sublabel && <span className="font-mono opacity-60">{d.sublabel}</span>}
+        {d.brokerMode && (
+          <span
+            className="ml-auto px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider text-white"
+            // Emerald = runs its own broker (would-be host). Amber = joined
+            // someone else's (client). Distinct from the violet "me" so
+            // role and locality read independently.
+            style={{ backgroundColor: d.brokerMode === "embedded" ? "#10b981" : "#f59e0b" }}
+            title={d.brokerMode === "embedded"
+              ? "Runs its own NATS broker — host"
+              : "Joined another hub's broker — client"}
+          >
+            {d.brokerMode === "embedded" ? "host" : "client"}
+          </span>
+        )}
       </div>
       {/* Empty state — only for passive hosts with no children */}
       {d.isEmpty && (

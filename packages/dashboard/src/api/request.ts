@@ -31,6 +31,14 @@ let selfCanvasPos: { x: number; y: number } | undefined;
 export function setSelfCanvasPos(p: { x: number; y: number } | undefined): void { selfCanvasPos = p; }
 export function getSelfCanvasPos(): { x: number; y: number } | undefined { return selfCanvasPos; }
 
+/** This hub's broker role — `embedded` (would-be host) or `external`
+ *  (client of someone else's broker). Seeded from transport at startup.
+ *  Drives the "host"/"client" badge on the local host card. Peers' role
+ *  rides on `owner_hub.broker_mode` in the snapshot. */
+let selfBrokerMode: "embedded" | "external" | undefined;
+export function setSelfBrokerMode(m: "embedded" | "external" | undefined): void { selfBrokerMode = m; }
+export function getSelfBrokerMode(): "embedded" | "external" | undefined { return selfBrokerMode; }
+
 export async function request<T>(
   path: string,
   opts?: RequestInit & { baseUrl?: string },

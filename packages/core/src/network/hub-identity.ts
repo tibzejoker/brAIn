@@ -58,13 +58,20 @@ export function setHubCanvasPos(db: Database.Database, x: number, y: number): vo
  * `httpUrls` is every candidate HTTP base (one per interface); the first
  * is surfaced as the single `http_url` for back-compat (join URI, older
  * peers), the full list as `http_urls` for consumers to probe.
+ * `brokerMode` lets receivers badge us as a host (`embedded`) or a
+ * client (`external`) in their merged view.
  */
-export function buildHubRef(db: Database.Database, httpUrls: string[] = []): HubRef {
+export function buildHubRef(
+  db: Database.Database,
+  httpUrls: string[] = [],
+  brokerMode?: "embedded" | "external",
+): HubRef {
   return {
     hub_id: resolveHubId(db),
     hub_label: resolveHubLabel(),
     http_url: httpUrls[0],
     http_urls: httpUrls.length > 0 ? httpUrls : undefined,
     canvas_pos: resolveHubCanvasPos(db),
+    broker_mode: brokerMode,
   };
 }

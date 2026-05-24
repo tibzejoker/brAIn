@@ -19,7 +19,7 @@ import { useSelectedNode } from "./hooks/useSelectedNode";
 import { useMessageFlows } from "./hooks/useMessageFlows";
 import { getSocket } from "./api/socket";
 import { getTransport } from "./api/client";
-import { setApiToken, setSelfHubId, setSelfCanvasPos } from "./api/request";
+import { setApiToken, setSelfHubId, setSelfCanvasPos, setSelfBrokerMode } from "./api/request";
 
 export function App(): React.ReactElement {
   const { nodes, refresh: refreshNetwork } = useNetwork();
@@ -59,7 +59,7 @@ export function App(): React.ReactElement {
     getSocket();
     // Pick up THIS hub's broker token so same-origin mutations carry the
     // Authorization header the BrokerTokenGuard expects (embedded mode).
-    void getTransport().then((t) => { setApiToken(t.token); setSelfHubId(t.hub_id); setSelfCanvasPos(t.canvas_pos ?? undefined); }).catch(() => { /* offline boot */ });
+    void getTransport().then((t) => { setApiToken(t.token); setSelfHubId(t.hub_id); setSelfCanvasPos(t.canvas_pos ?? undefined); setSelfBrokerMode(t.mode); }).catch(() => { /* offline boot */ });
   }, []);
 
   const handleSpawnClick = useCallback((): void => {

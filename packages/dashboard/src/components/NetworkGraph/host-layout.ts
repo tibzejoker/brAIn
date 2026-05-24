@@ -2,6 +2,7 @@ import type { Node } from "@xyflow/react";
 import type { NodeSnapshot } from "../../api/types";
 import type { AgentSnapshot } from "../../api/client";
 import type { HostGroupData, HostKind } from "./HostGroup";
+import { getSelfBrokerMode } from "../../api/request";
 
 // ============================================================================
 // Hosts layer
@@ -89,7 +90,7 @@ export function buildHostLayer(
   // equals the peer's agent_id, so we key on the SAME `host-agent-<id>` slot
   // an announced agent would use — a peer that also announces presence shares
   // one container instead of duplicating. label/http_url feed its spec below.
-  const peerHubs = new Map<string, { hub_id: string; hub_label: string; http_url?: string }>();
+  const peerHubs = new Map<string, { hub_id: string; hub_label: string; http_url?: string; broker_mode?: "embedded" | "external" }>();
   for (const s of snapshots) {
     let hostId: string;
     if (s.owner_hub) {
@@ -110,18 +111,25 @@ export function buildHostLayer(
 
   // 2. Define every host that should be visible — Local always, plus every
   // announced agent. Local first so it sits left-most.
-  type HostSpec = { id: string; kind: HostKind; label: string; sublabel?: string; agent: AgentSnapshot | null };
+  type HostSpec = { id: string; kind: HostKind; label: string; sublabel?: string; agent: AgentSnapshot | null; brokerMode?: "embedded" | "external" };
   const specs: HostSpec[] = [
-    { id: HOST_ID_LOCAL, kind: "local", label: "Local", sublabel: "this brAIn process", agent: null },
+    // `getSelfBrokerMode()` is set at app boot from /network/transport.mode —
+    // missing only during the first paint, in which case the badge just
+    // doesn't render until the value lands.
+    { id: HOST_ID_LOCAL, kind: "local", label: "Local", sublabel: "this brAIn process", agent: null, brokerMode: getSelfBrokerMode() },
   ];
   for (const a of agents) {
     const isActive = a.types.length > 0;
+    // An announced agent may also have a hub snapshot on the bus (carries the
+    // broker_mode); enrich the spec when we have it.
+    const peer = peerHubs.get(hostIdFor(a));
     specs.push({
       id: hostIdFor(a),
       kind: isActive ? "active-agent" : "passive",
       label: a.host,
       sublabel: a.agent_id.slice(0, 12),
       agent: a,
+      brokerMode: peer?.broker_mode,
     });
   }
   // Peer hubs that aren't already shown as an announced agent get their own
@@ -135,6 +143,7 @@ export function buildHostLayer(
       label: hub.hub_label,
       sublabel: hub.hub_id.slice(0, 12),
       agent: null,
+      brokerMode: hub.broker_mode,
     });
   }
 
@@ -173,6 +182,7 @@ export function buildHostLayer(
       sublabel: spec.sublabel,
       icon: hostIcon(spec.kind, spec.agent),
       isEmpty: (childrenByHost.get(spec.id) ?? []).length === 0,
+      brokerMode: spec.brokerMode,
     };
     const synced = canvasPosByHost?.get(spec.id);
     hostNodes.push({
