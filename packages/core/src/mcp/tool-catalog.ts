@@ -17,6 +17,12 @@ export interface MCPTool {
   name: string;
   description: string;
   inputSchema: Record<string, unknown>;
+  /** Optional — MCP spec field. Present when the subscription declares
+   *  itself RPC-shaped (`outputSchema` on the SubscriptionConfig).
+   *  External clients (Claude Desktop, Cursor) use it to know what
+   *  comes back from a call. Absent = caller shouldn't assume a
+   *  structured reply (event-only sub). */
+  outputSchema?: Record<string, unknown>;
   /** Bus topic the args are published on. */
   topic: string;
   /** Owning node — populated for the federated view. */
@@ -34,6 +40,7 @@ export function toolsForNode(node: NodeInfo): MCPTool[] {
       name: sub.topic,
       description: sub.description,
       inputSchema: sub.inputSchema ?? DEFAULT_INPUT_SCHEMA,
+      outputSchema: sub.outputSchema,
       topic: sub.topic,
       nodeId: node.id,
       nodeName: node.name,
@@ -61,6 +68,7 @@ export function federatedTools(nodes: NodeInfo[]): MCPTool[] {
         name: `${prefix}__${sub.topic}`,
         description: `[${node.name}] ${sub.description}`,
         inputSchema: sub.inputSchema ?? DEFAULT_INPUT_SCHEMA,
+        outputSchema: sub.outputSchema,
         topic: sub.topic,
         nodeId: node.id,
         nodeName: node.name,
