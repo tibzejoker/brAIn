@@ -208,6 +208,55 @@ export function sendToNode(
   });
 }
 
+// === Live wiring — add/remove subs + pubs on a running node ============
+// All four routes are idempotent on the server (re-add returns existed:true,
+// no-op DELETE returns removed:false). Peer-owned nodes route automatically
+// to their owning hub over NATS — same URL shape regardless of locality.
+
+export interface AddSubscriptionBody {
+  topic: string;
+  description?: string;
+  /** JSON schema describing the expected payload. */
+  inputSchema?: Record<string, unknown>;
+  /** When set, declares this sub as MCP-style RPC: the handler is expected
+   *  to publish a structured reply matching this schema on `msg.reply_to`. */
+  outputSchema?: Record<string, unknown>;
+  /** Defaults to true server-side (private listener). Pass false +
+   *  an inputSchema to expose the sub as an MCP tool via /mcp. */
+  internal?: boolean;
+  min_criticality?: number;
+}
+
+export function addNodeSubscription(
+  id: string, body: AddSubscriptionBody,
+): Promise<{ added: boolean; existed: boolean; subscription_id?: string }> {
+  return request(`/nodes/${id}/subscriptions`, { method: "POST", body: JSON.stringify(body) });
+}
+
+export function removeNodeSubscription(
+  id: string, topic: string,
+): Promise<{ removed: boolean }> {
+  return request(`/nodes/${id}/subscriptions/${encodeURIComponent(topic)}`, { method: "DELETE" });
+}
+
+export function addNodePublish(
+  id: string, topic: string,
+): Promise<{ added: boolean; existed: boolean }> {
+  return request(`/nodes/${id}/publishes`, { method: "POST", body: JSON.stringify({ topic }) });
+}
+
+export function removeNodePublish(
+  id: string, topic: string,
+): Promise<{ removed: boolean }> {
+  return request(`/nodes/${id}/publishes/${encodeURIComponent(topic)}`, { method: "DELETE" });
+}
+
+/** Every topic seen across the merged network — feeds the wiring editor's
+ *  autocomplete datalist. Wildcards are returned verbatim. */
+export function getNetworkTopics(): Promise<{ topics: string[] }> {
+  return request("/network/topics");
+}
+
 // === Seeds ===
 
 export interface SeedValidationError {

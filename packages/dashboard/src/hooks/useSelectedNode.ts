@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { NodeSnapshot } from "../api/types";
 import { getNode } from "../api/client";
-import { onNodeStateChanged, onNodeKilled } from "../api/socket";
+import { onNodeStateChanged, onNodeKilled, onNodeRewired } from "../api/socket";
 
 interface UseSelectedNodeResult {
   node: NodeSnapshot | null;
@@ -53,6 +53,12 @@ export function useSelectedNode(): UseSelectedNodeResult {
           setNode(null);
           setNodeId(null);
         }
+      }),
+      onNodeRewired((event) => {
+        // A sub/pub on the currently-selected node was edited (by us, by
+        // a peer's dashboard, or by the brain itself via rewire tool).
+        // Re-fetch so the side panel reflects it without a manual refresh.
+        if (event.nodeId === nodeId) refresh();
       }),
     ];
 
