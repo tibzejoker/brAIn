@@ -73,6 +73,14 @@ export class DashboardGateway implements OnGatewayInit {
       this.server.emit("node:killed", data);
     });
 
+    // Live wiring — a sub or publish was added/removed on a node here. Push
+    // to all dashboards so they refresh the node's snapshot (the side panel
+    // re-fetches via /nodes/:id, the graph picks the new edges up from the
+    // updated subscriptions on the next /network read).
+    this.brain.on("node:rewired", (data) => {
+      this.server.emit("node:rewired", data);
+    });
+
     this.brain.on("node:state_changed", (data) => {
       this.debounceState(data);
     });

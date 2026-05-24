@@ -185,6 +185,33 @@ export function startAgentPresence(opts: AgentPresenceOptions): AgentPresenceHan
       return { requested: top, resolved: top, layer: layers[0] ?? "fallback", fell_back: false };
     });
 
+    // Live wiring from a peer's dashboard — add or remove a subscription /
+    // publish on a node WE host. Idempotent on both sides: "already exists"
+    // on add returns the existing entry, "not present" on remove returns
+    // removed:false. Persists to DB so the change survives a restart on
+    // the owner. Snapshot publisher picks the change up on its next tick.
+    natsBus.respondToRequests(`brain.agents.${agentId}.update_subscriptions`, (payload) => {
+      const { node_id, op, topic, description, inputSchema, internal, min_criticality } = payload as {
+        node_id: string; op: "add" | "remove"; topic: string;
+        description?: string; inputSchema?: Record<string, unknown>; internal?: boolean; min_criticality?: number;
+      };
+      try {
+        if (op === "add") return { ok: true, ...brain.addNodeSubscription(node_id, topic, { description, inputSchema, internal, min_criticality }) };
+        return { ok: true, ...brain.removeNodeSubscription(node_id, topic) };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    });
+    natsBus.respondToRequests(`brain.agents.${agentId}.update_publishes`, (payload) => {
+      const { node_id, op, topic } = payload as { node_id: string; op: "add" | "remove"; topic: string };
+      try {
+        if (op === "add") return { ok: true, ...brain.addNodePublish(node_id, topic) };
+        return { ok: true, ...brain.removeNodePublish(node_id, topic) };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    });
+
     // Config patch from a peer's dashboard side-panel (edit LLM model, dev
     // mode, etc.). Applies the same merge logic as the local controller —
     // null clears a key, anything else overwrites — then persists via

@@ -3,6 +3,7 @@ export {
   closeDb,
   saveNode,
   saveSubscription,
+  deleteSubscription,
   updateNodePosition,
   updateNodeConfig,
   deleteNode,

@@ -174,6 +174,87 @@ export class NodesController {
     return { updated: true, node_id: id, config_overrides: overrides };
   }
 
+  // ─── Live wiring ────────────────────────────────────────────────────────
+  // Subscriptions and publishes are editable post-spawn. Local nodes mutate
+  // in-process via brain.{add,remove}Node{Subscription,Publish}; peer-owned
+  // nodes route through brain.agents.<hub>.update_{subscriptions,publishes}.
+  // The bus picks up the change live; DB persists so a restart on the owner
+  // restores the new shape. Idempotent — re-adding an existing topic is a
+  // no-op rather than an error.
+  @Post(":id/subscriptions")
+  async addSubscription(
+    @Param("id") id: string,
+    @Body() body: { topic: string; description?: string; inputSchema?: Record<string, unknown>; internal?: boolean; min_criticality?: number },
+  ): Promise<{ added: boolean; existed: boolean; subscription_id?: string }> {
+    if (!body.topic || !/^[a-zA-Z0-9._*>+-]+$/.test(body.topic)) {
+      throw new HttpException("invalid topic", HttpStatus.BAD_REQUEST);
+    }
+    if (this.brain.instanceRegistry.get(id)) {
+      try { return this.brain.addNodeSubscription(id, body.topic, body); }
+      catch (e) { throw new HttpException(e instanceof Error ? e.message : String(e), HttpStatus.NOT_FOUND); }
+    }
+    return this.routeWiringToPeer<{ added: boolean; existed: boolean; subscription_id?: string }>(id, "update_subscriptions", { op: "add", node_id: id, ...body });
+  }
+
+  @Delete(":id/subscriptions/:topic")
+  async removeSubscription(
+    @Param("id") id: string,
+    @Param("topic") topic: string,
+  ): Promise<{ removed: boolean }> {
+    const decoded = decodeURIComponent(topic);
+    if (this.brain.instanceRegistry.get(id)) {
+      try { return this.brain.removeNodeSubscription(id, decoded); }
+      catch (e) { throw new HttpException(e instanceof Error ? e.message : String(e), HttpStatus.NOT_FOUND); }
+    }
+    return this.routeWiringToPeer<{ removed: boolean }>(id, "update_subscriptions", { op: "remove", node_id: id, topic: decoded });
+  }
+
+  @Post(":id/publishes")
+  async addPublish(
+    @Param("id") id: string,
+    @Body() body: { topic: string },
+  ): Promise<{ added: boolean; existed: boolean }> {
+    if (!body.topic || !/^[a-zA-Z0-9._*>+-]+$/.test(body.topic)) {
+      throw new HttpException("invalid topic", HttpStatus.BAD_REQUEST);
+    }
+    if (this.brain.instanceRegistry.get(id)) {
+      try { return this.brain.addNodePublish(id, body.topic); }
+      catch (e) { throw new HttpException(e instanceof Error ? e.message : String(e), HttpStatus.NOT_FOUND); }
+    }
+    return this.routeWiringToPeer<{ added: boolean; existed: boolean }>(id, "update_publishes", { op: "add", node_id: id, topic: body.topic });
+  }
+
+  @Delete(":id/publishes/:topic")
+  async removePublish(
+    @Param("id") id: string,
+    @Param("topic") topic: string,
+  ): Promise<{ removed: boolean }> {
+    const decoded = decodeURIComponent(topic);
+    if (this.brain.instanceRegistry.get(id)) {
+      try { return this.brain.removeNodePublish(id, decoded); }
+      catch (e) { throw new HttpException(e instanceof Error ? e.message : String(e), HttpStatus.NOT_FOUND); }
+    }
+    return this.routeWiringToPeer<{ removed: boolean }>(id, "update_publishes", { op: "remove", node_id: id, topic: decoded });
+  }
+
+  /** Resolve a node's owner hub from the merged view and dispatch a wiring
+   *  request over NATS. Throws 404 if neither local nor peer-known.
+   *  The owner-side handler wraps its return in `{ ok, ...rest, error? }`;
+   *  on `ok: false` we surface the message as a 502. On success we return
+   *  the rest (typed by the caller) — the `ok` field is consumed here. */
+  private async routeWiringToPeer<T>(
+    id: string, op: "update_subscriptions" | "update_publishes", payload: Record<string, unknown>,
+  ): Promise<T> {
+    const peer = this.brain.network.mergedNodes().find((n) => n.id === id);
+    const hub = peer?.owner_hub?.hub_id;
+    if (!hub) throw new HttpException("Node not found", HttpStatus.NOT_FOUND);
+    const bus = this.brain.bus as { requestRemote?: NatsBusService["requestRemote"] };
+    if (!bus.requestRemote) throw new HttpException("Bus does not support remote calls", HttpStatus.NOT_IMPLEMENTED);
+    const reply = await bus.requestRemote<{ ok: boolean; error?: string } & T>(`brain.agents.${hub}.${op}`, payload);
+    if (!reply.ok) throw new HttpException(reply.error ?? "remote wiring failed", HttpStatus.BAD_GATEWAY);
+    return reply;
+  }
+
   @Post(":id/tick")
   tick(@Param("id") id: string): { ticked: boolean; node_id: string } {
     const ticked = this.brain.tickNode(id);

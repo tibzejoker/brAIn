@@ -163,6 +163,19 @@ export function saveSubscription(
   `).run(sub);
 }
 
+/** Remove a single subscription identified by (node_id, topic). Used by the
+ *  live-wiring API when the user removes a subscription from the side panel
+ *  or via a drag-to-disconnect gesture. Idempotent — silently no-ops if no
+ *  matching row exists. */
+export function deleteSubscription(
+  db: Database.Database,
+  nodeId: string,
+  topic: string,
+): boolean {
+  const r = db.prepare("DELETE FROM subscriptions WHERE node_id = ? AND topic = ?").run(nodeId, topic);
+  return r.changes > 0;
+}
+
 export function updateNodePosition(
   db: Database.Database,
   nodeId: string,
