@@ -9,6 +9,8 @@ interface SeedSubscription {
   /** Required when overriding subscriptions in a seed. */
   description?: string;
   inputSchema?: Record<string, unknown>;
+  /** Opt-in MCP-style RPC: declares a typed reply on `reply_to`. */
+  outputSchema?: Record<string, unknown>;
   min_criticality?: number;
   mailbox?: Partial<MailboxConfig>;
 }
@@ -381,6 +383,7 @@ export interface SerializableNode {
     pattern?: string;
     description?: string;
     inputSchema?: Record<string, unknown>;
+    outputSchema?: Record<string, unknown>;
     min_criticality?: number;
     mailbox?: Partial<MailboxConfig>;
   }>;
@@ -430,6 +433,11 @@ export function savePersonalSeed(
         const out: Record<string, unknown> = { topic };
         if (s.description) out.description = s.description;
         if (s.inputSchema) out.inputSchema = s.inputSchema;
+        // RPC-shaped subs (MCP-style: declare a typed reply) round-trip
+        // through the seed too — otherwise re-spawning from a saved
+        // network would lose the output contract that drove /mcp's
+        // outputSchema field on external clients.
+        if (s.outputSchema) out.outputSchema = s.outputSchema;
         if (s.min_criticality !== undefined) out.min_criticality = s.min_criticality;
         if (s.mailbox) out.mailbox = s.mailbox;
         return out;

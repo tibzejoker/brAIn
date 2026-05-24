@@ -1,4 +1,4 @@
-import { type NodeInfo, type NodeInstanceConfig, type NodeModule, type RunMode, NodeState, normaliseSubscription } from "@brain/sdk";
+import { type NodeInfo, type NodeInstanceConfig, type NodeModule, type RunMode, type PortBindings, NodeState, normaliseSubscription } from "@brain/sdk";
 import type Database from "better-sqlite3";
 import { loadAllNodes, loadSubscriptions } from "./db";
 import { logger } from "./logger";
@@ -7,6 +7,7 @@ import type { IBusService } from "./bus";
 import type { TypeRegistry, InstanceRegistry } from "./registry";
 import type { LLMRegistry } from "./llm/llm-registry";
 import type { LLMConfigStore } from "./llm/llm-config";
+import { mergePortBindings, autoDerivePorts, autoDeriveBindings } from "./ports";
 
 type HandlerLoader = (typeName: string, typePath: string) => Promise<NodeModule>;
 
@@ -81,6 +82,26 @@ export async function restoreNodes(opts: {
       });
     });
 
+    // 2-layer wiring: bring the type's port declaration forward (it lives
+    // in code, not in the DB) and merge any per-instance binding overrides
+    // persisted in config_overrides._port_bindings on top of the type
+    // defaults. Auto-derive when the type didn't migrate to ports yet so
+    // unmigrated nodes still surface as ports in the dashboard.
+    const cfgOverrides = JSON.parse(saved.config_overrides) as Record<string, unknown>;
+    const overriddenBindings = cfgOverrides._port_bindings as PortBindings | undefined;
+    const declaredPorts = typeConfig?.ports;
+    const effectivePorts = declaredPorts
+      ?? (typeConfig ? autoDerivePorts(typeConfig.default_subscriptions, typeConfig.default_publishes) : undefined);
+    // `declaredPorts` is sourced from `typeConfig?.ports`, so when it is
+    // truthy the typeConfig is guaranteed non-null; the `?.` would be
+    // redundant. Branch explicitly to satisfy the linter.
+    const baseBindings = typeConfig
+      ? (declaredPorts
+          ? typeConfig.default_port_bindings
+          : autoDeriveBindings(typeConfig.default_subscriptions, typeConfig.default_publishes))
+      : undefined;
+    const effectiveBindings = mergePortBindings(baseBindings, overriddenBindings);
+
     const nodeInfo: NodeInfo = {
       id: saved.id,
       type: saved.type,
@@ -93,10 +114,12 @@ export async function restoreNodes(opts: {
       subscriptions,
       transport: saved.transport as "process" | "container" | "web",
       position: { x: saved.position_x, y: saved.position_y },
-      config_overrides: JSON.parse(saved.config_overrides) as Record<string, unknown>,
+      config_overrides: cfgOverrides,
       default_publishes: typeConfig?.default_publishes,
       spawned_by: saved.spawned_by ?? undefined,
       created_at: saved.created_at,
+      ports: effectivePorts,
+      port_bindings: effectiveBindings,
     };
 
     opts.instanceRegistry.add(nodeInfo);

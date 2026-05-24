@@ -3,6 +3,8 @@ import {
   type SubscriptionConfig,
   type TransportMode,
   type WebTransportConfig,
+  type PortsConfig,
+  type PortBindings,
 } from "./types";
 
 export interface NodeTypeConfig {
@@ -14,9 +16,23 @@ export interface NodeTypeConfig {
   /** Every entry is either a public tool (`{description, inputSchema}` both required)
    *  or marked `{internal: true}`. The discriminated union enforces this at compile
    *  time — config.json files that omit `inputSchema` without `internal:true` are
-   *  rejected by the framework's TypeValidatorService at registration time. */
+   *  rejected by the framework's TypeValidatorService at registration time.
+   *
+   *  Used for INTERNAL listeners (alerts.*, time.tick, etc.) and as the
+   *  legacy single-layer wiring surface. When the node also declares
+   *  {@link ports}, those become the PUBLIC contract (MCP tools, dashboard
+   *  side panel ports section) and `default_subscriptions` is reserved for
+   *  private plumbing. The framework auto-derives ports from any public
+   *  entries here if `ports` is omitted, for backward compat. */
   default_subscriptions: SubscriptionConfig[];
   default_publishes?: string[];
+  /** 2-layer wiring contract. When set, each input port is exposed as an
+   *  MCP tool and rendered as a typed, immutable port on the dashboard.
+   *  `default_port_bindings` seeds the per-instance topic↔port map for new
+   *  spawns; the user can rewire at runtime via the live-wiring API
+   *  (`POST/DELETE /nodes/:id/ports/:port/topics`). */
+  ports?: PortsConfig;
+  default_port_bindings?: PortBindings;
   has_ui?: boolean;
   interval?: string;
   supports_transport: TransportMode[];

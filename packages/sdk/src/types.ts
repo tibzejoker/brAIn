@@ -84,6 +84,13 @@ export interface Message {
   id: string;
   from: string;
   topic: string;
+  /** 2-layer wiring: when a node receives this message via a topic that
+   *  is bound to one of its declared input ports, the framework tags
+   *  the delivered message with that port name. Handlers can switch on
+   *  `msg.port` instead of `msg.topic` to stay decoupled from which
+   *  topic happened to feed the port. Unset for free-form subs (legacy
+   *  default_subscriptions without port mapping). */
+  port?: string;
   type: MessageType;
   criticality: number;
   payload: Payload;
@@ -287,7 +294,53 @@ export interface NodeInfo {
   spawned_by?: string;
   ttl?: number;
   created_at: number;
+  /** 2-layer wiring model: ports come from the node type's code (immutable
+   *  contract — see {@link PortsConfig}) and bindings map each port to the
+   *  bus topics it is currently wired to. Defaults come from
+   *  `default_port_bindings` on the type; per-instance overrides live in
+   *  `config_overrides._port_bindings`. Populated at spawn time by the
+   *  framework so the dashboard renders the ports section without having
+   *  to look at the type registry. */
+  ports?: PortsConfig;
+  port_bindings?: PortBindings;
 }
+
+/** Declarative "ports" of a node — the immutable contract exposed to MCP
+ *  callers + the dashboard. Each input port becomes an MCP tool; an output
+ *  port describes the structured reply (RPC-shape) when matched by name.
+ *  Topic-to-port routing lives in `port_bindings` (instance config), so
+ *  the same port can receive from multiple topics or fan out to many. */
+export interface PortsConfig {
+  /** Public, typed input contracts. Each becomes an MCP tool. */
+  inputs?: Record<string, PortInputDecl>;
+  /** Declared output channels. Schema makes them MCP-RPC-shape (returned
+   *  on the matching input's call); without it, free fan-out events. */
+  outputs?: Record<string, PortOutputDecl>;
+}
+
+export interface PortInputDecl {
+  description: string;
+  /** JSON schema. Required for public discovery. */
+  inputSchema: Record<string, unknown>;
+  /** When set, declares this port as RPC-shape: the handler is expected to
+   *  publish a reply on `msg.reply_to` matching this schema. Reused as the
+   *  MCP `outputSchema` for the corresponding tool. */
+  outputSchema?: Record<string, unknown>;
+}
+
+export interface PortOutputDecl {
+  description: string;
+  /** Optional payload schema for emissions on this port. */
+  schema?: Record<string, unknown>;
+}
+
+/** Per-instance topic ↔ port binding map. Keys are port names; values are
+ *  the bus topics currently wired to that port. Edited at runtime via the
+ *  live-wiring API. A port with `[]` is "orphan" — declared but isolated. */
+export type PortBindings = {
+  inputs?: Record<string, string[]>;
+  outputs?: Record<string, string[]>;
+};
 
 // === Preemption ===
 
@@ -568,6 +621,12 @@ export interface NodeContext {
   respond(content: string, metadata?: Record<string, unknown>): void;
   /** Publish to a specific topic. Use respond() unless you need explicit routing. */
   publish(topic: string, message: Omit<Message, "id" | "from" | "timestamp" | "topic">): void;
+  /** Publish on every topic currently wired to the named OUTPUT port.
+   *  Decouples the handler from the wiring layer — the same code emits
+   *  on `chat.response.brain` today and `tts.speak` tomorrow if the
+   *  port's bindings change in the dashboard. No-op + warning when the
+   *  port has zero bindings or isn't declared on this node's type. */
+  emit_port(portName: string, message: Omit<Message, "id" | "from" | "timestamp" | "topic">): void;
   /**
    * Add a runtime subscription. Two call shapes, mirroring the static
    * `default_subscriptions` discipline — the framework refuses an

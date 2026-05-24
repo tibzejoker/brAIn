@@ -34,8 +34,34 @@ const DEFAULT_INPUT_SCHEMA: Record<string, unknown> = { type: "object" };
 
 export function toolsForNode(node: NodeInfo): MCPTool[] {
   const out: MCPTool[] = [];
+  const seenPortTopics = new Set<string>();
+  // 2-layer: each declared INPUT port = one MCP tool. Name comes from
+  // the port itself (stable across rewiring); the first bound topic is
+  // the canonical call surface — extra bindings stay accepted by the
+  // bus, so callers can reach the port via any of them.
+  if (node.ports?.inputs) {
+    for (const [portName, decl] of Object.entries(node.ports.inputs)) {
+      const topics = node.port_bindings?.inputs?.[portName] ?? [];
+      const topic = topics[0] ?? portName;
+      for (const t of topics) seenPortTopics.add(t);
+      out.push({
+        name: portName,
+        description: decl.description,
+        inputSchema: decl.inputSchema,
+        outputSchema: decl.outputSchema,
+        topic,
+        nodeId: node.id,
+        nodeName: node.name,
+      });
+    }
+  }
+  // Legacy fallback: PUBLIC subs not already exposed via a port. Skip
+  // anything whose description starts with "[port:" — those are the
+  // port-expanded subs we already covered above.
   for (const sub of node.subscriptions) {
     if (!sub.description) continue;
+    if (seenPortTopics.has(sub.topic)) continue;
+    if (sub.description.startsWith("[port:")) continue;
     out.push({
       name: sub.topic,
       description: sub.description,
@@ -62,8 +88,27 @@ export function federatedTools(nodes: NodeInfo[]): MCPTool[] {
   const out: MCPTool[] = [];
   for (const node of nodes) {
     const prefix = (nameCounts.get(node.name) ?? 0) > 1 ? node.id.slice(0, 8) : node.name;
+    const seenPortTopics = new Set<string>();
+    if (node.ports?.inputs) {
+      for (const [portName, decl] of Object.entries(node.ports.inputs)) {
+        const topics = node.port_bindings?.inputs?.[portName] ?? [];
+        const topic = topics[0] ?? portName;
+        for (const t of topics) seenPortTopics.add(t);
+        out.push({
+          name: `${prefix}__${portName}`,
+          description: `[${node.name}] ${decl.description}`,
+          inputSchema: decl.inputSchema,
+          outputSchema: decl.outputSchema,
+          topic,
+          nodeId: node.id,
+          nodeName: node.name,
+        });
+      }
+    }
     for (const sub of node.subscriptions) {
       if (!sub.description) continue;
+      if (seenPortTopics.has(sub.topic)) continue;
+      if (sub.description.startsWith("[port:")) continue;
       out.push({
         name: `${prefix}__${sub.topic}`,
         description: `[${node.name}] ${sub.description}`,

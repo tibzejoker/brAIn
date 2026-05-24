@@ -181,6 +181,8 @@ export function NodePanel({
             nodeId={node.id}
             subscriptions={node.subscriptions}
             publishes={node.default_publishes ?? []}
+            ports={node.ports}
+            portBindings={node.port_bindings}
             onChange={onAction}
           />
         </div>
