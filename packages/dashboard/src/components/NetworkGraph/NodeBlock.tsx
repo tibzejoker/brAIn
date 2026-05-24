@@ -294,9 +294,13 @@ export function NodeBlock({ id, data, selected }: NodeProps<NodeBlockData>): Rea
           Each row is a 3-column grid: [input] [empty centre] [output].
           Empty cells keep the column widths stable so handles always
           touch the borders at the same x for every row. */}
-      {ioRowCount > 0 && (
-        <div className="pb-2">
-          {Array.from({ length: ioRowCount }).map((_, i) => {
+      {/* Always render at least one IO row's worth of vertical space, even
+          when there are zero subs and zero pubs — the always-on "+"
+          placeholder handles below need somewhere to land. Without this,
+          a fully-emptied node card collapses to header-only and the +
+          handles dangle off the card. */}
+      <div className="pb-2" style={ioRowCount === 0 ? { minHeight: `${IO_ROW_HEIGHT + 8}px` } : undefined}>
+        {Array.from({ length: ioRowCount }).map((_, i) => {
             const inputTopic = data.subscribes[i];
             const outputTopic = data.publishes[i];
             return (
@@ -334,8 +338,7 @@ export function NodeBlock({ id, data, selected }: NodeProps<NodeBlockData>): Rea
               </div>
             );
           })}
-        </div>
-      )}
+      </div>
 
       {/* === Embedded UI (in-place expansion) ===
           When `isExpanded` is true the iframe takes over the bottom of
