@@ -61,6 +61,22 @@ export function onNodeStateChanged(
   };
 }
 
+/** Fired by the API whenever a node's subscriptions or publishes are
+ *  edited via the live-wiring endpoints. Carries the nodeId so the
+ *  side panel re-fetches just that node's snapshot. */
+export interface RewireEvent {
+  nodeId: string;
+  op: "add_subscription" | "remove_subscription" | "add_publish" | "remove_publish";
+  topic: string;
+}
+export function onNodeRewired(cb: (event: RewireEvent) => void): () => void {
+  const s = getSocket();
+  s.on("node:rewired", cb);
+  return (): void => {
+    s.off("node:rewired", cb);
+  };
+}
+
 export function onMessagePublished(cb: (msg: Message) => void): () => void {
   const s = getSocket();
   s.on("message:published", cb);

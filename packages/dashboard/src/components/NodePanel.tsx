@@ -4,6 +4,7 @@ import { killNode, stopNode, startNode, getNodeLogs, getNodeMailboxes, getNodeDe
 import { DeadLetterTab } from "./DeadLetterTab";
 import { NodeLLMTab } from "./NodeLLMTab";
 import { TabButton, InfoRow, ActionButton } from "./NodePanelHelpers";
+import { WiringEditor } from "./WiringEditor";
 
 function noop(): void { /* best-effort */ }
 type PanelTab = "info" | "logs" | "mailbox" | "dlq" | "llm";
@@ -171,16 +172,17 @@ export function NodePanel({
             </div>
           )}
 
-          {node.subscriptions.length > 0 && (
-            <div>
-              <span className="text-xs text-text-muted uppercase tracking-wide">Subscriptions</span>
-              <div className="mt-1 space-y-1">
-                {node.subscriptions.map((sub) => (
-                  <div key={sub.id} className="px-2 py-1 text-xs rounded bg-surface-overlay text-text font-mono">{sub.pattern}</div>
-                ))}
-              </div>
-            </div>
-          )}
+          {/* Live wiring — typed inputs (subs) and declared outputs (pubs)
+              are editable post-spawn. Mutations route through the API
+              (peer-owned nodes auto-routed via NATS), are persisted to
+              the owner's DB, and the snapshot publisher carries the new
+              shape to every dashboard within seconds. */}
+          <WiringEditor
+            nodeId={node.id}
+            subscriptions={node.subscriptions}
+            publishes={node.default_publishes ?? []}
+            onChange={onAction}
+          />
         </div>
       )}
 
