@@ -212,6 +212,19 @@ export function startAgentPresence(opts: AgentPresenceOptions): AgentPresenceHan
         return { ok: false, error: err instanceof Error ? err.message : String(err) };
       }
     });
+    // 2-layer wiring: peer dashboard binds / unbinds a topic on a declared
+    // port. Same idempotency contract as update_subscriptions / publishes.
+    natsBus.respondToRequests(`brain.agents.${agentId}.update_port_bindings`, (payload) => {
+      const { node_id, op, side, port, topic } = payload as {
+        node_id: string; op: "bind" | "unbind"; side: "inputs" | "outputs"; port: string; topic: string;
+      };
+      try {
+        if (op === "bind") return { ok: true, ...brain.bindPortTopic(node_id, side, port, topic) };
+        return { ok: true, ...brain.unbindPortTopic(node_id, side, port, topic) };
+      } catch (err) {
+        return { ok: false, error: err instanceof Error ? err.message : String(err) };
+      }
+    });
 
     // Config patch from a peer's dashboard side-panel (edit LLM model, dev
     // mode, etc.). Applies the same merge logic as the local controller —

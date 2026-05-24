@@ -257,6 +257,27 @@ export function getNetworkTopics(): Promise<{ topics: string[] }> {
   return request("/network/topics");
 }
 
+// === 2-layer ports: bind / unbind topics on a declared port ===========
+// Ports are immutable (declared in the node type's config.json). Only
+// their bindings change. The framework mirrors input-port binds/unbinds
+// into the flat subscription list automatically, so the bus + dashboard
+// graph keep working unchanged.
+
+export function bindPortTopic(
+  id: string, side: "inputs" | "outputs", port: string, topic: string,
+): Promise<{ added: boolean; existed: boolean }> {
+  return request(`/nodes/${id}/ports/${side}/${encodeURIComponent(port)}/topics`, {
+    method: "POST",
+    body: JSON.stringify({ topic }),
+  });
+}
+
+export function unbindPortTopic(
+  id: string, side: "inputs" | "outputs", port: string, topic: string,
+): Promise<{ removed: boolean }> {
+  return request(`/nodes/${id}/ports/${side}/${encodeURIComponent(port)}/topics/${encodeURIComponent(topic)}`, { method: "DELETE" });
+}
+
 // === Seeds ===
 
 export interface SeedValidationError {

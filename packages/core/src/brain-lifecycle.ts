@@ -6,12 +6,14 @@ import {
   type NodeTeardown,
   type NodeInstanceConfig,
   type RunMode,
+  type PortBindings,
   NodeState,
   normaliseSubscription,
 } from "@brain/sdk";
 import type Database from "better-sqlite3";
 import { v4 as uuid } from "uuid";
 import { saveNode, saveSubscription, deleteNode } from "./db";
+import { mergePortBindings, expandPortsToSubs, autoDerivePorts, autoDeriveBindings } from "./ports";
 import { createRunner, type BaseRunner } from "./runner";
 import type { IBusService } from "./bus";
 import type { TypeRegistry, InstanceRegistry } from "./registry";
@@ -126,6 +128,31 @@ export async function spawnNode(
     mergedOverrides.web = typeConfig.web;
   }
 
+  // 2-layer wiring: bring the type's ports + default port bindings forward
+  // onto the live NodeInfo, and merge per-instance overrides from
+  // config_overrides._port_bindings (where the live-wiring API persists).
+  // Then EXPAND the binding map into the flat `subscriptions` list so the
+  // bus, mailboxes, and dashboard all keep working unchanged — ports are a
+  // declarative layer above subs, not a parallel system.
+  const ports = typeConfig.ports;
+  const overridenBindings = (mergedOverrides._port_bindings as PortBindings | undefined) ?? undefined;
+  const portBindings: PortBindings = mergePortBindings(typeConfig.default_port_bindings, overridenBindings);
+
+  // Auto-derive ports from existing public subs when the type doesn't
+  // declare them explicitly — backward compat with the flat model, no
+  // change for unmigrated nodes.
+  const effectivePorts = ports ?? autoDerivePorts(typeConfig.default_subscriptions, typeConfig.default_publishes);
+  const effectiveBindings = ports ? portBindings : autoDeriveBindings(typeConfig.default_subscriptions, typeConfig.default_publishes);
+
+  // Subs = port-bound input topics ∪ "internal" subs from default_subscriptions.
+  // Public entries already covered by a port are deduplicated by topic.
+  const portInputTopics = new Set<string>();
+  for (const topics of Object.values(effectiveBindings.inputs ?? {})) for (const t of topics) portInputTopics.add(t);
+  const baseSubs = (config.subscriptions ?? typeConfig.default_subscriptions).map(normaliseSubscription);
+  const internalSubs = baseSubs.filter((s) => !portInputTopics.has(s.topic) || s.internal === true);
+  const portSubs = expandPortsToSubs(effectivePorts, effectiveBindings);
+  const allSubs = [...portSubs, ...internalSubs];
+
   const nodeInfo: NodeInfo = {
     id: config.id ?? uuid(),
     type: config.type,
@@ -135,7 +162,7 @@ export async function spawnNode(
     authority_level: config.authority_level ?? typeConfig.default_authority,
     state: NodeState.ACTIVE,
     priority: config.priority ?? typeConfig.default_priority,
-    subscriptions: (config.subscriptions ?? typeConfig.default_subscriptions).map(normaliseSubscription),
+    subscriptions: allSubs,
     transport,
     position: config.position ?? { x: 0, y: 0 },
     config_overrides: mergedOverrides,
@@ -143,6 +170,8 @@ export async function spawnNode(
     spawned_by: callerNodeId,
     ttl: config.ttl ? parseInterval(config.ttl) : undefined,
     created_at: Date.now(),
+    ports: effectivePorts,
+    port_bindings: effectiveBindings,
   };
 
   saveNode(deps.db, {

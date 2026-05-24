@@ -243,7 +243,7 @@ export class NodesController {
    *  on `ok: false` we surface the message as a 502. On success we return
    *  the rest (typed by the caller) — the `ok` field is consumed here. */
   private async routeWiringToPeer<T>(
-    id: string, op: "update_subscriptions" | "update_publishes", payload: Record<string, unknown>,
+    id: string, op: "update_subscriptions" | "update_publishes" | "update_port_bindings", payload: Record<string, unknown>,
   ): Promise<T> {
     const peer = this.brain.network.mergedNodes().find((n) => n.id === id);
     const hub = peer?.owner_hub?.hub_id;
@@ -253,6 +253,44 @@ export class NodesController {
     const reply = await bus.requestRemote<{ ok: boolean; error?: string } & T>(`brain.agents.${hub}.${op}`, payload);
     if (!reply.ok) throw new HttpException(reply.error ?? "remote wiring failed", HttpStatus.BAD_GATEWAY);
     return reply;
+  }
+
+  // ─── 2-layer wiring: port bindings ─────────────────────────────────
+  // Ports are the immutable contract declared by the node's config.json;
+  // bindings (topic ↔ port) are mutable at runtime. The flat subscription
+  // is mirrored automatically by brain.bindPortTopic / unbindPortTopic
+  // for input ports — output bindings are read by ctx.emit_port at
+  // publish time, no bus subscription involved.
+  @Post(":id/ports/:side/:port/topics")
+  async bindPort(
+    @Param("id") id: string,
+    @Param("side") side: string,
+    @Param("port") port: string,
+    @Body() body: { topic: string },
+  ): Promise<{ added: boolean; existed: boolean }> {
+    if (side !== "inputs" && side !== "outputs") throw new HttpException("side must be inputs or outputs", HttpStatus.BAD_REQUEST);
+    if (!body.topic || !/^[a-zA-Z0-9._*>+-]+$/.test(body.topic)) throw new HttpException("invalid topic", HttpStatus.BAD_REQUEST);
+    if (this.brain.instanceRegistry.get(id)) {
+      try { return this.brain.bindPortTopic(id, side, port, body.topic); }
+      catch (e) { throw new HttpException(e instanceof Error ? e.message : String(e), HttpStatus.BAD_REQUEST); }
+    }
+    return this.routeWiringToPeer<{ added: boolean; existed: boolean }>(id, "update_port_bindings", { op: "bind", node_id: id, side, port, topic: body.topic });
+  }
+
+  @Delete(":id/ports/:side/:port/topics/:topic")
+  async unbindPort(
+    @Param("id") id: string,
+    @Param("side") side: string,
+    @Param("port") port: string,
+    @Param("topic") topic: string,
+  ): Promise<{ removed: boolean }> {
+    if (side !== "inputs" && side !== "outputs") throw new HttpException("side must be inputs or outputs", HttpStatus.BAD_REQUEST);
+    const decoded = decodeURIComponent(topic);
+    if (this.brain.instanceRegistry.get(id)) {
+      try { return this.brain.unbindPortTopic(id, side, port, decoded); }
+      catch (e) { throw new HttpException(e instanceof Error ? e.message : String(e), HttpStatus.BAD_REQUEST); }
+    }
+    return this.routeWiringToPeer<{ removed: boolean }>(id, "update_port_bindings", { op: "unbind", node_id: id, side, port, topic: decoded });
   }
 
   @Post(":id/tick")

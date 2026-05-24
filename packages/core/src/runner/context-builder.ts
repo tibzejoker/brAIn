@@ -81,6 +81,21 @@ export function buildNodeContext(
   const bus = deps.bus;
   const log = rt.log;
 
+  // 2-layer wiring tag: build a reverse index `topic → port` from the
+  // node's input bindings so each delivered message can be stamped with
+  // its arriving port. Lets handlers switch on `msg.port` instead of
+  // `msg.topic` — wiring changes don't require rewriting the handler.
+  const topicToPort = new Map<string, string>();
+  for (const [portName, topics] of Object.entries(rt.nodeInfo.port_bindings?.inputs ?? {})) {
+    for (const t of topics) topicToPort.set(t, portName);
+  }
+  const taggedMessages = topicToPort.size === 0
+    ? messages
+    : messages.map((m) => {
+        const p = topicToPort.get(m.topic);
+        return p && m.port === undefined ? { ...m, port: p } : m;
+      });
+
   // Resolve response topic: config override > default_publishes[0].
   const responseTopic = (rt.nodeInfo.config_overrides?.response_topic as string | undefined)
     ?? rt.nodeInfo.default_publishes?.[0]
@@ -94,7 +109,7 @@ export function buildNodeContext(
   const parentId = messages.length > 0 ? messages[0].id : undefined;
 
   return {
-    messages,
+    messages: taggedMessages,
     readMessages: (opts?: ReadMessagesOptions): Message[] => bus.readMessages(nodeId, opts),
     respond(content: string, metadata?: Record<string, unknown>): void {
       if (!responseTopic) {
@@ -111,6 +126,25 @@ export function buildNodeContext(
     publish(topic: string, msg: Omit<Message, "id" | "from" | "timestamp" | "topic">): void {
       log.info(`publish ${topic} (crit:${msg.criticality})`);
       bus.publish({ ...msg, from: nodeId, topic, parent_id: msg.parent_id ?? parentId });
+    },
+    emit_port(portName: string, msg: Omit<Message, "id" | "from" | "timestamp" | "topic">): void {
+      // Fan-out over the topics currently wired to the named OUTPUT port.
+      // No-op + warn when the port isn't declared on this node or has zero
+      // bindings — quietly silent emissions would hide misconfiguration.
+      const topics = rt.nodeInfo.port_bindings?.outputs?.[portName] ?? [];
+      const portDecl = rt.nodeInfo.ports?.outputs?.[portName];
+      if (!portDecl) {
+        log.warn(`emit_port: '${portName}' is not declared on this node type — emission dropped`);
+        return;
+      }
+      if (topics.length === 0) {
+        log.warn(`emit_port: port '${portName}' is orphan (zero bindings) — emission dropped`);
+        return;
+      }
+      for (const topic of topics) {
+        log.info(`emit_port ${portName} → ${topic}`);
+        bus.publish({ ...msg, from: nodeId, topic, parent_id: msg.parent_id ?? parentId });
+      }
     },
     subscribe(
       topic: string,

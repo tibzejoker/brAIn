@@ -493,6 +493,66 @@ export class BrainService extends EventEmitter {
     return { added: true, existed: false };
   }
 
+  /**
+   * 2-layer wiring: bind / unbind a topic on a declared port. Ports are
+   * the immutable, MCP-visible contract; bindings are the per-instance
+   * topic ↔ port map. For INPUT ports we also create / delete the
+   * underlying bus subscription so messages actually flow; for OUTPUT
+   * ports nothing flips at the bus level (emit_port reads bindings).
+   * Idempotent on both sides. Persists via config_overrides._port_bindings
+   * so the change survives a restart.
+   */
+  bindPortTopic(
+    nodeId: string, side: "inputs" | "outputs", portName: string, topic: string,
+  ): { added: boolean; existed: boolean } {
+    const n = this.instanceRegistry.get(nodeId);
+    if (!n) throw new Error(`Node not found: ${nodeId}`);
+    if (!n.ports?.[side]?.[portName]) throw new Error(`Port not declared: ${side}.${portName}`);
+    if (side === "outputs" && /[*>]/.test(topic)) {
+      throw new Error("output port bindings cannot contain wildcards (* / >) — publish targets must be concrete");
+    }
+    const bindings = n.port_bindings ?? {};
+    const sideMap = { ...(bindings[side] ?? {}) };
+    const current = sideMap[portName] ?? [];
+    if (current.includes(topic)) return { added: false, existed: true };
+    sideMap[portName] = [...current, topic];
+    n.port_bindings = { ...bindings, [side]: sideMap };
+    const overrides = { ...(n.config_overrides ?? {}), _port_bindings: n.port_bindings };
+    n.config_overrides = overrides;
+    dbUpdateNodeConfig(this.db, nodeId, overrides);
+    if (side === "inputs") {
+      this.addNodeSubscription(nodeId, topic, {
+        description: `[port:${portName}] ${n.ports.inputs?.[portName]?.description ?? ""}`,
+        inputSchema: n.ports.inputs?.[portName]?.inputSchema,
+        outputSchema: n.ports.inputs?.[portName]?.outputSchema,
+        internal: false,
+      });
+    }
+    recordHistory(this.db, { action: "node.rewired", node_id: nodeId, node_name: n.name, node_type: n.type, details: { op: "bind_port", side, port: portName, topic } });
+    this.emit("node:rewired", { nodeId, op: `bind_port_${side}`, port: portName, topic });
+    return { added: true, existed: false };
+  }
+
+  unbindPortTopic(
+    nodeId: string, side: "inputs" | "outputs", portName: string, topic: string,
+  ): { removed: boolean } {
+    const n = this.instanceRegistry.get(nodeId);
+    if (!n) throw new Error(`Node not found: ${nodeId}`);
+    const bindings = n.port_bindings ?? {};
+    const sideMap = { ...(bindings[side] ?? {}) };
+    const current = sideMap[portName] ?? [];
+    if (!current.includes(topic)) return { removed: false };
+    sideMap[portName] = current.filter((t) => t !== topic);
+    n.port_bindings = { ...bindings, [side]: sideMap };
+    const overrides = { ...(n.config_overrides ?? {}), _port_bindings: n.port_bindings };
+    n.config_overrides = overrides;
+    dbUpdateNodeConfig(this.db, nodeId, overrides);
+    if (side === "inputs") this.removeNodeSubscription(nodeId, topic);
+    recordHistory(this.db, { action: "node.rewired", node_id: nodeId, node_name: n.name, node_type: n.type, details: { op: "unbind_port", side, port: portName, topic } });
+    this.emit("node:rewired", { nodeId, op: `unbind_port_${side}`, port: portName, topic });
+    return { removed: true };
+  }
+
   removeNodePublish(nodeId: string, topic: string): { removed: boolean } {
     const n = this.instanceRegistry.get(nodeId);
     if (!n) throw new Error(`Node not found: ${nodeId}`);
