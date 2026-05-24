@@ -191,12 +191,13 @@ export function startAgentPresence(opts: AgentPresenceOptions): AgentPresenceHan
     // removed:false. Persists to DB so the change survives a restart on
     // the owner. Snapshot publisher picks the change up on its next tick.
     natsBus.respondToRequests(`brain.agents.${agentId}.update_subscriptions`, (payload) => {
-      const { node_id, op, topic, description, inputSchema, internal, min_criticality } = payload as {
+      const { node_id, op, topic, description, inputSchema, outputSchema, internal, min_criticality } = payload as {
         node_id: string; op: "add" | "remove"; topic: string;
-        description?: string; inputSchema?: Record<string, unknown>; internal?: boolean; min_criticality?: number;
+        description?: string; inputSchema?: Record<string, unknown>; outputSchema?: Record<string, unknown>;
+        internal?: boolean; min_criticality?: number;
       };
       try {
-        if (op === "add") return { ok: true, ...brain.addNodeSubscription(node_id, topic, { description, inputSchema, internal, min_criticality }) };
+        if (op === "add") return { ok: true, ...brain.addNodeSubscription(node_id, topic, { description, inputSchema, outputSchema, internal, min_criticality }) };
         return { ok: true, ...brain.removeNodeSubscription(node_id, topic) };
       } catch (err) {
         return { ok: false, error: err instanceof Error ? err.message : String(err) };

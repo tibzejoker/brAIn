@@ -172,6 +172,7 @@ export async function spawnNode(
       // hasn't supplied one.
       description: sub.description,
       input_schema: sub.inputSchema ? JSON.stringify(sub.inputSchema) : null,
+      output_schema: sub.outputSchema ? JSON.stringify(sub.outputSchema) : null,
       min_criticality: sub.min_criticality ?? null,
       mailbox_max_size: sub.mailbox?.max_size ?? 100,
       mailbox_retention: sub.mailbox?.retention ?? "latest",
