@@ -121,7 +121,13 @@ export class MCPController {
     );
     server.setRequestHandler(ListToolsRequestSchema, () => Promise.resolve({
       tools: tools.map((t) => ({
-        name: t.name, description: t.description, inputSchema: t.inputSchema,
+        name: t.name,
+        description: t.description,
+        inputSchema: t.inputSchema,
+        // MCP spec field — present only when the underlying subscription
+        // declared itself RPC-shaped via `outputSchema` on its config.
+        // External clients use it to type-check the reply they expect.
+        ...(t.outputSchema ? { outputSchema: t.outputSchema } : {}),
       })),
     }));
     server.setRequestHandler(CallToolRequestSchema, async (req) => {

@@ -86,6 +86,11 @@ export function getDb(dbPath?: string): Database.Database {
   catch { /* already exists */ }
   try { db.exec("ALTER TABLE subscriptions ADD COLUMN input_schema TEXT"); }
   catch { /* already exists */ }
+  // Added with the opt-in RPC pattern (subs that declare an MCP-style
+  // `outputSchema` for their reply). Always nullable — most subs are
+  // event-driven and never reply.
+  try { db.exec("ALTER TABLE subscriptions ADD COLUMN output_schema TEXT"); }
+  catch { /* already exists */ }
 
   logger.info({ path: resolvedPath }, "Database initialized");
   return db;
@@ -138,6 +143,7 @@ export interface SavedSubscription {
   topic: string;
   description: string;
   input_schema: string | null;
+  output_schema: string | null;
   min_criticality: number | null;
   mailbox_max_size: number;
   mailbox_retention: string;
@@ -158,8 +164,8 @@ export function saveSubscription(
   sub: Omit<SavedSubscription, "id">,
 ): void {
   db.prepare(`
-    INSERT INTO subscriptions (node_id, topic, description, input_schema, min_criticality, mailbox_max_size, mailbox_retention)
-    VALUES (@node_id, @topic, @description, @input_schema, @min_criticality, @mailbox_max_size, @mailbox_retention)
+    INSERT INTO subscriptions (node_id, topic, description, input_schema, output_schema, min_criticality, mailbox_max_size, mailbox_retention)
+    VALUES (@node_id, @topic, @description, @input_schema, @output_schema, @min_criticality, @mailbox_max_size, @mailbox_retention)
   `).run(sub);
 }
 

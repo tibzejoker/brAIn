@@ -155,6 +155,19 @@ export interface PublicSubscriptionConfig extends BaseSubscription {
    *  if your payload is genuinely unstructured, declare an empty
    *  object schema explicitly: `{ type: "object" }`. */
   inputSchema: Record<string, unknown>;
+  /**
+   * **Optional** — declares this subscription as RPC-shaped, with a
+   * structured response. When present, the framework:
+   *   - surfaces it through `/mcp` as the tool's `outputSchema`, so
+   *     external MCP clients (Claude Desktop, Cursor, …) know what
+   *     to expect back from a call;
+   *   - lets the dashboard render a paired output handle on the side
+   *     panel so wiring "result of A → B" is visible.
+   * When absent (the default), the subscription stays purely event-
+   * driven — the handler can publish anything (or nothing) on any
+   * topic afterwards. brAIn's bus is ambient first, RPC by opt-in.
+   */
+  outputSchema?: Record<string, unknown>;
 }
 
 export interface InternalSubscriptionConfig extends BaseSubscription {
@@ -164,6 +177,10 @@ export interface InternalSubscriptionConfig extends BaseSubscription {
   internal: true;
   /** Allowed but not required on internal subs. */
   inputSchema?: Record<string, unknown>;
+  /** Internal subs can opt into the RPC shape too (e.g. a private
+   *  helper that returns a value via reply_to). Same semantics as
+   *  the public version, just not exposed via /mcp. */
+  outputSchema?: Record<string, unknown>;
 }
 
 export type SubscriptionConfig = PublicSubscriptionConfig | InternalSubscriptionConfig;

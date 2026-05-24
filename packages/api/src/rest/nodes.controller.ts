@@ -184,7 +184,7 @@ export class NodesController {
   @Post(":id/subscriptions")
   async addSubscription(
     @Param("id") id: string,
-    @Body() body: { topic: string; description?: string; inputSchema?: Record<string, unknown>; internal?: boolean; min_criticality?: number },
+    @Body() body: { topic: string; description?: string; inputSchema?: Record<string, unknown>; outputSchema?: Record<string, unknown>; internal?: boolean; min_criticality?: number },
   ): Promise<{ added: boolean; existed: boolean; subscription_id?: string }> {
     if (!body.topic || !/^[a-zA-Z0-9._*>+-]+$/.test(body.topic)) {
       throw new HttpException("invalid topic", HttpStatus.BAD_REQUEST);

@@ -407,7 +407,16 @@ export class BrainService extends EventEmitter {
   addNodeSubscription(
     nodeId: string,
     topic: string,
-    opts: { description?: string; inputSchema?: Record<string, unknown>; internal?: boolean; min_criticality?: number } = {},
+    opts: {
+      description?: string;
+      inputSchema?: Record<string, unknown>;
+      /** Opt-in MCP-style RPC: declares this sub expects to publish a
+       *  structured reply matching this schema on `msg.reply_to`. Absent
+       *  = event-driven, no reply expected. */
+      outputSchema?: Record<string, unknown>;
+      internal?: boolean;
+      min_criticality?: number;
+    } = {},
   ): { added: boolean; existed: boolean; subscription_id: string } {
     const n = this.instanceRegistry.get(nodeId);
     if (!n) throw new Error(`Node not found: ${nodeId}`);
@@ -419,14 +428,15 @@ export class BrainService extends EventEmitter {
     n.subscriptions = [
       ...n.subscriptions,
       internal
-        ? { topic, description: opts.description ?? "added at runtime via dashboard", internal: true, inputSchema: opts.inputSchema }
-        : { topic, description: opts.description ?? "added at runtime via dashboard", inputSchema: opts.inputSchema ?? { type: "object" } },
+        ? { topic, description: opts.description ?? "added at runtime via dashboard", internal: true, inputSchema: opts.inputSchema, outputSchema: opts.outputSchema }
+        : { topic, description: opts.description ?? "added at runtime via dashboard", inputSchema: opts.inputSchema ?? { type: "object" }, outputSchema: opts.outputSchema },
     ];
     saveSubscription(this.db, {
       node_id: nodeId,
       topic,
       description: opts.description ?? "added at runtime via dashboard",
       input_schema: opts.inputSchema ? JSON.stringify(opts.inputSchema) : null,
+      output_schema: opts.outputSchema ? JSON.stringify(opts.outputSchema) : null,
       min_criticality: opts.min_criticality ?? null,
       // Use the table's DEFAULT 100 / 'latest' — no per-add mailbox tuning
       // exposed in the live-wiring API yet (callers who want it use the
@@ -434,7 +444,7 @@ export class BrainService extends EventEmitter {
       mailbox_max_size: 100,
       mailbox_retention: "latest",
     });
-    recordHistory(this.db, { action: "node.rewired", node_id: nodeId, node_name: n.name, node_type: n.type, details: { op: "add_subscription", topic, internal } });
+    recordHistory(this.db, { action: "node.rewired", node_id: nodeId, node_name: n.name, node_type: n.type, details: { op: "add_subscription", topic, internal, has_output_schema: !!opts.outputSchema } });
     this.emit("node:rewired", { nodeId, op: "add_subscription", topic });
     return { added: true, existed: false, subscription_id: subId };
   }
