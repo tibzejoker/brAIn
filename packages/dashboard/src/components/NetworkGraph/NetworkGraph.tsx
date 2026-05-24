@@ -9,15 +9,17 @@ import {
   useEdgesState,
   type Node,
   type Edge,
+  type Connection,
   type EdgeMouseHandler,
   type NodeMouseHandler,
   type NodeTypes,
   type ReactFlowInstance,
   BackgroundVariant,
+  ConnectionMode,
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { NodeSnapshot, NodeTypeConfig, CursorUpdate } from "../../api/types";
-import { getAgents, getTransport, type AgentSnapshot } from "../../api/client";
+import { getAgents, getTransport, addNodeSubscription, addNodePublish, type AgentSnapshot } from "../../api/client";
 import { emitLayoutUpdate, emitCursorUpdate, emitHostLayout, onLayoutUpdate, onCursorUpdate, onHostLayout, onAgentAnnounced, onAgentExpired } from "../../api/socket";
 import { getSelfHubId } from "../../api/request";
 import { RemoteCursors } from "./RemoteCursors";
@@ -532,6 +534,62 @@ export function NetworkGraph({
     onEdgeSelect(null);
   }, [onNodeSelect, onEdgeSelect]);
 
+  /**
+   * Drag-to-connect → live wiring.
+   *
+   * Handle ids on NodeBlock are `in-<topic>` (subscriptions) and
+   * `out-<topic>` (publishes). We parse them to decide what API call
+   * to make:
+   *
+   *  - A.out-T dragged onto B.in-* → B subscribes to T (B will now
+   *    receive A's publishes on T).
+   *  - A.in-T dragged onto B.out-* → B publishes T (B will now emit
+   *    on the topic A listens to).
+   *
+   * Self-loops are blocked: if source === target, no change. The bus
+   * already drops a node's own publishes from its mailbox, so even if
+   * we let it through nothing would happen — but rejecting client-side
+   * is clearer for the user.
+   *
+   * Routing for peer-owned nodes happens transparently inside the
+   * client helpers (POST /nodes/:id/subscriptions / publishes route
+   * through brain.agents.<hub>.update_{...} for non-local nodes).
+   */
+  const handleConnect = useCallback(async (c: Connection): Promise<void> => {
+    if (!c.source || !c.target || c.source === c.target) return;
+    const isHostId = (id: string): boolean => id === HOST_ID_LOCAL || id.startsWith(HOST_PREFIX_AGENT);
+    if (isHostId(c.source) || isHostId(c.target)) return;
+
+    const srcH = c.sourceHandle ?? "";
+    const tgtH = c.targetHandle ?? "";
+
+    // Find the publish side (out-<topic>) and the OTHER node. Either end of
+    // the drag can be the publisher because connectionMode="loose" lets the
+    // user grab from either direction.
+    let outNode: string | null = null;
+    let outTopic: string | null = null;
+    let otherNode: string | null = null;
+    if (srcH.startsWith("out-")) { outNode = c.source; outTopic = srcH.slice(4); otherNode = c.target; }
+    else if (tgtH.startsWith("out-")) { outNode = c.target; outTopic = tgtH.slice(4); otherNode = c.source; }
+
+    if (outNode && outTopic && outTopic !== "default" && otherNode) {
+      // Wire = "the OTHER side now subscribes to this publisher's topic".
+      try { await addNodeSubscription(otherNode, { topic: outTopic, internal: true }); }
+      catch { /* TODO: toast — for now the snapshot refresh tells the story */ }
+      return;
+    }
+
+    // No publish side touched → both ends are input handles. Interpret as
+    // "make the OTHER side publish the topic the user grabbed".
+    let inTopic: string | null = null;
+    if (srcH.startsWith("in-")) { inTopic = srcH.slice(3); otherNode = c.target; }
+    else if (tgtH.startsWith("in-")) { inTopic = tgtH.slice(3); otherNode = c.source; }
+    if (inTopic && inTopic !== "default" && otherNode) {
+      try { await addNodePublish(otherNode, inTopic); }
+      catch { /* TODO: toast */ }
+    }
+  }, []);
+
   // Track hovered node only when the capability layer is on — otherwise
   // we'd be re-rendering the edges array on every mouse-over for no gain.
   const handleNodeMouseEnter: NodeMouseHandler = useCallback((_event, node) => {
@@ -608,6 +666,11 @@ export function NetworkGraph({
       onNodeMouseLeave={handleNodeMouseLeave}
       onEdgeClick={handleEdgeClick}
       onPaneClick={handlePaneClick}
+      onConnect={handleConnect}
+      // `loose` lets the user grab from a target (input) handle too — the
+      // default `strict` only accepts source→target drags. We accept both
+      // orderings in handleConnect and dispatch the right wiring API.
+      connectionMode={ConnectionMode.Loose}
       onInit={handleInit}
       deleteKeyCode={null}
       minZoom={0.15}
