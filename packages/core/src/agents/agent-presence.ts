@@ -25,6 +25,7 @@ import type { IBusService } from "../bus/bus.interface";
 import { logger } from "../logger";
 import * as path from "path";
 import * as fs from "fs";
+import { matchTopic } from "../bus/bus.matcher";
 import { AGENT_ANNOUNCE_TOPIC, AGENT_ANNOUNCE_DEFAULT_MS, type AgentAnnouncement } from "./agent-directory";
 
 export interface AgentPresenceOptions {
@@ -254,18 +255,31 @@ export function startAgentPresence(opts: AgentPresenceOptions): AgentPresenceHan
     natsBus.respondToRequests(`brain.agents.${agentId}.node_call`, (payload) => {
       const { nodeId, topic, body } = payload as { nodeId: string; topic: string; body: unknown };
       const content = typeof body === "string" ? body : JSON.stringify(body ?? {});
-      // `from: nodeId` matches the legacy /ui/send semantic — the UI is the
-      // node's mouth, so its outbound messages should appear in the node's
-      // sent-history (getMessageHistory({from: nodeId})). Without this, an
-      // input topic the node doesn't subscribe to (e.g. chat.input, which
-      // chat *emits*) would be invisible in /node/:id/messages.
+      // Choose the `from` based on whether the target node subscribes to
+      // the topic.
+      //
+      //  - OUTBOUND topic (node doesn't subscribe — e.g. chat.input emitted
+      //    by `chat`): keep `from: nodeId` so the message appears in the
+      //    node's sent-history (`/node/:id/messages` filters by `from`).
+      //
+      //  - INBOUND topic (node subscribes — e.g. tts.speak on a tts node):
+      //    use a synthetic `ui:<nodeId>`. The bus skips delivery to the
+      //    publisher's own subscriptions to prevent self-loops, so setting
+      //    `from: nodeId` here would silently drop the message from the
+      //    very mailbox the user expects to trigger. With two instances of
+      //    the same node type this manifests as "the other one speaks" —
+      //    the broadcast still reaches the OTHER subscriber but not the
+      //    one whose UI the user is operating.
+      const subs = brain.bus.getSubscriptions(nodeId);
+      const isInbound = subs.some((s) => matchTopic(s.pattern, topic));
+      const from = isInbound ? `ui:${nodeId}` : nodeId;
       const msg = brain.bus.publish({
-        from: nodeId,
+        from,
         topic,
         type: "text",
         criticality: 3,
         payload: { content },
-        metadata: { via: "node-call" },
+        metadata: { via: "node-call", target_node_id: nodeId },
       });
       return { message_id: msg.id };
     });
