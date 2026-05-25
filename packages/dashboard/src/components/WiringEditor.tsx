@@ -238,32 +238,39 @@ export function WiringEditor({ nodeId, subscriptions, publishes, ports, portBind
         );
       })()}
 
-      {/* Publishes — declared output topics. The node is free to publish on
-          anything at runtime (ctx.publish takes any string), but declaring
-          here makes the topic visible in the graph + discoverable. */}
-      <div>
-        <div className="text-xs text-text-muted uppercase tracking-wide mb-1.5">
-          Publishes ({publishes.length})
-        </div>
-        <div className="space-y-1">
-          {publishes.length === 0 && (
-            <div className="text-xs text-text-muted italic">No declared publishes.</div>
-          )}
-          {publishes.map((topic) => (
-            <div key={topic} className="flex items-center gap-2 px-2 py-1 rounded bg-surface-overlay">
-              <span className="flex-1 text-xs font-mono truncate text-text">{topic}</span>
-              <button
-                type="button"
-                onClick={() => { void handleRemovePub(topic); }}
-                disabled={busy === `pub-rm-${topic}`}
-                title="Remove publish"
-                className="text-text-muted hover:text-node-stopped text-sm leading-none disabled:opacity-40"
-              >
-                ✕
-              </button>
+      {/* Publishes — declared output topics. Hide anything already covered
+          by an output port binding (otherwise the topic shows twice: once
+          under the port row and once here). What remains are ad-hoc
+          publishes — topics the handler emits on that aren't tied to a
+          declared port. */}
+      {(() => {
+        const portOutputTopics = new Set<string>();
+        for (const topics of Object.values(portBindings?.outputs ?? {})) for (const t of topics) portOutputTopics.add(t);
+        const userPublishes = publishes.filter((t) => !portOutputTopics.has(t));
+        return (
+          <div>
+            <div className="text-xs text-text-muted uppercase tracking-wide mb-1.5">
+              Publishes ({userPublishes.length})
             </div>
-          ))}
-        </div>
+            <div className="space-y-1">
+              {userPublishes.length === 0 && (
+                <div className="text-xs text-text-muted italic">No ad-hoc publishes.</div>
+              )}
+              {userPublishes.map((topic) => (
+                <div key={topic} className="flex items-center gap-2 px-2 py-1 rounded bg-surface-overlay">
+                  <span className="flex-1 text-xs font-mono truncate text-text">{topic}</span>
+                  <button
+                    type="button"
+                    onClick={() => { void handleRemovePub(topic); }}
+                    disabled={busy === `pub-rm-${topic}`}
+                    title="Remove publish"
+                    className="text-text-muted hover:text-node-stopped text-sm leading-none disabled:opacity-40"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ))}
+            </div>
         <div className="flex items-center gap-1 mt-1.5">
           <input
             list={pubListId}
@@ -283,7 +290,9 @@ export function WiringEditor({ nodeId, subscriptions, publishes, ports, portBind
             +
           </button>
         </div>
-      </div>
+          </div>
+        );
+      })()}
 
       {/* Shared datalist — same topic universe feeds both inputs. The
           datalist is browser-native: typing filters, picking commits. */}
