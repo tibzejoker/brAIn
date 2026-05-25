@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import type { NodeTypeConfig, NodeSnapshot } from "../api/types";
 import { spawnNode, getAgents, type AgentSnapshot } from "../api/client";
 import { Group, TypeRow, Empty } from "./NodeCreatorBits";
@@ -32,6 +32,7 @@ export function NodeCreator({
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const searchInputRef = useRef<HTMLInputElement | null>(null);
 
   // Reset on open + fetch live agent list.
   useEffect(() => {
@@ -43,6 +44,11 @@ export function NodeCreator({
     setError(null);
     // The getAgents resolver below overrides this once the list lands.
     setCollapsed(new Set());
+    // Focus the search input on the next frame — the modal animates in
+    // and a focus call during the same render commit gets eaten by the
+    // browser's mid-mount focus shuffle. requestAnimationFrame waits
+    // until the element is laid out + visible.
+    const raf = requestAnimationFrame(() => { searchInputRef.current?.focus(); });
 
     let cancelled = false;
     getAgents()
@@ -57,7 +63,10 @@ export function NodeCreator({
         }
       })
       .catch(() => { if (!cancelled) setAgents([]); });
-    return (): void => { cancelled = true; };
+    return (): void => {
+      cancelled = true;
+      cancelAnimationFrame(raf);
+    };
   }, [open]);
 
   // Pre-fill name + subscriptions from the type's defaults whenever the
@@ -233,6 +242,7 @@ export function NodeCreator({
         <div className="border-b border-border px-5 py-2 shrink-0">
           <input
             type="text"
+            ref={searchInputRef}
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Search node types…"
