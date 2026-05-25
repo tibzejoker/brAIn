@@ -320,8 +320,12 @@ export interface PortsConfig {
 
 export interface PortInputDecl {
   description: string;
-  /** JSON schema. Required for public discovery. */
-  inputSchema: Record<string, unknown>;
+  /** JSON schema describing the expected payload. Presence makes this port
+   *  PUBLIC — it gets surfaced as an MCP tool with this exact schema.
+   *  Absence makes it INTERNAL — the node still listens on the bound
+   *  topics, but the port is hidden from /mcp and tools discovery (use
+   *  for alerts.*, time.tick, signal listeners…). */
+  inputSchema?: Record<string, unknown>;
   /** When set, declares this port as RPC-shape: the handler is expected to
    *  publish a reply on `msg.reply_to` matching this schema. Reused as the
    *  MCP `outputSchema` for the corresponding tool. */
@@ -332,6 +336,11 @@ export interface PortOutputDecl {
   description: string;
   /** Optional payload schema for emissions on this port. */
   schema?: Record<string, unknown>;
+  /** When true, hides the port from public discovery (still functional —
+   *  the handler can emit_port to it). Use for cross-channel signals
+   *  (chat.reset, internal state changes) you don't want surfaced as
+   *  MCP outputs. */
+  internal?: boolean;
 }
 
 /** Per-instance topic ↔ port binding map. Keys are port names; values are

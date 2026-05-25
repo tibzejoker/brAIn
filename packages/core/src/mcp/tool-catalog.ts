@@ -44,6 +44,8 @@ export function toolsForNode(node: NodeInfo): MCPTool[] {
       const topics = node.port_bindings?.inputs?.[portName] ?? [];
       const topic = topics[0] ?? portName;
       for (const t of topics) seenPortTopics.add(t);
+      // Ports without inputSchema are internal listeners — not MCP tools.
+      if (!decl.inputSchema) continue;
       out.push({
         name: portName,
         description: decl.description,
@@ -94,6 +96,8 @@ export function federatedTools(nodes: NodeInfo[]): MCPTool[] {
         const topics = node.port_bindings?.inputs?.[portName] ?? [];
         const topic = topics[0] ?? portName;
         for (const t of topics) seenPortTopics.add(t);
+        // Skip internal ports — they're not MCP tools.
+        if (!decl.inputSchema) continue;
         out.push({
           name: `${prefix}__${portName}`,
           description: `[${node.name}] ${decl.description}`,

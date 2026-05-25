@@ -51,12 +51,20 @@ export function expandPortsToSubs(
   for (const [portName, decl] of Object.entries(ports.inputs)) {
     const topics = bindings.inputs[portName] ?? [];
     for (const topic of topics) {
-      out.push({
+      // Ports without inputSchema are internal listeners — emit them as
+      // internal subs so the bus + dashboard treat them as such. Ports with
+      // an inputSchema are public tools (the discriminated union requires
+      // `internal: false` to be omitted, so we just spread the schema).
+      const base = {
         topic,
         description: `[port:${portName}] ${decl.description}`,
-        inputSchema: decl.inputSchema,
         outputSchema: decl.outputSchema,
-      });
+      };
+      if (decl.inputSchema) {
+        out.push({ ...base, inputSchema: decl.inputSchema });
+      } else {
+        out.push({ ...base, internal: true });
+      }
     }
   }
   return out;
@@ -75,14 +83,13 @@ export function autoDerivePorts(
 ): PortsConfig {
   const inputs: Record<string, PortInputDecl> = {};
   for (const s of subs) {
-    // Internal subs stay out — they're framework plumbing (alerts, time.tick,
-    // brain.*), not public ports. The discriminated union guarantees the
-    // remaining branch has both description + inputSchema, so no extra
-    // existence checks are needed.
-    if (s.internal === true) continue;
+    // Every sub becomes a port. Public ones carry their inputSchema
+    // (which makes them MCP tools); internal ones are inputSchema-less
+    // listeners (alerts, time.tick, signals) — hidden from /mcp but still
+    // editable as port bindings in the dashboard.
     inputs[s.topic] = {
       description: s.description,
-      inputSchema: s.inputSchema,
+      inputSchema: s.internal === true ? undefined : s.inputSchema,
       outputSchema: s.outputSchema,
     };
   }
@@ -100,10 +107,10 @@ export function autoDeriveBindings(
   publishes: string[] | undefined,
 ): PortBindings {
   const inputs: Record<string, string[]> = {};
-  for (const s of subs) {
-    if (s.internal === true) continue;
-    inputs[s.topic] = [s.topic];
-  }
+  // Every sub becomes a port bound to its own topic — including internal
+  // ones (alerts.*, time.tick…). The dashboard renders internals dimmed
+  // but they still need bindings so the bus actually subscribes.
+  for (const s of subs) inputs[s.topic] = [s.topic];
   const outputs: Record<string, string[]> = {};
   for (const t of publishes ?? []) outputs[t] = [t];
   return { inputs, outputs };

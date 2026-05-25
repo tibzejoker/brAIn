@@ -103,18 +103,31 @@ export async function restoreNodes(opts: {
     // unmigrated nodes still surface as ports in the dashboard.
     const cfgOverrides = JSON.parse(saved.config_overrides) as Record<string, unknown>;
     const overriddenBindings = cfgOverrides._port_bindings as PortBindings | undefined;
-    const declaredPorts = typeConfig?.ports;
-    const effectivePorts = declaredPorts
-      ?? (typeConfig ? autoDerivePorts(typeConfig.default_subscriptions, typeConfig.default_publishes) : undefined);
-    // `declaredPorts` is sourced from `typeConfig?.ports`, so when it is
-    // truthy the typeConfig is guaranteed non-null; the `?.` would be
-    // redundant. Branch explicitly to satisfy the linter.
-    const baseBindings = typeConfig
-      ? (declaredPorts
-          ? typeConfig.default_port_bindings
-          : autoDeriveBindings(typeConfig.default_subscriptions, typeConfig.default_publishes))
+    // Merge: explicitly-declared ports OVERRIDE auto-derived ports from
+    // default_subscriptions/publishes. Internal subs become inputSchema-
+    // less internal ports; public subs become public ports. Bindings
+    // similarly stack: auto-derived → declared defaults → instance overrides.
+    const autoPorts = typeConfig ? autoDerivePorts(typeConfig.default_subscriptions, typeConfig.default_publishes) : undefined;
+    const autoBindings = typeConfig ? autoDeriveBindings(typeConfig.default_subscriptions, typeConfig.default_publishes) : undefined;
+    // Same dedupe as spawn: drop auto-derived ports/bindings whose topic
+    // is already wired to an explicitly-declared port, otherwise the same
+    // topic shows up under two ports.
+    const declaredInTopics = new Set<string>();
+    for (const ts of Object.values(typeConfig?.default_port_bindings?.inputs ?? {})) for (const t of ts) declaredInTopics.add(t);
+    const declaredOutTopics = new Set<string>();
+    for (const ts of Object.values(typeConfig?.default_port_bindings?.outputs ?? {})) for (const t of ts) declaredOutTopics.add(t);
+    const filtAutoIn = Object.fromEntries(Object.entries(autoPorts?.inputs ?? {}).filter(([t]) => !declaredInTopics.has(t)));
+    const filtAutoOut = Object.fromEntries(Object.entries(autoPorts?.outputs ?? {}).filter(([t]) => !declaredOutTopics.has(t)));
+    const filtAutoBindingsIn = Object.fromEntries(Object.entries(autoBindings?.inputs ?? {}).filter(([t]) => !declaredInTopics.has(t)));
+    const filtAutoBindingsOut = Object.fromEntries(Object.entries(autoBindings?.outputs ?? {}).filter(([t]) => !declaredOutTopics.has(t)));
+    const effectivePorts = typeConfig
+      ? {
+          inputs: { ...filtAutoIn, ...(typeConfig.ports?.inputs ?? {}) },
+          outputs: { ...filtAutoOut, ...(typeConfig.ports?.outputs ?? {}) },
+        }
       : undefined;
-    const effectiveBindings = mergePortBindings(baseBindings, overriddenBindings);
+    const declaredBindings = mergePortBindings({ inputs: filtAutoBindingsIn, outputs: filtAutoBindingsOut }, typeConfig?.default_port_bindings);
+    const effectiveBindings = mergePortBindings(declaredBindings, overriddenBindings);
 
     const nodeInfo: NodeInfo = {
       id: saved.id,
