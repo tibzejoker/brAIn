@@ -35,10 +35,35 @@ export class NodesController {
   }
 
   @Get(":id")
-  get(@Param("id") id: string): Omit<NodeInfo, "subscriptions"> & { subscriptions: Array<{ id: string; pattern: string }> } {
+  get(@Param("id") id: string): Omit<NodeInfo, "subscriptions"> & {
+    subscriptions: Array<{ id: string; pattern: string; internal: boolean; description?: string }>;
+  } {
     const local = this.brain.instanceRegistry.get(id);
     if (local) {
-      return { ...local, subscriptions: this.brain.bus.getSubscriptions(id) };
+      // Enrich each subscription with its `internal` flag + description from
+      // the NodeInfo so the side panel can distinguish:
+      //   - port-derived subs (description starts with "[port:…]") → already
+      //     rendered via the Ports section, hidden from the legacy list.
+      //   - internal subs (alerts.*, time.tick, brain.*) → rendered in a
+      //     locked "Internal listeners" sub-section with no ✕.
+      //   - user-added subs → editable as today.
+      // `bus.getSubscriptions` doesn't carry these, so we cross-reference
+      // by topic. Dedupe defensively in case stale DB rows survived a
+      // pre-2-layer migration.
+      const byTopic = new Map<string, { internal: boolean; description?: string }>();
+      for (const s of local.subscriptions) {
+        const internal = "internal" in s && s.internal === true;
+        byTopic.set(s.topic, { internal, description: s.description });
+      }
+      const seen = new Set<string>();
+      const enriched: Array<{ id: string; pattern: string; internal: boolean; description?: string }> = [];
+      for (const s of this.brain.bus.getSubscriptions(id)) {
+        if (seen.has(s.pattern)) continue;
+        seen.add(s.pattern);
+        const meta = byTopic.get(s.pattern) ?? { internal: false };
+        enriched.push({ id: s.id, pattern: s.pattern, internal: meta.internal, description: meta.description });
+      }
+      return { ...local, subscriptions: enriched };
     }
     // Peer-owned: fall back to the merged network view so the side panel
     // can open on a remote node (kill/stop/start + config edit then route
@@ -46,13 +71,15 @@ export class NodesController {
     // this for us as long as the controller's lookup succeeds here).
     const peer = this.brain.network.mergedNodes().find((n) => n.id === id);
     if (peer) {
-      // mergedNodes() keeps the raw Subscription[] shape ({id, topic, …});
-      // reshape to {id, pattern} so the side panel's wiring matches what
-      // it receives for local nodes via bus.getSubscriptions(id).
-      return {
-        ...peer,
-        subscriptions: peer.subscriptions.map((s) => ({ id: `${peer.id}:${s.topic}`, pattern: s.topic })),
-      };
+      const seen = new Set<string>();
+      const enriched: Array<{ id: string; pattern: string; internal: boolean; description?: string }> = [];
+      for (const s of peer.subscriptions) {
+        if (seen.has(s.topic)) continue;
+        seen.add(s.topic);
+        const internal = "internal" in s && s.internal === true;
+        enriched.push({ id: `${peer.id}:${s.topic}`, pattern: s.topic, internal, description: s.description });
+      }
+      return { ...peer, subscriptions: enriched };
     }
     throw new HttpException("Node not found", HttpStatus.NOT_FOUND);
   }

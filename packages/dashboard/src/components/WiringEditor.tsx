@@ -29,7 +29,10 @@ import type { PortsConfig, PortBindings } from "@brain/sdk";
  */
 interface WiringEditorProps {
   nodeId: string;
-  subscriptions: Array<{ id: string; pattern: string }>;
+  /** Each sub carries `internal` (locked) + `description` (used to spot
+   *  port-derived subs via the `[port:…]` prefix and hide them from the
+   *  legacy list — they're rendered by the Ports section instead). */
+  subscriptions: Array<{ id: string; pattern: string; internal?: boolean; description?: string }>;
   publishes: string[];
   /** 2-layer wiring: immutable port contract from the node's type. When
    *  present, the editor renders a "Ports" section above the legacy flat
@@ -152,52 +155,88 @@ export function WiringEditor({ nodeId, subscriptions, publishes, ports, portBind
         />
       )}
 
-      {/* Subscriptions — typed inputs. Each is an MCP-style port: the
-          declared inputSchema (when public) makes it a discoverable tool.
-          Click ✕ to remove, type + Enter / + to add. */}
-      <div>
-        <div className="text-xs text-text-muted uppercase tracking-wide mb-1.5">
-          Subscriptions ({subscriptions.length})
-        </div>
-        <div className="space-y-1">
-          {subscriptions.length === 0 && (
-            <div className="text-xs text-text-muted italic">No subscriptions — this node receives nothing yet.</div>
-          )}
-          {subscriptions.map((sub) => (
-            <div key={sub.id} className="flex items-center gap-2 px-2 py-1 rounded bg-surface-overlay">
-              <span className="flex-1 text-xs font-mono truncate text-text">{sub.pattern}</span>
-              <button
-                type="button"
-                onClick={() => { void handleRemoveSub(sub.pattern); }}
-                disabled={busy === `sub-rm-${sub.pattern}`}
-                title="Remove subscription"
-                className="text-text-muted hover:text-node-stopped text-sm leading-none disabled:opacity-40"
-              >
-                ✕
-              </button>
+      {/* Partition the flat subscription list into three compartments:
+          1. Port-derived ([port:…] description) → already covered by the
+             Ports section above. Hidden from this list to avoid double
+             rendering.
+          2. Internal (internal: true in the type config) → locked + dimmed.
+             Code-managed, the user can't break the node by removing them.
+          3. Everything else → ad-hoc subs the user added at runtime.
+             Standard ✕ + + controls. */}
+      {(() => {
+        const isPortDerived = (s: typeof subscriptions[number]): boolean =>
+          (s.description ?? "").startsWith("[port:");
+        const internalSubs = subscriptions.filter((s) => !isPortDerived(s) && s.internal);
+        const userSubs = subscriptions.filter((s) => !isPortDerived(s) && !s.internal);
+        return (
+          <>
+            <div>
+              <div className="text-xs text-text-muted uppercase tracking-wide mb-1.5">
+                Subscriptions ({userSubs.length})
+              </div>
+              <div className="space-y-1">
+                {userSubs.length === 0 && (
+                  <div className="text-xs text-text-muted italic">No ad-hoc subscriptions on this node.</div>
+                )}
+                {userSubs.map((sub) => (
+                  <div key={sub.id} className="flex items-center gap-2 px-2 py-1 rounded bg-surface-overlay">
+                    <span className="flex-1 text-xs font-mono truncate text-text">{sub.pattern}</span>
+                    <button
+                      type="button"
+                      onClick={() => { void handleRemoveSub(sub.pattern); }}
+                      disabled={busy === `sub-rm-${sub.pattern}`}
+                      title="Remove subscription"
+                      className="text-text-muted hover:text-node-stopped text-sm leading-none disabled:opacity-40"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="flex items-center gap-1 mt-1.5">
+                <input
+                  list={subListId}
+                  value={subDraft}
+                  onChange={(e) => setSubDraft(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && valid(subDraft)) void handleAddSub(); }}
+                  placeholder={subPlaceholder}
+                  className="flex-1 bg-bg border border-border rounded px-2 py-1 font-mono text-xs"
+                />
+                <button
+                  type="button"
+                  onClick={() => { void handleAddSub(); }}
+                  disabled={busy === "sub-add" || !valid(subDraft)}
+                  className="px-2 py-1 rounded bg-surface-overlay border border-border text-xs hover:bg-elevated disabled:opacity-40"
+                  title="Add subscription (internal listener)"
+                >
+                  +
+                </button>
+              </div>
             </div>
-          ))}
-        </div>
-        <div className="flex items-center gap-1 mt-1.5">
-          <input
-            list={subListId}
-            value={subDraft}
-            onChange={(e) => setSubDraft(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter" && valid(subDraft)) void handleAddSub(); }}
-            placeholder={subPlaceholder}
-            className="flex-1 bg-bg border border-border rounded px-2 py-1 font-mono text-xs"
-          />
-          <button
-            type="button"
-            onClick={() => { void handleAddSub(); }}
-            disabled={busy === "sub-add" || !valid(subDraft)}
-            className="px-2 py-1 rounded bg-surface-overlay border border-border text-xs hover:bg-elevated disabled:opacity-40"
-            title="Add subscription (internal listener)"
-          >
-            +
-          </button>
-        </div>
-      </div>
+
+            {/* Internal listeners — code-managed plumbing. Read-only here:
+                the lock icon signals the user shouldn't be removing them
+                from the dashboard. They drive things like alerts.* fan-in
+                or time.tick heartbeats that the handler relies on. */}
+            {internalSubs.length > 0 && (
+              <div>
+                <div className="text-xs text-text-muted uppercase tracking-wide mb-1.5 flex items-center gap-1">
+                  <span>Internal listeners ({internalSubs.length})</span>
+                  <span className="text-text-muted opacity-60" title="Code-managed — removable only by editing the node's config.json">🔒</span>
+                </div>
+                <div className="space-y-1">
+                  {internalSubs.map((sub) => (
+                    <div key={sub.id} className="flex items-center gap-2 px-2 py-1 rounded bg-surface-overlay opacity-60">
+                      <span className="flex-1 text-xs font-mono truncate text-text-muted">{sub.pattern}</span>
+                      <span className="text-[9px] text-text-muted uppercase tracking-wider">internal</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </>
+        );
+      })()}
 
       {/* Publishes — declared output topics. The node is free to publish on
           anything at runtime (ctx.publish takes any string), but declaring

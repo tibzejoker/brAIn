@@ -65,7 +65,21 @@ export async function restoreNodes(opts: {
     const typeDefaults = new Map(
       (typeConfig?.default_subscriptions ?? []).map((s) => [s.topic, s] as const),
     );
-    const subscriptions = subs.map((s) => {
+    // Dedupe DB rows by topic — pre-2-layer spawns left a bare row, the
+    // port expansion later added a [port:…] one, so DB ends up with two
+    // entries per topic. Prefer the row that carries a [port:…] description
+    // (the port-derived one) since it has the right schema; fall back to
+    // the most recent surviving row otherwise.
+    const subByTopic = new Map<string, typeof subs[number]>();
+    for (const s of subs) {
+      const existing = subByTopic.get(s.topic);
+      if (!existing) { subByTopic.set(s.topic, s); continue; }
+      const isPort = s.description.startsWith("[port:");
+      const existingIsPort = existing.description.startsWith("[port:");
+      if (isPort && !existingIsPort) subByTopic.set(s.topic, s);
+    }
+
+    const subscriptions = Array.from(subByTopic.values()).map((s) => {
       const fallback = typeDefaults.get(s.topic);
       return normaliseSubscription({
         topic: s.topic,
