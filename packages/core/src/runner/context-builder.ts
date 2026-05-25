@@ -27,6 +27,7 @@ import type { NodeLog } from "./node-log";
 import { LLMFacade } from "../llm/llm-facade";
 import type { LLMRegistry } from "../llm/llm-registry";
 import type { LLMConfigStore } from "../llm/llm-config";
+import { toolDescriptorsForNode } from "../mcp/tool-catalog";
 
 /**
  * Root under which every node's per-instance dataDir lives. Set at
@@ -274,19 +275,9 @@ function buildToolsFacade(deps: BuildContextDeps): ToolsFacade {
     const out: ToolDescriptor[] = [];
     for (const node of allNodes()) {
       if (filterNodeId && node.id !== filterNodeId) continue;
-      for (const sub of node.subscriptions) {
-        if (sub.internal === true) continue;
-        // After the internal check, the union narrows to PublicSubscriptionConfig
-        // and inputSchema is statically guaranteed present — no defensive guard.
-        out.push({
-          node_id: node.id,
-          node_type: node.type,
-          node_name: node.name,
-          topic: sub.topic,
-          description: sub.description,
-          inputSchema: sub.inputSchema,
-        });
-      }
+      // Route through the shared helper so wildcard-bound ports (alerts.*)
+      // surface as a concrete subject the caller can actually publish on.
+      for (const d of toolDescriptorsForNode(node)) out.push(d);
     }
     return out;
   };

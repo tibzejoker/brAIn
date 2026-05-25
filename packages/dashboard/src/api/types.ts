@@ -21,6 +21,15 @@ export type {
 export interface SubscriptionSnapshot {
   id: string;
   pattern: string;
+  /** True when the subscription was declared `internal: true` in the
+   *  node's config — code-managed plumbing (alerts, time.tick, internal
+   *  signals). The dashboard locks ✕ on these so the user can't break
+   *  the node by deleting a sub the handler relies on. */
+  internal: boolean;
+  /** Carried so the dashboard can detect "[port:<name>]" descriptions and
+   *  hide port-derived subs from the legacy Subscriptions list (they're
+   *  rendered through the Ports section instead). */
+  description?: string;
 }
 
 export interface NodeSnapshot extends Omit<NodeInfo, "subscriptions"> {

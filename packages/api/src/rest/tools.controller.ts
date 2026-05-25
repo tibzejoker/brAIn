@@ -1,19 +1,22 @@
 import {
   Controller, Get, Param, Query, HttpException, HttpStatus,
 } from "@nestjs/common";
-import { BrainService } from "@brain/core";
+import { BrainService, toolDescriptorsForNode } from "@brain/core";
 import type { NodeInfo, ToolDescriptor } from "@brain/sdk";
 
 /**
  * REST surface for the network-wide tool catalog — the HTTP face of
  * the same data `ctx.tools.list()` exposes to in-process nodes.
  *
- * Internal subscriptions (`internal: true`) are filtered out; only
- * public subs that declare an `inputSchema` show up.
+ * Both this controller and the in-process facade delegate to
+ * `toolDescriptorsForNode` so the two surfaces always stay in sync,
+ * including the wildcard-port resolution (an `alerts.*` binding
+ * surfaces as `alerts.<port_name>` here — a subject MCP clients can
+ * actually publish on).
  *
- * GET /tools                 — every public tool on the network
+ * GET /tools                 — every input port on the network
  * GET /tools?node_id=:id     — same, filtered to one node
- * GET /tools/:node_id        — every public tool for a single node
+ * GET /tools/:node_id        — every input port for a single node
  *                              (404 if that node doesn't exist)
  */
 @Controller("tools")
@@ -38,23 +41,8 @@ export class ToolsController {
   }
 }
 
-/** Iterate nodes → public subs → `ToolDescriptor`. Mirrors the logic
- *  in `buildToolsFacade` (packages/core/src/runner/context-builder.ts)
- *  so the in-process and HTTP catalogs stay in sync. */
 function collect(nodes: NodeInfo[]): ToolDescriptor[] {
   const out: ToolDescriptor[] = [];
-  for (const node of nodes) {
-    for (const sub of node.subscriptions) {
-      if (sub.internal === true) continue;
-      out.push({
-        node_id: node.id,
-        node_type: node.type,
-        node_name: node.name,
-        topic: sub.topic,
-        description: sub.description,
-        inputSchema: sub.inputSchema,
-      });
-    }
-  }
+  for (const node of nodes) for (const d of toolDescriptorsForNode(node)) out.push(d);
   return out;
 }

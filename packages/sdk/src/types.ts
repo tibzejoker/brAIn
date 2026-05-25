@@ -320,7 +320,11 @@ export interface PortsConfig {
 
 export interface PortInputDecl {
   description: string;
-  /** JSON schema. Required for public discovery. */
+  /** JSON schema describing the expected payload. **Required.** Every
+   *  input port is, by definition, callable — any node (or MCP client)
+   *  can publish on a topic bound to it. The schema describes what the
+   *  caller must send. Use `{ type: "object" }` for payload-free signals
+   *  like reset triggers. */
   inputSchema: Record<string, unknown>;
   /** When set, declares this port as RPC-shape: the handler is expected to
    *  publish a reply on `msg.reply_to` matching this schema. Reused as the
@@ -330,7 +334,10 @@ export interface PortInputDecl {
 
 export interface PortOutputDecl {
   description: string;
-  /** Optional payload schema for emissions on this port. */
+  /** Optional payload schema describing what the node emits on this port.
+   *  Outputs aren't called — they're broadcast events the handler emits
+   *  on the bound topics via `ctx.emit_port` or `ctx.publish`. The schema
+   *  is purely documentation + tool discovery for consumers. */
   schema?: Record<string, unknown>;
 }
 

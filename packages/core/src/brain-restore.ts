@@ -7,7 +7,7 @@ import type { IBusService } from "./bus";
 import type { TypeRegistry, InstanceRegistry } from "./registry";
 import type { LLMRegistry } from "./llm/llm-registry";
 import type { LLMConfigStore } from "./llm/llm-config";
-import { mergePortBindings, autoDerivePorts, autoDeriveBindings } from "./ports";
+import { mergePortBindings, autoDerivePorts, autoDeriveBindings, expandPortsToSubs } from "./ports";
 
 type HandlerLoader = (typeName: string, typePath: string) => Promise<NodeModule>;
 
@@ -65,20 +65,39 @@ export async function restoreNodes(opts: {
     const typeDefaults = new Map(
       (typeConfig?.default_subscriptions ?? []).map((s) => [s.topic, s] as const),
     );
-    const subscriptions = subs.map((s) => {
+    // Dedupe DB rows by topic — pre-2-layer spawns left a bare row, the
+    // port expansion later added a [port:…] one, so DB ends up with two
+    // entries per topic. Prefer the row that carries a [port:…] description
+    // (the port-derived one) since it has the right schema; fall back to
+    // the most recent surviving row otherwise.
+    const subByTopic = new Map<string, typeof subs[number]>();
+    for (const s of subs) {
+      const existing = subByTopic.get(s.topic);
+      if (!existing) { subByTopic.set(s.topic, s); continue; }
+      const isPort = s.description.startsWith("[port:");
+      const existingIsPort = existing.description.startsWith("[port:");
+      if (isPort && !existingIsPort) subByTopic.set(s.topic, s);
+    }
+
+    const PERMISSIVE: Record<string, unknown> = { type: "object" };
+    const dbSubs = Array.from(subByTopic.values()).map((s) => {
       const fallback = typeDefaults.get(s.topic);
+      // Every input becomes a public sub with a schema. Subs declared
+      // `internal:true` on legacy types fall back to a permissive
+      // `{ type: "object" }` so the surface stays consistent (and any
+      // node can in principle call them — that's the point).
+      const schema = s.input_schema
+        ? JSON.parse(s.input_schema) as Record<string, unknown>
+        : (fallback?.inputSchema ?? PERMISSIVE);
       return normaliseSubscription({
         topic: s.topic,
         description: s.description || fallback?.description || s.topic,
-        inputSchema: s.input_schema
-          ? JSON.parse(s.input_schema) as Record<string, unknown>
-          : fallback?.inputSchema,
+        inputSchema: schema,
         min_criticality: s.min_criticality ?? undefined,
         mailbox: {
           max_size: s.mailbox_max_size,
           retention: s.mailbox_retention as "latest" | "lowest_priority",
         },
-        internal: fallback ? fallback.internal === true : false,
       });
     });
 
@@ -89,18 +108,42 @@ export async function restoreNodes(opts: {
     // unmigrated nodes still surface as ports in the dashboard.
     const cfgOverrides = JSON.parse(saved.config_overrides) as Record<string, unknown>;
     const overriddenBindings = cfgOverrides._port_bindings as PortBindings | undefined;
-    const declaredPorts = typeConfig?.ports;
-    const effectivePorts = declaredPorts
-      ?? (typeConfig ? autoDerivePorts(typeConfig.default_subscriptions, typeConfig.default_publishes) : undefined);
-    // `declaredPorts` is sourced from `typeConfig?.ports`, so when it is
-    // truthy the typeConfig is guaranteed non-null; the `?.` would be
-    // redundant. Branch explicitly to satisfy the linter.
-    const baseBindings = typeConfig
-      ? (declaredPorts
-          ? typeConfig.default_port_bindings
-          : autoDeriveBindings(typeConfig.default_subscriptions, typeConfig.default_publishes))
+    // Merge: explicitly-declared ports OVERRIDE auto-derived ports from
+    // default_subscriptions/publishes. Internal subs become inputSchema-
+    // less internal ports; public subs become public ports. Bindings
+    // similarly stack: auto-derived → declared defaults → instance overrides.
+    const autoPorts = typeConfig ? autoDerivePorts(typeConfig.default_subscriptions, typeConfig.default_publishes) : undefined;
+    const autoBindings = typeConfig ? autoDeriveBindings(typeConfig.default_subscriptions, typeConfig.default_publishes) : undefined;
+    // Same dedupe as spawn: drop auto-derived ports/bindings whose topic
+    // is already wired to an explicitly-declared port, otherwise the same
+    // topic shows up under two ports.
+    const declaredInTopics = new Set<string>();
+    for (const ts of Object.values(typeConfig?.default_port_bindings?.inputs ?? {})) for (const t of ts) declaredInTopics.add(t);
+    const declaredOutTopics = new Set<string>();
+    for (const ts of Object.values(typeConfig?.default_port_bindings?.outputs ?? {})) for (const t of ts) declaredOutTopics.add(t);
+    const filtAutoIn = Object.fromEntries(Object.entries(autoPorts?.inputs ?? {}).filter(([t]) => !declaredInTopics.has(t)));
+    const filtAutoOut = Object.fromEntries(Object.entries(autoPorts?.outputs ?? {}).filter(([t]) => !declaredOutTopics.has(t)));
+    const filtAutoBindingsIn = Object.fromEntries(Object.entries(autoBindings?.inputs ?? {}).filter(([t]) => !declaredInTopics.has(t)));
+    const filtAutoBindingsOut = Object.fromEntries(Object.entries(autoBindings?.outputs ?? {}).filter(([t]) => !declaredOutTopics.has(t)));
+    const effectivePorts = typeConfig
+      ? {
+          inputs: { ...filtAutoIn, ...(typeConfig.ports?.inputs ?? {}) },
+          outputs: { ...filtAutoOut, ...(typeConfig.ports?.outputs ?? {}) },
+        }
       : undefined;
-    const effectiveBindings = mergePortBindings(baseBindings, overriddenBindings);
+    const declaredBindings = mergePortBindings({ inputs: filtAutoBindingsIn, outputs: filtAutoBindingsOut }, typeConfig?.default_port_bindings);
+    const effectiveBindings = mergePortBindings(declaredBindings, overriddenBindings);
+
+    // Expand the effective port bindings into subs and merge with the
+    // DB-resident ones. DB subs that are also bound to a port get
+    // replaced by the port-derived version (which carries [port:…] in
+    // the description so the catalog can link them back). New ports
+    // declared since the row was first saved get freshly added — that's
+    // how `chat.reset` / `alerts.*` / `brain.*` come back to life on a
+    // restore without rewriting the DB.
+    const portSubs = expandPortsToSubs(effectivePorts, effectiveBindings);
+    const portTopics = new Set(portSubs.map((s) => s.topic));
+    const subscriptions = [...portSubs, ...dbSubs.filter((s) => !portTopics.has(s.topic))];
 
     const nodeInfo: NodeInfo = {
       id: saved.id,

@@ -1,7 +1,8 @@
 export { MCPBridge } from "./bridge";
 export {
   type MCPTool, type ResolveResult,
-  toolsForNode, federatedTools, resolveNode,
+  toolsForNode, federatedTools, resolveNode, resolveCallTopic,
+  toolDescriptorsForNode,
 } from "./tool-catalog";
 export {
   META_TOOLS,

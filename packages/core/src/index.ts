@@ -22,7 +22,8 @@ export type { LogEntry } from "./runner";
 // Per-node data root (<dataRoot>/nodes). Nodes that persist outside their
 // own ctx.dataDir (shared SQLite, OAuth token stores) resolve the data root
 // from this so they land next to brain.db instead of in process.cwd().
-export { getNodeDataRoot } from "./runner/context-builder";
+export { getNodeDataRoot, buildNodeContext } from "./runner/context-builder";
+export { NodeLog } from "./runner/node-log";
 export { logger, createNodeLogger } from "./logger";
 export { execCommand } from "./util/exec";
 export type { ExecResult, ExecOptions } from "./util/exec";
@@ -66,13 +67,20 @@ export type {
   StoreCandidate, StoreSeed,
 } from "./store";
 export {
-  MCPBridge, toolsForNode, federatedTools, resolveNode,
+  MCPBridge, toolsForNode, federatedTools, resolveNode, resolveCallTopic,
+  toolDescriptorsForNode,
   META_TOOLS,
   META_TOOL_LIST_NODES,
   META_TOOL_LIST_NODE_TOOLS,
   META_TOOL_CALL_NODE_TOOL,
   buildMetaToolHandlers,
 } from "./mcp";
+// 2-layer wiring helpers — exposed for tests and external introspection
+// (the brain itself, when it wants to display the port map in its own UI).
+export {
+  autoDerivePorts, autoDeriveBindings, expandPortsToSubs, mergePortBindings,
+  TOPIC_REGEX,
+} from "./ports";
 export type {
   MCPTool, ResolveResult,
   MetaTool, MetaToolHandlers,

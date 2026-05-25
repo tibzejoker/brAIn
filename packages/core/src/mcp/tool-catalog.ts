@@ -1,16 +1,18 @@
 /**
- * Build MCP tool catalogs from the network. The rule is: every
- * subscription on a node that carries a `description` becomes an
- * MCP tool; descriptionless subs are not exposed (treated as
- * internal plumbing).
+ * Build MCP tool catalogs from the network. Every declared INPUT port
+ * becomes an MCP tool — there's no "hidden" tier any more (per the
+ * simplified ports model: if you can publish on a topic, the port
+ * receiving it is callable, end of story). Legacy descriptionless subs
+ * (auto-discovered, no port mapping) are still skipped here so noisy
+ * framework topics don't leak.
  *
  * Two views:
- *   - per-node : just one node's subs, tool name = the topic itself
+ *   - per-node : just one node's ports, tool name = port name
  *                (callers already know which node they're talking to)
- *   - federated: every node's subs, tool name = `<nodeName>__<topic>`
+ *   - federated: every node's ports, tool name = `<nodeName>__<port>`
  *                so collisions across nodes are namespaced away
  */
-import type { NodeInfo } from "@brain/sdk";
+import type { NodeInfo, ToolDescriptor } from "@brain/sdk";
 
 export interface MCPTool {
   /** Tool name as advertised to MCP clients. */
@@ -32,6 +34,37 @@ export interface MCPTool {
 
 const DEFAULT_INPUT_SCHEMA: Record<string, unknown> = { type: "object" };
 
+/**
+ * Pick a concrete, publishable bus subject for a port's MCP call surface.
+ *
+ * Bindings can be wildcards (`alerts.*`, `brain.>`) — that's fine for the
+ * SUBSCRIBE side (the node listens broadly), but wildcards aren't valid
+ * NATS publish subjects. An MCP client invoking the tool would publish
+ * literally on `alerts.*`, which goes nowhere.
+ *
+ * Resolution order:
+ *   1. First bound topic that has no wildcard — use it as-is.
+ *   2. If every binding is a wildcard, synthesise one by replacing the
+ *      first `*` / `>` segment with the port name. `alerts.*` + port
+ *      `alert` → `alerts.alert`. The broad subscription still matches
+ *      (a `alerts.*` sub catches `alerts.alert`), so the listener side
+ *      is unaffected.
+ *   3. No bindings at all → fall back to the port name itself. The port
+ *      is "orphan" until someone wires a topic to it, but the MCP catalog
+ *      still has a stable handle.
+ */
+export function resolveCallTopic(portName: string, topics: string[]): string {
+  const concrete = topics.find((t) => !/[*>]/.test(t));
+  if (concrete) return concrete;
+  if (topics.length === 0) return portName;
+  // Replace the first wildcard segment with the port name. We split on `.`
+  // so we don't accidentally clobber a literal `*` mid-segment (which is
+  // invalid NATS anyway, but defensive coding is cheap).
+  const tmpl = topics[0];
+  const parts = tmpl.split(".").map((seg) => (seg === "*" || seg === ">" ? portName : seg));
+  return parts.join(".");
+}
+
 export function toolsForNode(node: NodeInfo): MCPTool[] {
   const out: MCPTool[] = [];
   const seenPortTopics = new Set<string>();
@@ -42,8 +75,16 @@ export function toolsForNode(node: NodeInfo): MCPTool[] {
   if (node.ports?.inputs) {
     for (const [portName, decl] of Object.entries(node.ports.inputs)) {
       const topics = node.port_bindings?.inputs?.[portName] ?? [];
-      const topic = topics[0] ?? portName;
+      // Use a CONCRETE (non-wildcard) topic for the MCP call surface —
+      // see resolveCallTopic. The broad subscription on a wildcard binding
+      // still matches the synthesised concrete subject, so listeners stay
+      // intact.
+      const topic = resolveCallTopic(portName, topics);
       for (const t of topics) seenPortTopics.add(t);
+      // Every input port is, by definition, callable — it's surfaced as
+      // an MCP tool with its declared schema. There's no "hidden" tier;
+      // if the type author didn't want a listener exposed they wouldn't
+      // have declared it as a port at all.
       out.push({
         name: portName,
         description: decl.description,
@@ -92,8 +133,9 @@ export function federatedTools(nodes: NodeInfo[]): MCPTool[] {
     if (node.ports?.inputs) {
       for (const [portName, decl] of Object.entries(node.ports.inputs)) {
         const topics = node.port_bindings?.inputs?.[portName] ?? [];
-        const topic = topics[0] ?? portName;
+        const topic = resolveCallTopic(portName, topics);
         for (const t of topics) seenPortTopics.add(t);
+        // Every input port is callable — see single-node toolsForNode.
         out.push({
           name: `${prefix}__${portName}`,
           description: `[${node.name}] ${decl.description}`,
@@ -131,6 +173,57 @@ export type ResolveResult =
   | { kind: "ok"; node: NodeInfo }
   | { kind: "ambiguous"; candidates: NodeInfo[] }
   | { kind: "not-found" };
+
+/**
+ * Lower-level shape used by `ctx.tools.list()` and `GET /tools`.
+ *
+ * Routes through the same {@link resolveCallTopic} as MCPTool — when a port
+ * is bound to a wildcard (e.g. `alerts.*`), the listed `topic` is a concrete
+ * subject derived from the port name (e.g. `alerts.alert`). The broad
+ * subscription still matches, so the listener side is unaffected, but
+ * callers — whether MCP clients or other brAIn nodes via `ctx.publish` —
+ * always see a publishable subject.
+ *
+ * Prefer this over walking `node.subscriptions` by hand: the legacy walk
+ * misses the port-binding indirection and surfaces invalid topics for
+ * wildcard ports.
+ */
+export function toolDescriptorsForNode(node: NodeInfo): ToolDescriptor[] {
+  const out: ToolDescriptor[] = [];
+  const seenPortTopics = new Set<string>();
+  if (node.ports?.inputs) {
+    for (const [portName, decl] of Object.entries(node.ports.inputs)) {
+      const topics = node.port_bindings?.inputs?.[portName] ?? [];
+      const topic = resolveCallTopic(portName, topics);
+      for (const t of topics) seenPortTopics.add(t);
+      out.push({
+        node_id: node.id,
+        node_type: node.type,
+        node_name: node.name,
+        topic,
+        description: decl.description,
+        inputSchema: decl.inputSchema,
+      });
+    }
+  }
+  // Backward-compat: surface any non-port-bound public sub. Skip rows
+  // that came from port expansion (description prefixed with `[port:`)
+  // — they're already covered by the port loop above.
+  for (const sub of node.subscriptions) {
+    if (sub.internal === true) continue;
+    if (seenPortTopics.has(sub.topic)) continue;
+    if (sub.description.startsWith("[port:")) continue;
+    out.push({
+      node_id: node.id,
+      node_type: node.type,
+      node_name: node.name,
+      topic: sub.topic,
+      description: sub.description,
+      inputSchema: sub.inputSchema,
+    });
+  }
+  return out;
+}
 
 export function resolveNode(nodes: NodeInfo[], idOrName: string): ResolveResult {
   const byId = nodes.find((n) => n.id === idOrName);

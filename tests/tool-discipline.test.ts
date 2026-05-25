@@ -182,7 +182,7 @@ describe("tool-declaration discipline (end-to-end)", () => {
       fs.rmSync(dirB, { recursive: true, force: true });
     });
 
-    it("exposes only public subscriptions to ctx.tools.list()", async () => {
+    it("exposes every input port (including former-internal fan-in) to ctx.tools.list()", async () => {
       const a = await brain.spawnNode({ type: "tooly-a", name: "tooly-a-1" });
       const b = await brain.spawnNode({ type: "tooly-b", name: "tooly-b-1" });
 
@@ -191,21 +191,22 @@ describe("tool-declaration discipline (end-to-end)", () => {
 
       // Walk the registry the same way the facade does. (ctx.tools.list()
       // requires running INSIDE a handler — we exercise the same data
-      // path here.)
+      // path here.) Under the 2-layer model the "internal" tier was
+      // dropped: every declared subscription becomes a callable port,
+      // with a permissive `{ type: "object" }` schema if the author
+      // declared it `internal:true` without a schema. Authors who really
+      // want hidden plumbing simply don't declare it as a subscription.
       const snapshot = brain.instanceRegistry.list();
-      const collected: { topic: string; node_id: string }[] = [];
-      for (const node of snapshot) {
-        for (const sub of node.subscriptions) {
-          if (sub.internal === true) continue;
-          collected.push({ topic: sub.topic, node_id: node.id });
-        }
-      }
-      const topics = collected.map((c) => c.topic).sort();
+      const topics = snapshot
+        .flatMap((node) => node.subscriptions.map((s) => s.topic))
+        .sort();
       expect(topics).toContain("tooly-a.do");
       expect(topics).toContain("tooly-b.cmd");
       expect(topics).toContain("tooly-b.cmd2");
-      // The internal observer must NOT appear.
-      expect(topics).not.toContain("events.*");
+      // The former-internal fan-in observer is now also callable —
+      // any node (or MCP client) can publish on the binding's topic
+      // and the listener will react.
+      expect(topics).toContain("events.*");
 
       // Schemas must round-trip from config → live registry.
       const aSnap = brain.instanceRegistry.get(a.id);
@@ -214,6 +215,9 @@ describe("tool-declaration discipline (end-to-end)", () => {
         type: "object",
         required: ["mode"],
       });
+      // Former-internal sub now carries the permissive fallback schema.
+      const aEvents = aSnap?.subscriptions.find((s) => s.topic === "events.*");
+      expect(aEvents?.inputSchema).toEqual({ type: "object" });
       expect(b.id).toBeTruthy();
     });
   });
