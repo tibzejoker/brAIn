@@ -33,6 +33,36 @@ function matchWildcard(pattern: string | undefined | null, topic: string | undef
 }
 
 /**
+ * Build the [portName, topics[]] map driving the edge endpoints on each
+ * side of a node. The 2-layer wiring model is the primary source: every
+ * declared port + its current bindings. We never look at the legacy flat
+ * `subscriptions` / `default_publishes` lists when ports exist — they
+ * would re-introduce the doublons the dashboard refactor just removed.
+ *
+ * Fallback path: snapshots without ports (legacy peer hubs running an
+ * older brAIn) synthesise one port per legacy entry, bound to its own
+ * topic. The same convention NodeBlock uses, so the handle ids align.
+ */
+function inputPorts(n: NodeSnapshot): Array<[string, string[]]> {
+  if (n.ports?.inputs) {
+    return Object.keys(n.ports.inputs).map((name) => [name, n.port_bindings?.inputs?.[name] ?? []]);
+  }
+  return (n.subscriptions as Array<{ pattern?: string; topic?: string }>)
+    .map((s) => s.pattern ?? s.topic ?? "")
+    .filter((t) => t.length > 0)
+    .map((t) => [t, [t]] as [string, string[]]);
+}
+
+function outputPorts(n: NodeSnapshot, typeMap: Map<string, NodeTypeConfig>): Array<[string, string[]]> {
+  if (n.ports?.outputs) {
+    return Object.keys(n.ports.outputs).map((name) => [name, n.port_bindings?.outputs?.[name] ?? []]);
+  }
+  // No declared outputs — fall back to inferred publish topics (same
+  // anonymous-port convention as the input side).
+  return inferPublishTopics(n, typeMap).map((t) => [t, [t]] as [string, string[]]);
+}
+
+/**
  * Infer what topics a node publishes on.
  * Sources (in priority order):
  *   1. config_overrides.response_topic / topic (instance-level override)
@@ -76,39 +106,55 @@ export function buildEdges(snapshots: NodeSnapshot[], flows: EdgeFlow[], types: 
     }
   }
 
-  // For each publisher, match its publish topics to subscriber patterns
+  // 2-layer wiring: edges connect PORT-to-PORT, not topic-to-topic.
+  // For each (publisher, output port, bound topic): find every subscriber
+  // whose input port has a binding matching that topic, and link them.
+  // The handle ids match what NodeBlock renders (`out-<portName>` /
+  // `in-<portName>`) so React Flow draws the line at the right anchor.
   for (const publisher of snapshots) {
-    const pubTopics = inferPublishTopics(publisher, typeMap);
+    const pubPorts = outputPorts(publisher, typeMap);
+    if (pubPorts.length === 0) continue;
 
-    for (const pubTopic of pubTopics) {
-      for (const subscriber of snapshots) {
-        if (subscriber.id === publisher.id) continue;
+    for (const [pubPortName, pubTopics] of pubPorts) {
+      for (const pubTopic of pubTopics) {
+        for (const subscriber of snapshots) {
+          if (subscriber.id === publisher.id) continue;
+          for (const [subPortName, subTopics] of inputPorts(subscriber)) {
+            // A binding may be a wildcard pattern (`alerts.*`) — same
+            // matching rules as the bus, identical to the rule that
+            // decides what messages actually reach the subscriber.
+            const matched = subTopics.some((t) => matchWildcard(t, pubTopic));
+            if (!matched) continue;
 
-        for (const sub of subscriber.subscriptions) {
-          if (!matchWildcard(sub.pattern, pubTopic)) continue;
+            const edgeId = `${publisher.id}:${pubPortName}:${pubTopic}->${subscriber.id}:${subPortName}`;
+            if (seen.has(edgeId)) continue;
+            seen.add(edgeId);
 
-          const edgeId = `${publisher.id}:${pubTopic}->${subscriber.id}:${sub.pattern}`;
-          if (seen.has(edgeId)) continue;
-          seen.add(edgeId);
+            const active = activeFlows.has(`${publisher.id}->${subscriber.id}`);
+            const color = topicColor(pubTopic);
 
-          const active = activeFlows.has(`${publisher.id}->${subscriber.id}`);
-          const color = topicColor(pubTopic);
-
-          edges.push({
-            id: edgeId,
-            source: publisher.id,
-            target: subscriber.id,
-            sourceHandle: `out-${pubTopic}`,
-            targetHandle: `in-${sub.pattern}`,
-            type: "smoothstep" as const,
-            animated: active,
-            style: {
-              stroke: color,
-              strokeWidth: active ? 2 : 1,
-              strokeDasharray: active ? undefined : "5 5",
-              opacity: active ? 1 : 0.5,
-            },
-          });
+            edges.push({
+              id: edgeId,
+              source: publisher.id,
+              target: subscriber.id,
+              sourceHandle: `out-${pubPortName}`,
+              targetHandle: `in-${subPortName}`,
+              type: "smoothstep" as const,
+              animated: active,
+              // Tooltip shows the topic that actually justifies the line.
+              label: pubTopic,
+              labelStyle: { fill: color, fontSize: 9, fontWeight: 500, opacity: active ? 1 : 0.6 },
+              labelBgStyle: { fill: "var(--color-surface-overlay, #1f2937)", opacity: 0.85 },
+              labelBgPadding: [2, 1],
+              labelShowBg: true,
+              style: {
+                stroke: color,
+                strokeWidth: active ? 2 : 1,
+                strokeDasharray: active ? undefined : "5 5",
+                opacity: active ? 1 : 0.5,
+              },
+            });
+          }
         }
       }
     }
