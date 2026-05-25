@@ -19,7 +19,7 @@ import {
 } from "@xyflow/react";
 import "@xyflow/react/dist/style.css";
 import type { NodeSnapshot, NodeTypeConfig, CursorUpdate } from "../../api/types";
-import { getAgents, getTransport, addNodeSubscription, addNodePublish, type AgentSnapshot } from "../../api/client";
+import { getAgents, getTransport, bindPortTopic, type AgentSnapshot } from "../../api/client";
 import { emitLayoutUpdate, emitCursorUpdate, emitHostLayout, onLayoutUpdate, onCursorUpdate, onHostLayout, onAgentAnnounced, onAgentExpired } from "../../api/socket";
 import { getSelfHubId } from "../../api/request";
 import { RemoteCursors } from "./RemoteCursors";
@@ -41,6 +41,12 @@ export interface EdgeSelection {
   sourceId: string;
   targetId: string;
   topics: string[];
+  /** Port carrying the binding on the subscriber side — needed by
+   *  EdgePanel's delete-link action to know which port to unbind. */
+  subPortName?: string;
+  /** Port carrying the binding on the publisher side. Kept symmetrical
+   *  for future "unbind on source" actions; not currently consumed. */
+  pubPortName?: string;
 }
 
 interface NetworkGraphProps {
@@ -51,6 +57,10 @@ interface NetworkGraphProps {
   onEdgeSelect: (edge: EdgeSelection | null) => void;
   onOpenNodeUi: (nodeId: string) => void;
   selectedNodeId: string | null;
+  /** Called after a successful drag-to-connect so the App can
+   *  re-fetch the network snapshot — `useNetwork` only auto-refreshes
+   *  on spawn/kill/state, not on wiring edits. */
+  onWiringChanged?: () => void;
 }
 
 
@@ -117,6 +127,11 @@ function snapshotToFlowNode(
       isExpanded: expandedNodeIds.has(n.id),
       expandedWidth: expandedSizes.get(n.id)?.w,
       expandedHeight: expandedSizes.get(n.id)?.h,
+      // 2-layer wiring — primary source for the IO column rendering.
+      // Legacy `subscribes` / `publishes` are kept as fallback for very
+      // old peer snapshots that don't carry the ports field yet.
+      ports: n.ports,
+      portBindings: n.port_bindings,
       subscribes,
       publishes,
       unreadCount: n.unread_count,
@@ -157,6 +172,7 @@ export function NetworkGraph({
   onEdgeSelect,
   onOpenNodeUi,
   selectedNodeId,
+  onWiringChanged,
 }: NetworkGraphProps): React.ReactElement {
   const typeMap = useMemo(() => new Map(types.map((t) => [t.name, t])), [types]);
   const [nodes, setNodes, onNodesChange] = useNodesState<Node>([] as Node[]);
@@ -519,12 +535,28 @@ export function NetworkGraph({
 
   const handleEdgeClick: EdgeMouseHandler = useCallback(
     (_event, edge) => {
-      // Edge ID format: "publisherId:topic->subscriberId:pattern"
+      // Edge ID format (static, port-to-port):
+      //   `${publisherId}:${pubPortName}:${pubTopic}->${subscriberId}:${subPortName}`
+      // Topics may contain dots, so we split on the first two `:` only on
+      // each side. Dynamic edges (prefix `dyn:`) carry the topic in the
+      // label instead.
       const [sourcePart, targetPart] = edge.id.split("->");
-      const sourceId = sourcePart.split(":")[0];
-      const targetId = targetPart.split(":")[0];
-      const topic = sourcePart.split(":").slice(1).join(":");
-      onEdgeSelect({ sourceId, targetId, topics: [topic] });
+      if (!sourcePart || !targetPart) return;
+      const srcSegs = sourcePart.split(":");
+      const tgtSegs = targetPart.split(":");
+      if (srcSegs[0] === "dyn") {
+        // dyn:<publisherId>:<topic>-><subscriberId>
+        const sourceId = srcSegs[1];
+        const topic = srcSegs.slice(2).join(":");
+        onEdgeSelect({ sourceId, targetId: tgtSegs[0], topics: [topic] });
+        return;
+      }
+      const sourceId = srcSegs[0];
+      const pubPortName = srcSegs[1];
+      const topic = srcSegs.slice(2).join(":");
+      const targetId = tgtSegs[0];
+      const subPortName = tgtSegs[1];
+      onEdgeSelect({ sourceId, targetId, topics: [topic], pubPortName, subPortName });
     },
     [onEdgeSelect],
   );
@@ -535,25 +567,22 @@ export function NetworkGraph({
   }, [onNodeSelect, onEdgeSelect]);
 
   /**
-   * Drag-to-connect → live wiring.
+   * Drag-to-connect → live port binding.
    *
-   * Handle ids on NodeBlock are `in-<topic>` (subscriptions) and
-   * `out-<topic>` (publishes). We parse them to decide what API call
-   * to make:
+   * Handle ids on NodeBlock are `out-<portName>` (publisher's output
+   * port, right side) and `in-<portName>` (subscriber's input port,
+   * left side). `connectionMode="loose"` means either end can start the
+   * drag, so we accept both orderings.
    *
-   *  - A.out-T dragged onto B.in-* → B subscribes to T (B will now
-   *    receive A's publishes on T).
-   *  - A.in-T dragged onto B.out-* → B publishes T (B will now emit
-   *    on the topic A listens to).
-   *
-   * Self-loops are blocked: if source === target, no change. The bus
-   * already drops a node's own publishes from its mailbox, so even if
-   * we let it through nothing would happen — but rejecting client-side
-   * is clearer for the user.
-   *
-   * Routing for peer-owned nodes happens transparently inside the
-   * client helpers (POST /nodes/:id/subscriptions / publishes route
-   * through brain.agents.<hub>.update_{...} for non-local nodes).
+   * Wiring rule: pick the topic the publisher already emits on that
+   * output port (first concrete binding wins; wildcards are resolved
+   * by substituting the port name; no existing binding → fall back to
+   * the port name itself and bind it on the publisher too) and add it
+   * as an input binding on the subscriber's port. The framework mirrors
+   * input-port binds into the flat subscription list so the bus picks
+   * them up immediately. Routing to peer-owned nodes happens inside
+   * `bindPortTopic` (the controller forwards to `brain.agents.<hub>.
+   * update_port_bindings` when the node isn't local).
    */
   const handleConnect = useCallback(async (c: Connection): Promise<void> => {
     if (!c.source || !c.target || c.source === c.target) return;
@@ -563,32 +592,35 @@ export function NetworkGraph({
     const srcH = c.sourceHandle ?? "";
     const tgtH = c.targetHandle ?? "";
 
-    // Find the publish side (out-<topic>) and the OTHER node. Either end of
-    // the drag can be the publisher because connectionMode="loose" lets the
-    // user grab from either direction.
-    let outNode: string | null = null;
-    let outTopic: string | null = null;
-    let otherNode: string | null = null;
-    if (srcH.startsWith("out-")) { outNode = c.source; outTopic = srcH.slice(4); otherNode = c.target; }
-    else if (tgtH.startsWith("out-")) { outNode = c.target; outTopic = tgtH.slice(4); otherNode = c.source; }
-
-    if (outNode && outTopic && outTopic !== "default" && otherNode) {
-      // Wire = "the OTHER side now subscribes to this publisher's topic".
-      try { await addNodeSubscription(otherNode, { topic: outTopic, internal: true }); }
-      catch { /* TODO: toast — for now the snapshot refresh tells the story */ }
-      return;
+    let ends: { pubId: string; pubPort: string; subId: string; subPort: string } | null = null;
+    if (srcH.startsWith("out-") && tgtH.startsWith("in-")) {
+      ends = { pubId: c.source, pubPort: srcH.slice(4), subId: c.target, subPort: tgtH.slice(3) };
+    } else if (srcH.startsWith("in-") && tgtH.startsWith("out-")) {
+      ends = { pubId: c.target, pubPort: tgtH.slice(4), subId: c.source, subPort: srcH.slice(3) };
     }
+    // Same-side drag or legacy `default` placeholder handle — no
+    // meaningful wiring to derive.
+    if (!ends) return;
+    const { pubId, pubPort, subId, subPort } = ends;
+    if (pubPort === "default" || subPort === "default") return;
 
-    // No publish side touched → both ends are input handles. Interpret as
-    // "make the OTHER side publish the topic the user grabbed".
-    let inTopic: string | null = null;
-    if (srcH.startsWith("in-")) { inTopic = srcH.slice(3); otherNode = c.target; }
-    else if (tgtH.startsWith("in-")) { inTopic = tgtH.slice(3); otherNode = c.source; }
-    if (inTopic && inTopic !== "default" && otherNode) {
-      try { await addNodePublish(otherNode, inTopic); }
-      catch { /* TODO: toast */ }
+    const publisher = snapshots.find((n) => n.id === pubId);
+    if (!publisher) return;
+
+    const pubBinds = publisher.port_bindings?.outputs?.[pubPort] ?? [];
+    let topic = pubBinds.find((t) => !/[*>]/.test(t));
+    let needPubBind = false;
+    if (!topic && pubBinds.length > 0) {
+      topic = pubBinds[0].split(".").map((seg) => (seg === "*" || seg === ">" ? pubPort : seg)).join(".");
     }
-  }, []);
+    if (!topic) { topic = pubPort; needPubBind = true; }
+
+    try {
+      if (needPubBind) await bindPortTopic(pubId, "outputs", pubPort, topic);
+      await bindPortTopic(subId, "inputs", subPort, topic);
+      onWiringChanged?.();
+    } catch { /* TODO: toast — snapshot poll will reflect failure */ }
+  }, [snapshots, onWiringChanged]);
 
   // Track hovered node only when the capability layer is on — otherwise
   // we'd be re-rendering the edges array on every mouse-over for no gain.

@@ -33,6 +33,36 @@ function matchWildcard(pattern: string | undefined | null, topic: string | undef
 }
 
 /**
+ * Build the [portName, topics[]] map driving the edge endpoints on each
+ * side of a node. The 2-layer wiring model is the primary source: every
+ * declared port + its current bindings. We never look at the legacy flat
+ * `subscriptions` / `default_publishes` lists when ports exist — they
+ * would re-introduce the doublons the dashboard refactor just removed.
+ *
+ * Fallback path: snapshots without ports (legacy peer hubs running an
+ * older brAIn) synthesise one port per legacy entry, bound to its own
+ * topic. The same convention NodeBlock uses, so the handle ids align.
+ */
+function inputPorts(n: NodeSnapshot): Array<[string, string[]]> {
+  if (n.ports?.inputs) {
+    return Object.keys(n.ports.inputs).map((name) => [name, n.port_bindings?.inputs?.[name] ?? []]);
+  }
+  return (n.subscriptions as Array<{ pattern?: string; topic?: string }>)
+    .map((s) => s.pattern ?? s.topic ?? "")
+    .filter((t) => t.length > 0)
+    .map((t) => [t, [t]] as [string, string[]]);
+}
+
+function outputPorts(n: NodeSnapshot, typeMap: Map<string, NodeTypeConfig>): Array<[string, string[]]> {
+  if (n.ports?.outputs) {
+    return Object.keys(n.ports.outputs).map((name) => [name, n.port_bindings?.outputs?.[name] ?? []]);
+  }
+  // No declared outputs — fall back to inferred publish topics (same
+  // anonymous-port convention as the input side).
+  return inferPublishTopics(n, typeMap).map((t) => [t, [t]] as [string, string[]]);
+}
+
+/**
  * Infer what topics a node publishes on.
  * Sources (in priority order):
  *   1. config_overrides.response_topic / topic (instance-level override)
@@ -61,58 +91,91 @@ export function inferPublishTopics(n: NodeSnapshot, typeMap: Map<string, NodeTyp
 // the session: a single past interaction is enough to keep the line drawn.
 const DYNAMIC_EDGE_COLOR = "#a855f7";
 
+interface StaticEdgeCtx {
+  edges: Edge[];
+  seen: Set<string>;
+  activeFlows: Set<string>;
+}
+
+function makeStaticEdge(
+  publisher: NodeSnapshot, pubPortName: string, pubTopic: string,
+  subscriber: NodeSnapshot, subPortName: string, ctx: StaticEdgeCtx,
+): void {
+  const edgeId = `${publisher.id}:${pubPortName}:${pubTopic}->${subscriber.id}:${subPortName}`;
+  if (ctx.seen.has(edgeId)) return;
+  ctx.seen.add(edgeId);
+  const active = ctx.activeFlows.has(`${publisher.id}->${subscriber.id}`);
+  const color = topicColor(pubTopic);
+  ctx.edges.push({
+    id: edgeId,
+    source: publisher.id,
+    target: subscriber.id,
+    sourceHandle: `out-${pubPortName}`,
+    targetHandle: `in-${subPortName}`,
+    type: "smoothstep" as const,
+    animated: active,
+    // Tooltip shows the topic that actually justifies the line.
+    label: pubTopic,
+    labelStyle: { fill: color, fontSize: 9, fontWeight: 500, opacity: active ? 1 : 0.6 },
+    labelBgStyle: { fill: "var(--color-surface-overlay, #1f2937)", opacity: 0.85 },
+    labelBgPadding: [2, 1],
+    labelShowBg: true,
+    style: {
+      stroke: color,
+      strokeWidth: active ? 2 : 1,
+      strokeDasharray: active ? undefined : "5 5",
+      opacity: active ? 1 : 0.5,
+    },
+  });
+}
+
+function emitMatchingSubEdges(
+  publisher: NodeSnapshot, pubPortName: string, pubTopic: string,
+  snapshots: NodeSnapshot[], typeMap: Map<string, NodeTypeConfig>, ctx: StaticEdgeCtx,
+): void {
+  for (const subscriber of snapshots) {
+    if (subscriber.id === publisher.id) continue;
+    for (const [subPortName, subTopics] of inputPorts(subscriber)) {
+      // A binding may be a wildcard pattern (`alerts.*`) — same matching
+      // rules as the bus, identical to the rule that decides what messages
+      // actually reach the subscriber.
+      if (!subTopics.some((t) => matchWildcard(t, pubTopic))) continue;
+      makeStaticEdge(publisher, pubPortName, pubTopic, subscriber, subPortName, ctx);
+    }
+  }
+  // typeMap reserved for future per-type styling — keeps the call site
+  // signature stable as the helper grows.
+  void typeMap;
+}
+
 export function buildEdges(snapshots: NodeSnapshot[], flows: EdgeFlow[], types: NodeTypeConfig[]): Edge[] {
   const typeMap = new Map(types.map((t) => [t.name, t]));
-  const edges: Edge[] = [];
-  const seen = new Set<string>();
+  const ctx: StaticEdgeCtx = { edges: [], seen: new Set(), activeFlows: new Set() };
 
   // Active flow pairs — only if last message was within 3 seconds
   const now = Date.now();
   const ACTIVE_THRESHOLD_MS = 3000;
-  const activeFlows = new Set<string>();
   for (const flow of flows) {
     if (now - flow.lastSeen < ACTIVE_THRESHOLD_MS) {
-      activeFlows.add(`${flow.sourceId}->${flow.targetId}`);
+      ctx.activeFlows.add(`${flow.sourceId}->${flow.targetId}`);
     }
   }
 
-  // For each publisher, match its publish topics to subscriber patterns
+  // 2-layer wiring: edges connect PORT-to-PORT, not topic-to-topic.
+  // For each (publisher, output port, bound topic): find every subscriber
+  // whose input port has a binding matching that topic, and link them.
+  // The handle ids match what NodeBlock renders (`out-<portName>` /
+  // `in-<portName>`) so React Flow draws the line at the right anchor.
   for (const publisher of snapshots) {
-    const pubTopics = inferPublishTopics(publisher, typeMap);
-
-    for (const pubTopic of pubTopics) {
-      for (const subscriber of snapshots) {
-        if (subscriber.id === publisher.id) continue;
-
-        for (const sub of subscriber.subscriptions) {
-          if (!matchWildcard(sub.pattern, pubTopic)) continue;
-
-          const edgeId = `${publisher.id}:${pubTopic}->${subscriber.id}:${sub.pattern}`;
-          if (seen.has(edgeId)) continue;
-          seen.add(edgeId);
-
-          const active = activeFlows.has(`${publisher.id}->${subscriber.id}`);
-          const color = topicColor(pubTopic);
-
-          edges.push({
-            id: edgeId,
-            source: publisher.id,
-            target: subscriber.id,
-            sourceHandle: `out-${pubTopic}`,
-            targetHandle: `in-${sub.pattern}`,
-            type: "smoothstep" as const,
-            animated: active,
-            style: {
-              stroke: color,
-              strokeWidth: active ? 2 : 1,
-              strokeDasharray: active ? undefined : "5 5",
-              opacity: active ? 1 : 0.5,
-            },
-          });
-        }
+    const pubPorts = outputPorts(publisher, typeMap);
+    for (const [pubPortName, pubTopics] of pubPorts) {
+      for (const pubTopic of pubTopics) {
+        emitMatchingSubEdges(publisher, pubPortName, pubTopic, snapshots, typeMap, ctx);
       }
     }
   }
+  const edges = ctx.edges;
+  const activeFlows = ctx.activeFlows;
 
   // Dynamic edges — any flow whose topic the publisher didn't declare
   // statically counts as a tool-call / dynamic publish. Drawn in violet,
