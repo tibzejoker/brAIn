@@ -1,14 +1,20 @@
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useState, useRef, useCallback } from "react";
 import type { Message, NodeSnapshot } from "../api/types";
-import { getMessages } from "../api/client";
+import { getMessages, unbindPortTopic } from "../api/client";
 import { onMessagePublished } from "../api/socket";
 
 interface EdgePanelProps {
   sourceId: string;
   targetId: string;
   topics: string[];
+  /** Subscriber-side input port whose binding produced this edge. When
+   *  present, EdgePanel surfaces a delete-link button that unbinds it.
+   *  Absent for legacy / dynamic edges where we can't identify a port. */
+  subPortName?: string;
   nodes: NodeSnapshot[];
   onClose: () => void;
+  /** Called after a successful unbind so App re-fetches the graph. */
+  onWiringChanged?: () => void;
 }
 
 const MAX_EDGE_MESSAGES = 50;
@@ -44,14 +50,50 @@ export function EdgePanel({
   sourceId,
   targetId,
   topics,
+  subPortName,
   nodes,
   onClose,
+  onWiringChanged,
 }: EdgePanelProps): React.ReactElement {
   const [messages, setMessages] = useState<Message[]>([]);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const sourceName = nodes.find((n) => n.id === sourceId)?.name ?? sourceId.slice(0, 8);
   const targetName = nodes.find((n) => n.id === targetId)?.name ?? targetId.slice(0, 8);
+
+  // The edge's topic is the publisher's concrete output; the subscriber's
+  // input port might hold either that exact string or a wildcard matching
+  // it (e.g. `alerts.*` covering `alerts.alert`). Unbinding requires the
+  // ACTUAL binding string stored in port_bindings, so we look it up.
+  const subscriber = nodes.find((n) => n.id === targetId);
+  const subBindings = subPortName
+    ? subscriber?.port_bindings?.inputs?.[subPortName] ?? []
+    : [];
+  const edgeTopic = topics[0] ?? "";
+  const bindingsToRemove = subBindings.filter((b) => matchWildcard(b, edgeTopic));
+  const canDelete = Boolean(subPortName) && bindingsToRemove.length > 0;
+
+  const handleDelete = useCallback(async (): Promise<void> => {
+    if (!subPortName || bindingsToRemove.length === 0) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      // Multiple bindings may match (rare but possible — e.g. both
+      // `chat.response` and `chat.response.*` on the same port). Unbind
+      // every match so the edge fully disappears.
+      for (const b of bindingsToRemove) {
+        await unbindPortTopic(targetId, "inputs", subPortName, b);
+      }
+      onWiringChanged?.();
+      onClose();
+    } catch (e: unknown) {
+      setDeleteError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setDeleting(false);
+    }
+  }, [subPortName, targetId, bindingsToRemove, onWiringChanged, onClose]);
 
   // Seed from history on mount
   useEffect(() => {
@@ -130,10 +172,27 @@ export function EdgePanel({
         ))}
       </div>
 
-      {/* Footer stats */}
-      <div className="px-4 py-2 border-t border-border text-xs text-text-muted">
-        {messages.length} messages captured
+      {/* Footer: message count + delete-link button */}
+      <div className="px-4 py-2 border-t border-border flex items-center justify-between gap-2">
+        <span className="text-xs text-text-muted">
+          {messages.length} messages captured
+        </span>
+        {canDelete && (
+          <button
+            onClick={handleDelete}
+            disabled={deleting}
+            className="text-xs px-2 py-1 rounded border border-node-stopped/40 text-node-stopped hover:bg-node-stopped/10 disabled:opacity-50"
+            title={`Unbind ${bindingsToRemove.join(", ")} from ${targetName}'s ${subPortName} port`}
+          >
+            {deleting ? "Removing..." : "Delete link"}
+          </button>
+        )}
       </div>
+      {deleteError && (
+        <div className="px-4 py-2 border-t border-border text-xs text-node-stopped">
+          {deleteError}
+        </div>
+      )}
     </div>
   );
 }

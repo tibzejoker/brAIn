@@ -135,6 +135,7 @@ export function App(): React.ReactElement {
                 onEdgeSelect={handleEdgeSelect}
                 onOpenNodeUi={handleOpenNodeUi}
                 selectedNodeId={selectedNode?.id ?? null}
+                onWiringChanged={refreshNetwork}
               />
             </div>
 
@@ -168,8 +169,10 @@ export function App(): React.ReactElement {
                   sourceId={selectedEdge.sourceId}
                   targetId={selectedEdge.targetId}
                   topics={selectedEdge.topics}
+                  subPortName={selectedEdge.subPortName}
                   nodes={nodes}
                   onClose={handleEdgeClose}
+                  onWiringChanged={refreshNetwork}
                 />
               </div>
             )}
