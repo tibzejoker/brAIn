@@ -320,12 +320,12 @@ export interface PortsConfig {
 
 export interface PortInputDecl {
   description: string;
-  /** JSON schema describing the expected payload. Presence makes this port
-   *  PUBLIC — it gets surfaced as an MCP tool with this exact schema.
-   *  Absence makes it INTERNAL — the node still listens on the bound
-   *  topics, but the port is hidden from /mcp and tools discovery (use
-   *  for alerts.*, time.tick, signal listeners…). */
-  inputSchema?: Record<string, unknown>;
+  /** JSON schema describing the expected payload. **Required.** Every
+   *  input port is, by definition, callable — any node (or MCP client)
+   *  can publish on a topic bound to it. The schema describes what the
+   *  caller must send. Use `{ type: "object" }` for payload-free signals
+   *  like reset triggers. */
+  inputSchema: Record<string, unknown>;
   /** When set, declares this port as RPC-shape: the handler is expected to
    *  publish a reply on `msg.reply_to` matching this schema. Reused as the
    *  MCP `outputSchema` for the corresponding tool. */
@@ -334,13 +334,11 @@ export interface PortInputDecl {
 
 export interface PortOutputDecl {
   description: string;
-  /** Optional payload schema for emissions on this port. */
+  /** Optional payload schema describing what the node emits on this port.
+   *  Outputs aren't called — they're broadcast events the handler emits
+   *  on the bound topics via `ctx.emit_port` or `ctx.publish`. The schema
+   *  is purely documentation + tool discovery for consumers. */
   schema?: Record<string, unknown>;
-  /** When true, hides the port from public discovery (still functional —
-   *  the handler can emit_port to it). Use for cross-channel signals
-   *  (chat.reset, internal state changes) you don't want surfaced as
-   *  MCP outputs. */
-  internal?: boolean;
 }
 
 /** Per-instance topic ↔ port binding map. Keys are port names; values are

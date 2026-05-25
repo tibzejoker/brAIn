@@ -140,13 +140,12 @@ export async function spawnNode(
 
   // 2-layer wiring: the type's `ports` declaration is the authoritative
   // public surface (MCP tools, dashboard side panel). Everything else
-  // — `default_subscriptions` flat entries (internal listeners, legacy
-  // public subs) and `default_publishes` topics — gets folded into the
-  // SAME ports map so the dashboard never has to render a parallel "flat"
-  // section. Internal subs become inputSchema-less internal ports; public
-  // subs become regular public ports; publish topics become output ports.
-  // The merge prefers explicitly-declared ports over auto-derived ones
-  // so the type author always wins on naming + schema choices.
+  // — `default_subscriptions` flat entries and `default_publishes`
+  // topics — gets folded into the SAME ports map. Every sub becomes a
+  // callable input port (former-internal listeners get a permissive
+  // `{ type: "object" }` schema so they remain MCP-callable, per the
+  // simplified "every port is callable" model). Publish topics become
+  // output ports. Explicitly-declared ports win on naming + schema.
   const autoPorts = autoDerivePorts(typeConfig.default_subscriptions, typeConfig.default_publishes);
   const autoBindings = autoDeriveBindings(typeConfig.default_subscriptions, typeConfig.default_publishes);
   // Drop auto-derived ports whose topic is already wired to an explicitly-
@@ -180,14 +179,16 @@ export async function spawnNode(
   const declaredBindings = mergePortBindings(filteredAutoBindings, typeConfig.default_port_bindings);
   const effectiveBindings = mergePortBindings(declaredBindings, overridenBindings);
 
-  // Subs = port-bound input topics ∪ "internal" subs from default_subscriptions.
-  // Public entries already covered by a port are deduplicated by topic.
+  // Subs = port-bound input topics ∪ any leftover subs not already covered
+  // by a port. Auto-derived ports already cover every default_subscription,
+  // so the leftover set is typically empty — but custom `config.subscriptions`
+  // at spawn time can still slip an extra topic in, in which case we keep it.
   const portInputTopics = new Set<string>();
   for (const topics of Object.values(effectiveBindings.inputs ?? {})) for (const t of topics) portInputTopics.add(t);
   const baseSubs = (config.subscriptions ?? typeConfig.default_subscriptions).map(normaliseSubscription);
-  const internalSubs = baseSubs.filter((s) => !portInputTopics.has(s.topic) || s.internal === true);
+  const leftoverSubs = baseSubs.filter((s) => !portInputTopics.has(s.topic));
   const portSubs = expandPortsToSubs(effectivePorts, effectiveBindings);
-  const allSubs = [...portSubs, ...internalSubs];
+  const allSubs = [...portSubs, ...leftoverSubs];
 
   const nodeInfo: NodeInfo = {
     id: config.id ?? uuid(),

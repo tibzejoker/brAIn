@@ -10,15 +10,16 @@ import type { PortsConfig, PortBindings, PortInputDecl, PortOutputDecl } from "@
  * Side-panel editor for a node's live wiring.
  *
  * Single source of truth: the node's declared ports (immutable, MCP-visible
- * contract from its config.json). For each port we render its bound topics
- * (mutable — that's the editable surface). Internal ports (no inputSchema)
- * are rendered locked/dimmed so the user can see what plumbing exists
- * without accidentally deleting framework listeners (alerts.*, time.tick).
+ * contract from its config.json). Each input port is callable — it has a
+ * schema and any node (or external MCP client) can publish on its bound
+ * topics. Each output port is something the node emits. For each port we
+ * render its bound topics (mutable — that's the editable surface) plus
+ * an input row for binding new ones.
  *
- * No flat "Subscriptions" / "Publishes" categories: the framework folds
- * every topic into the ports model at spawn time (auto-derived for nodes
- * that haven't migrated yet). The user is never asked to reason about
- * "ad-hoc subs" separately from ports.
+ * No flat "Subscriptions" / "Publishes" categories, and no "internal"
+ * second tier: the framework folds every topic into the ports model at
+ * spawn time (auto-derived for nodes that haven't migrated yet). The
+ * user reasons about ports and bound topics — nothing else.
  *
  * `onChange` fires after every successful bind/unbind so the parent
  * refetches the node snapshot — the new bindings then re-render here
@@ -60,18 +61,16 @@ export function WiringEditor({ nodeId, ports, portBindings, onChange }: WiringEd
 
   const valid = (s: string): boolean => /^[a-zA-Z0-9._*>+-]+$/.test(s.trim());
 
-  // For inputs the "internal" flag is implicit (no inputSchema = listener
-  // without an MCP contract). For outputs the type author declares it
-  // explicitly via `internal: true`. Either way, internal ports render
-  // dimmed + locked-ish so the user sees what's wired but doesn't break
-  // framework plumbing.
-  const portEntries = (side: "inputs" | "outputs"): Array<[string, { description: string; internal: boolean }]> => {
+  // All ports render the same way — no "internal" tier, no dimming. The
+  // type author declares ports; the user wires topics to them. Inputs
+  // have a required schema (MCP tool); outputs may carry one (event shape).
+  const portEntries = (side: "inputs" | "outputs"): Array<[string, { description: string }]> => {
     if (side === "inputs") {
       const decls = ports?.inputs;
-      return decls ? Object.entries(decls).map(([k, v]: [string, PortInputDecl]) => [k, { description: v.description, internal: !v.inputSchema }]) : [];
+      return decls ? Object.entries(decls).map(([k, v]: [string, PortInputDecl]) => [k, { description: v.description }]) : [];
     }
     const decls = ports?.outputs;
-    return decls ? Object.entries(decls).map(([k, v]: [string, PortOutputDecl]) => [k, { description: v.description, internal: v.internal === true }]) : [];
+    return decls ? Object.entries(decls).map(([k, v]: [string, PortOutputDecl]) => [k, { description: v.description }]) : [];
   };
   const bindingsOf = (side: "inputs" | "outputs", portName: string): string[] => {
     const m = side === "inputs" ? portBindings?.inputs : portBindings?.outputs;
@@ -126,10 +125,7 @@ export function WiringEditor({ nodeId, ports, portBindings, onChange }: WiringEd
  */
 function PortSection(props: {
   title: string;
-  /** Each port carries an `internal` flag — true for inputs without an
-   *  inputSchema (framework listeners like alerts.* / time.tick) or
-   *  outputs declared `internal: true` (control signals like chat.reset). */
-  ports: Array<[string, { description: string; internal: boolean }]>;
+  ports: Array<[string, { description: string }]>;
   bindingsOf: (port: string) => string[];
   topics: string[];
   valid: (s: string) => boolean;
@@ -141,18 +137,13 @@ function PortSection(props: {
   const datalistId = useId();
   const [drafts, setDrafts] = useState<Record<string, string>>({});
   if (props.ports.length === 0) return null;
-  // Render public ports first, internals at the bottom — same section, two
-  // visual tiers. Internals still let you rewire bindings (you might want
-  // alerts.* on a different topic) but the port itself is code-declared
-  // and signalled with a padlock badge.
-  const sorted = [...props.ports].sort(([, a], [, b]) => (a.internal ? 1 : 0) - (b.internal ? 1 : 0));
   return (
     <div>
       <div className="text-xs text-text-muted uppercase tracking-wide mb-1.5">
         {props.title} ({props.ports.length})
       </div>
       <div className="space-y-2">
-        {sorted.map(([portName, decl]) => {
+        {props.ports.map(([portName, decl]) => {
           const bindings = props.bindingsOf(portName);
           const draft = drafts[portName] ?? "";
           const commit = (): void => {
@@ -161,10 +152,9 @@ function PortSection(props: {
             setDrafts((d) => ({ ...d, [portName]: "" }));
           };
           return (
-            <div key={portName} className={`rounded border p-2 ${decl.internal ? "border-border/30 bg-surface-overlay/30" : "border-border/60"}`}>
+            <div key={portName} className="rounded border border-border/60 p-2">
               <div className="flex items-center gap-2">
-                <span className={`font-mono font-semibold text-xs ${decl.internal ? "text-text-muted" : "text-text"}`}>{portName}</span>
-                {decl.internal && <span className="text-text-muted opacity-60" title="Internal port — code-managed, hidden from MCP">🔒</span>}
+                <span className="font-mono font-semibold text-xs text-text">{portName}</span>
                 <span className="text-[10px] text-text-muted truncate">{decl.description}</span>
               </div>
               {bindings.length === 0 ? (

@@ -7,7 +7,7 @@ import type { IBusService } from "./bus";
 import type { TypeRegistry, InstanceRegistry } from "./registry";
 import type { LLMRegistry } from "./llm/llm-registry";
 import type { LLMConfigStore } from "./llm/llm-config";
-import { mergePortBindings, autoDerivePorts, autoDeriveBindings } from "./ports";
+import { mergePortBindings, autoDerivePorts, autoDeriveBindings, expandPortsToSubs } from "./ports";
 
 type HandlerLoader = (typeName: string, typePath: string) => Promise<NodeModule>;
 
@@ -79,20 +79,25 @@ export async function restoreNodes(opts: {
       if (isPort && !existingIsPort) subByTopic.set(s.topic, s);
     }
 
-    const subscriptions = Array.from(subByTopic.values()).map((s) => {
+    const PERMISSIVE: Record<string, unknown> = { type: "object" };
+    const dbSubs = Array.from(subByTopic.values()).map((s) => {
       const fallback = typeDefaults.get(s.topic);
+      // Every input becomes a public sub with a schema. Subs declared
+      // `internal:true` on legacy types fall back to a permissive
+      // `{ type: "object" }` so the surface stays consistent (and any
+      // node can in principle call them — that's the point).
+      const schema = s.input_schema
+        ? JSON.parse(s.input_schema) as Record<string, unknown>
+        : (fallback?.inputSchema ?? PERMISSIVE);
       return normaliseSubscription({
         topic: s.topic,
         description: s.description || fallback?.description || s.topic,
-        inputSchema: s.input_schema
-          ? JSON.parse(s.input_schema) as Record<string, unknown>
-          : fallback?.inputSchema,
+        inputSchema: schema,
         min_criticality: s.min_criticality ?? undefined,
         mailbox: {
           max_size: s.mailbox_max_size,
           retention: s.mailbox_retention as "latest" | "lowest_priority",
         },
-        internal: fallback ? fallback.internal === true : false,
       });
     });
 
@@ -128,6 +133,17 @@ export async function restoreNodes(opts: {
       : undefined;
     const declaredBindings = mergePortBindings({ inputs: filtAutoBindingsIn, outputs: filtAutoBindingsOut }, typeConfig?.default_port_bindings);
     const effectiveBindings = mergePortBindings(declaredBindings, overriddenBindings);
+
+    // Expand the effective port bindings into subs and merge with the
+    // DB-resident ones. DB subs that are also bound to a port get
+    // replaced by the port-derived version (which carries [port:…] in
+    // the description so the catalog can link them back). New ports
+    // declared since the row was first saved get freshly added — that's
+    // how `chat.reset` / `alerts.*` / `brain.*` come back to life on a
+    // restore without rewriting the DB.
+    const portSubs = expandPortsToSubs(effectivePorts, effectiveBindings);
+    const portTopics = new Set(portSubs.map((s) => s.topic));
+    const subscriptions = [...portSubs, ...dbSubs.filter((s) => !portTopics.has(s.topic))];
 
     const nodeInfo: NodeInfo = {
       id: saved.id,

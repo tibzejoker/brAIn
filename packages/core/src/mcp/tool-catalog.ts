@@ -1,13 +1,15 @@
 /**
- * Build MCP tool catalogs from the network. The rule is: every
- * subscription on a node that carries a `description` becomes an
- * MCP tool; descriptionless subs are not exposed (treated as
- * internal plumbing).
+ * Build MCP tool catalogs from the network. Every declared INPUT port
+ * becomes an MCP tool — there's no "hidden" tier any more (per the
+ * simplified ports model: if you can publish on a topic, the port
+ * receiving it is callable, end of story). Legacy descriptionless subs
+ * (auto-discovered, no port mapping) are still skipped here so noisy
+ * framework topics don't leak.
  *
  * Two views:
- *   - per-node : just one node's subs, tool name = the topic itself
+ *   - per-node : just one node's ports, tool name = port name
  *                (callers already know which node they're talking to)
- *   - federated: every node's subs, tool name = `<nodeName>__<topic>`
+ *   - federated: every node's ports, tool name = `<nodeName>__<port>`
  *                so collisions across nodes are namespaced away
  */
 import type { NodeInfo } from "@brain/sdk";
@@ -44,8 +46,10 @@ export function toolsForNode(node: NodeInfo): MCPTool[] {
       const topics = node.port_bindings?.inputs?.[portName] ?? [];
       const topic = topics[0] ?? portName;
       for (const t of topics) seenPortTopics.add(t);
-      // Ports without inputSchema are internal listeners — not MCP tools.
-      if (!decl.inputSchema) continue;
+      // Every input port is, by definition, callable — it's surfaced as
+      // an MCP tool with its declared schema. There's no "hidden" tier;
+      // if the type author didn't want a listener exposed they wouldn't
+      // have declared it as a port at all.
       out.push({
         name: portName,
         description: decl.description,
@@ -96,8 +100,7 @@ export function federatedTools(nodes: NodeInfo[]): MCPTool[] {
         const topics = node.port_bindings?.inputs?.[portName] ?? [];
         const topic = topics[0] ?? portName;
         for (const t of topics) seenPortTopics.add(t);
-        // Skip internal ports — they're not MCP tools.
-        if (!decl.inputSchema) continue;
+        // Every input port is callable — see single-node toolsForNode.
         out.push({
           name: `${prefix}__${portName}`,
           description: `[${node.name}] ${decl.description}`,
