@@ -117,6 +117,11 @@ function snapshotToFlowNode(
       isExpanded: expandedNodeIds.has(n.id),
       expandedWidth: expandedSizes.get(n.id)?.w,
       expandedHeight: expandedSizes.get(n.id)?.h,
+      // 2-layer wiring — primary source for the IO column rendering.
+      // Legacy `subscribes` / `publishes` are kept as fallback for very
+      // old peer snapshots that don't carry the ports field yet.
+      ports: n.ports,
+      portBindings: n.port_bindings,
       subscribes,
       publishes,
       unreadCount: n.unread_count,

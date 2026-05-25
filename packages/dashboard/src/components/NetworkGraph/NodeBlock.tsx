@@ -1,5 +1,6 @@
 import { useRef } from "react";
 import { Handle, NodeResizer, Position, type Node, type NodeProps } from "@xyflow/react";
+import type { PortsConfig, PortBindings } from "@brain/sdk";
 
 type NodeBlockData = Node<{
   label: string;
@@ -27,6 +28,14 @@ type NodeBlockData = Node<{
    *  card uses DEFAULT_EXPANDED_{W,H}. */
   expandedWidth?: number;
   expandedHeight?: number;
+  /** 2-layer wiring — primary source for the IO column rendering.
+   *  Every node carries these in modern snapshots (the framework
+   *  auto-derives ports for legacy types at spawn). When absent we
+   *  fall back to `subscribes` / `publishes` so peer-hub nodes on an
+   *  older brAIn keep showing handles, just without the dashed boxes. */
+  ports?: PortsConfig;
+  portBindings?: PortBindings;
+  /** Legacy flat lists — kept as the fallback path described above. */
   subscribes: string[];
   publishes: string[];
   unreadCount: number;
@@ -97,15 +106,30 @@ const STATE_DOTS: Record<string, string> = {
   terminated: "bg-node-terminated",
 };
 
-// Layout constants — keeping these as fixed pixel values is what lets us
-// position the Handle dots flush to their topic-row label without
-// measuring the DOM at runtime. If you tweak the row spacing in the JSX
-// below, update these too.
-const HEADER_HEIGHT = 56;   // title row + meta pill row, in px
-const IO_ROW_HEIGHT = 18;   // each input/output row, in px
-/** Vertical centre (in px from the top of the node) for the i-th IO row. */
-function ioRowTop(i: number): number {
-  return HEADER_HEIGHT + i * IO_ROW_HEIGHT + IO_ROW_HEIGHT / 2;
+// Layout constants — fixed pixel values so React Flow handles can be
+// positioned by absolute offset without measuring the DOM. Each port
+// block is: name row (20px) + dashed topic box ((maxTopics)*14 + 6px
+// padding) + 6px gap. The handle dot sits at the vertical centre of
+// the name row.
+const HEADER_HEIGHT = 56;        // title row + meta pill row
+const PORT_NAME_HEIGHT = 20;     // port name + handle alignment band
+const PORT_TOPIC_HEIGHT = 14;    // each topic chip row inside the box
+const PORT_BOX_VPAD = 6;         // padding above + below the topics inside the box
+const PORT_GAP = 6;              // gap between consecutive port blocks
+const PORT_BLOCK_MIN_TOPICS = 1; // empty ports still reserve one row so the box is visible
+
+/** Total vertical height for a port block with `topicCount` bound topics. */
+function portBlockHeight(topicCount: number): number {
+  const rows = Math.max(PORT_BLOCK_MIN_TOPICS, topicCount);
+  return PORT_NAME_HEIGHT + rows * PORT_TOPIC_HEIGHT + PORT_BOX_VPAD * 2 + PORT_GAP;
+}
+
+/** Vertical centre of the i-th port's name-row, measured from the top of
+ *  the node — that's where the Handle dot anchors. */
+function portHandleTop(blockHeights: number[], i: number): number {
+  let y = HEADER_HEIGHT;
+  for (let j = 0; j < i; j++) y += blockHeights[j];
+  return y + PORT_NAME_HEIGHT / 2;
 }
 
 /** Deterministic color from a string — same topic always gets the same hue */
@@ -122,10 +146,29 @@ export function NodeBlock({ id, data, selected }: NodeProps<NodeBlockData>): Rea
   const borderColor = STATE_COLORS[data.state] ?? "border-border";
   const dotColor = STATE_DOTS[data.state] ?? "bg-node-terminated";
 
-  // Number of IO rows we need to render — one per input OR output,
-  // whichever side has more. A row may have an input but no output (or
-  // vice versa); the empty side is just a placeholder for alignment.
-  const ioRowCount = Math.max(data.subscribes.length, data.publishes.length);
+  // 2-layer wiring: build the port lists for each side. Each entry is
+  // `{ name, topics }` — name = port identifier (the stable handle id),
+  // topics = the bus subjects currently bound to that port. When the
+  // node carries no ports (older peer, malformed snapshot), synthesise
+  // a single anonymous port per legacy sub/pub so the card still draws.
+  const inputPorts = data.ports?.inputs
+    ? Object.keys(data.ports.inputs).map((name) => ({
+        name,
+        topics: data.portBindings?.inputs?.[name] ?? [],
+      }))
+    : data.subscribes.map((t) => ({ name: t, topics: [t] }));
+  const outputPorts = data.ports?.outputs
+    ? Object.keys(data.ports.outputs).map((name) => ({
+        name,
+        topics: data.portBindings?.outputs?.[name] ?? [],
+      }))
+    : data.publishes.map((t) => ({ name: t, topics: [t] }));
+
+  // Pre-compute each port block's height so the handle dots can be
+  // anchored at the exact vertical centre of their name-row without
+  // a layout-effect round-trip.
+  const inputHeights = inputPorts.map((p) => portBlockHeight(p.topics.length));
+  const outputHeights = outputPorts.map((p) => portBlockHeight(p.topics.length));
 
   // When expanded, the card grows to host the iframe. Default 480x360,
   // but the user can drag the NodeResizer handles on the right / bottom /
@@ -290,50 +333,31 @@ export function NodeBlock({ id, data, selected }: NodeProps<NodeBlockData>): Rea
         )}
       </div>
 
-      {/* === IO rows ===
-          Each row is a 3-column grid: [input] [empty centre] [output].
-          Empty cells keep the column widths stable so handles always
-          touch the borders at the same x for every row. */}
-      {ioRowCount > 0 && (
-        <div className="pb-2">
-          {Array.from({ length: ioRowCount }).map((_, i) => {
-            const inputTopic = data.subscribes[i];
-            const outputTopic = data.publishes[i];
-            return (
-              <div
-                key={i}
-                className="grid items-center px-3"
-                style={{ height: `${IO_ROW_HEIGHT}px`, gridTemplateColumns: "1fr 8px 1fr" }}
-              >
-                {/* Left: input label */}
-                <div className="flex items-center gap-1.5 min-w-0">
-                  {inputTopic ? (
-                    <>
-                      <span
-                        className="w-1.5 h-1.5 rounded-full shrink-0"
-                        style={{ background: topicColor(inputTopic) }}
-                      />
-                      <span className="text-[10px] text-text-muted truncate">{inputTopic}</span>
-                    </>
-                  ) : null}
-                </div>
-                {/* Centre spacer — keeps the two columns equal-width */}
-                <div />
-                {/* Right: output label */}
-                <div className="flex items-center justify-end gap-1.5 min-w-0">
-                  {outputTopic ? (
-                    <>
-                      <span className="text-[10px] text-text-muted truncate">{outputTopic}</span>
-                      <span
-                        className="w-1.5 h-1.5 rounded-full shrink-0"
-                        style={{ background: topicColor(outputTopic) }}
-                      />
-                    </>
-                  ) : null}
-                </div>
-              </div>
-            );
-          })}
+      {/* === Ports + bound topics ===
+          Each side renders its declared ports as stacked blocks. Within
+          a block: the port name (bold), then a dashed-bordered sub-box
+          listing the topics currently wired to that port. The visual
+          association lets the user read "this group of topics IS this
+          port" at a glance.
+          The grid uses 1fr / 1fr columns so left + right widths are
+          balanced even when one side has more ports. */}
+      {(inputPorts.length > 0 || outputPorts.length > 0) && (
+        <div
+          className="grid pb-2 px-3 items-start"
+          style={{ gridTemplateColumns: "1fr 1fr", columnGap: "12px" }}
+        >
+          {/* === Left column — INPUT ports === */}
+          <div className="flex flex-col" style={{ rowGap: `${PORT_GAP}px` }}>
+            {inputPorts.map((port) => (
+              <PortBlock key={`in-${port.name}`} side="input" name={port.name} topics={port.topics} />
+            ))}
+          </div>
+          {/* === Right column — OUTPUT ports === */}
+          <div className="flex flex-col" style={{ rowGap: `${PORT_GAP}px` }}>
+            {outputPorts.map((port) => (
+              <PortBlock key={`out-${port.name}`} side="output" name={port.name} topics={port.topics} />
+            ))}
+          </div>
         </div>
       )}
 
@@ -356,35 +380,35 @@ export function NodeBlock({ id, data, selected }: NodeProps<NodeBlockData>): Rea
       )}
 
       {/* === ReactFlow Handles ===
-          One target handle on the left border per subscription, one
-          source handle on the right border per publish topic. Each one
-          is positioned with `top: <ioRowTop(i)>px` so its dot sits at
-          the exact vertical centre of its label row. */}
-      {data.subscribes.map((topic, i) => (
+          One handle per declared port. id = `in-<portName>` (left) or
+          `out-<portName>` (right); `top` anchors the dot at the centre
+          of the port-name row. The dot colour is hashed off the port
+          name so the same port always reads the same hue across cards. */}
+      {inputPorts.map((port, i) => (
         <Handle
-          key={`in-${topic}`}
+          key={`in-${port.name}`}
           type="target"
           position={Position.Left}
-          id={`in-${topic}`}
-          style={{ top: `${ioRowTop(i)}px`, background: topicColor(topic) }}
+          id={`in-${port.name}`}
+          style={{ top: `${portHandleTop(inputHeights, i)}px`, background: topicColor(port.name) }}
           className="!w-2.5 !h-2.5 !border-0"
         />
       ))}
-      {data.subscribes.length === 0 && (
+      {inputPorts.length === 0 && (
         <Handle type="target" position={Position.Left} id="in-default" className="opacity-0" />
       )}
 
-      {data.publishes.map((topic, i) => (
+      {outputPorts.map((port, i) => (
         <Handle
-          key={`out-${topic}`}
+          key={`out-${port.name}`}
           type="source"
           position={Position.Right}
-          id={`out-${topic}`}
-          style={{ top: `${ioRowTop(i)}px`, background: topicColor(topic) }}
+          id={`out-${port.name}`}
+          style={{ top: `${portHandleTop(outputHeights, i)}px`, background: topicColor(port.name) }}
           className="!w-2.5 !h-2.5 !border-0"
         />
       ))}
-      {data.publishes.length === 0 && (
+      {outputPorts.length === 0 && (
         <Handle type="source" position={Position.Right} id="out-default" className="opacity-0" />
       )}
 
@@ -400,6 +424,63 @@ export function NodeBlock({ id, data, selected }: NodeProps<NodeBlockData>): Rea
           <Handle type="source" position={Position.Bottom} id="auth-out-inspect"  className="opacity-0" style={{ left: "65%" }} />
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * One port on a node card — the port's name as the "function" label,
+ * with its bound topics listed in a dashed-bordered sub-box. The dashed
+ * border is the visual cue: "everything inside this box flows through
+ * the labelled port". Inputs anchor on the left (port name pushed
+ * leftward, box flows down beneath); outputs mirror on the right.
+ *
+ * The handle dot itself isn't rendered here — handles live as React
+ * Flow `<Handle>` siblings on the node root with absolute positioning,
+ * because React Flow requires them at fixed offsets it can read for
+ * edge routing. This component just lays out the matching label band.
+ */
+function PortBlock({
+  side, name, topics,
+}: { side: "input" | "output"; name: string; topics: string[] }): React.ReactElement {
+  const align = side === "input" ? "items-start text-left" : "items-end text-right";
+  return (
+    <div className={`flex flex-col ${align}`}>
+      <div
+        className="font-mono font-semibold text-[11px] text-text px-1 truncate w-full"
+        style={{ height: `${PORT_NAME_HEIGHT}px`, lineHeight: `${PORT_NAME_HEIGHT}px` }}
+        title={name}
+      >
+        {name}
+      </div>
+      <div
+        className="rounded border border-dashed border-border/70 bg-surface-overlay/30 w-full"
+        style={{ padding: `${PORT_BOX_VPAD}px 4px` }}
+      >
+        {topics.length === 0 ? (
+          <div
+            className="text-[9px] italic text-text-muted/70 px-0.5 truncate"
+            style={{ height: `${PORT_TOPIC_HEIGHT}px`, lineHeight: `${PORT_TOPIC_HEIGHT}px` }}
+            title="orphan port — no topic wired"
+          >
+            (unbound)
+          </div>
+        ) : (
+          topics.map((topic) => (
+            <div
+              key={topic}
+              className="flex items-center gap-1 px-0.5 min-w-0"
+              style={{ height: `${PORT_TOPIC_HEIGHT}px`, lineHeight: `${PORT_TOPIC_HEIGHT}px`, flexDirection: side === "output" ? "row-reverse" : "row" }}
+            >
+              <span
+                className="w-1 h-1 rounded-full shrink-0"
+                style={{ background: topicColor(topic) }}
+              />
+              <span className="text-[10px] font-mono text-text-muted truncate" title={topic}>{topic}</span>
+            </div>
+          ))
+        )}
+      </div>
     </div>
   );
 }
