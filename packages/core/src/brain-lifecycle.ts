@@ -140,9 +140,9 @@ export async function spawnNode(
   // authoritative public surface (MCP tools, dashboard side panel); the
   // type's `default_port_bindings` seed each port's topics. Per-instance
   // live re-wiring is layered on top from config_overrides._port_bindings.
-  const effectivePorts: PortsConfig = typeConfig.ports ?? { inputs: {}, outputs: {} };
-  const overridenBindings = (mergedOverrides._port_bindings as PortBindings | undefined) ?? undefined;
-  const declaredBindings = typeConfig.default_port_bindings ?? { inputs: {}, outputs: {} };
+  const effectivePorts: PortsConfig = typeConfig.ports;
+  const overridenBindings = mergedOverrides._port_bindings as PortBindings | undefined;
+  const declaredBindings = typeConfig.default_port_bindings;
   const effectiveBindings = mergePortBindings(declaredBindings, overridenBindings);
 
   // Subs = port-bound input topics ∪ any leftover subs not already covered

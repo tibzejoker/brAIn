@@ -96,16 +96,21 @@ export function portsConfigError(
   // by the missing-keys checks.
   // Every input port is a callable MCP tool → it MUST carry a JSON Schema
   // + a human description.
+  // Validates UNTRUSTED parsed config — the declared PortInputDecl type
+  // optimistically asserts these fields are present, so cast to a raw
+  // shape to make the runtime presence checks meaningful (and lint-clean).
   for (const [portName, decl] of Object.entries(inputs)) {
-    if (!decl.inputSchema || typeof decl.inputSchema !== "object") {
+    const d = decl as { inputSchema?: unknown; description?: unknown };
+    if (!d.inputSchema || typeof d.inputSchema !== "object") {
       return `input port "${portName}" is missing required \`inputSchema\` (JSON Schema)`;
     }
-    if (!decl.description || typeof decl.description !== "string") {
+    if (!d.description || typeof d.description !== "string") {
       return `input port "${portName}" is missing required 'description'`;
     }
   }
   for (const [portName, decl] of Object.entries(outputs)) {
-    if (!decl.description || typeof decl.description !== "string") {
+    const d = decl as { description?: unknown };
+    if (!d.description || typeof d.description !== "string") {
       return `output port "${portName}" is missing required 'description'`;
     }
   }
