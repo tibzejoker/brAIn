@@ -62,10 +62,27 @@ export function installFromStore(
   packageName: string,
   opts?: { update?: boolean },
 ): Promise<StoreInstallResult> {
+  // No explicit content-type here: the `request` wrapper already sets
+  // `Content-Type: application/json`. Passing it again (different casing)
+  // makes fetch emit a doubled `application/json, application/json` header
+  // that NestJS's body-parser refuses to parse → `package_name required`.
   return request("/store/install", {
     method: "POST",
-    headers: { "content-type": "application/json" },
     body: JSON.stringify({ package_name: packageName, update: opts?.update }),
+  });
+}
+
+export interface StoreUninstallResult {
+  status: "uninstalled" | "not_installed" | "failed";
+  message: string;
+  removed_path: string | null;
+  removed_types: number;
+}
+
+export function uninstallFromStore(packageName: string): Promise<StoreUninstallResult> {
+  return request("/store/uninstall", {
+    method: "POST",
+    body: JSON.stringify({ package_name: packageName }),
   });
 }
 

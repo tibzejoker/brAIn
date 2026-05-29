@@ -98,6 +98,13 @@ export interface StoreInstallResult {
   re_scanned_types: number;
 }
 
+export interface StoreUninstallResult {
+  status: "uninstalled" | "not_installed" | "failed";
+  message: string;
+  removed_path: string | null;
+  removed_types: number;
+}
+
 /**
  * Locally-built node type that's a candidate for being published to the
  * public store. These come from the developer node's auto-author flow
@@ -348,6 +355,43 @@ export class StoreService {
       message: `${verb} ${node.repo}@${ref}${node.checksums ? " (checksums OK)" : ""} to ${repoDir}`,
       cloned_to: repoDir,
       re_scanned_types: scanned,
+    };
+  }
+
+  /**
+   * Remove an installed library: delete the cloned parent repo of
+   * `packageName` and unregister every node type that came from it.
+   * Symmetric with {@link install} — install clones the whole repo, so
+   * uninstall removes the whole repo (and every node it contributed).
+   * No-op (status `not_installed`) when the repo dir isn't present.
+   */
+  async uninstall(packageName: string): Promise<StoreUninstallResult> {
+    const registry = await this.fetchRegistry();
+    const node = registry.nodes.find((n) => n.package_name === packageName);
+    if (!node) {
+      return { status: "failed", message: `unknown package: ${packageName}`, removed_path: null, removed_types: 0 };
+    }
+    const repoDir = path.join(this.bundlesRoot, node.repo);
+    if (!fs.existsSync(repoDir)) {
+      return { status: "not_installed", message: `${node.repo} is not installed`, removed_path: null, removed_types: 0 };
+    }
+    // Unregister every type whose source dir lives under this repo
+    // before deleting, so the registry doesn't keep dangling paths.
+    let removed = 0;
+    const sep = path.sep;
+    for (const cfg of this.typeRegistry.list()) {
+      const p = this.typeRegistry.getPath(cfg.name);
+      if (p && (p === repoDir || p.startsWith(repoDir + sep)) && this.typeRegistry.unregister(cfg.name)) {
+        removed++;
+      }
+    }
+    fs.rmSync(repoDir, { recursive: true, force: true });
+    logger.info({ repoDir, packageName, removed }, "store: uninstalled repo");
+    return {
+      status: "uninstalled",
+      message: `removed ${node.repo} (${removed} type${removed === 1 ? "" : "s"}) from ${repoDir}`,
+      removed_path: repoDir,
+      removed_types: removed,
     };
   }
 

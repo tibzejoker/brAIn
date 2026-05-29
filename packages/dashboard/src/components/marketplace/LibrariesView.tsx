@@ -1,5 +1,6 @@
 import { useCallback, useMemo, useState } from "react";
-import { installFromStore, type StoreNodeStatus, type InstalledNodeUpdate } from "../../api/store";
+import { installFromStore, uninstallFromStore, type StoreNodeStatus, type InstalledNodeUpdate } from "../../api/store";
+import { useBusyRepos, setRepoBusy } from "../../api/install-progress";
 import { useMarketplace } from "../../hooks/useMarketplace";
 
 interface RepoGroup {
@@ -38,7 +39,11 @@ function groupByRepo(
 
 export function LibrariesView({ onChanged }: { onChanged: () => void }): React.ReactElement {
   const { data, loading, refetch, pullMarketplace } = useMarketplace();
-  const [installing, setInstalling] = useState<string | null>(null);
+  // Repos with an install/uninstall in flight. Lives in a module-level
+  // store (not component state) so it survives the Marketplace tab being
+  // unmounted on navigation, and so several can run in parallel without
+  // one click clobbering another's spinner.
+  const busy = useBusyRepos();
   const [pulling, setPulling] = useState(false);
   const [query, setQuery] = useState("");
   const [banner, setBanner] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null);
@@ -57,6 +62,10 @@ export function LibrariesView({ onChanged }: { onChanged: () => void }): React.R
       .finally(() => setPulling(false));
   }, [pullMarketplace]);
 
+  const markBusy = useCallback((repo: string, on: boolean): void => {
+    setRepoBusy(repo, on);
+  }, []);
+
   // One install/update call per repo. We only need ONE package_name
   // per repo because the backend clones the whole sister repo and
   // rescans every node inside it; iterating over `packageNames` would
@@ -66,7 +75,7 @@ export function LibrariesView({ onChanged }: { onChanged: () => void }): React.R
   ): void => {
     const target = packageNames[0];
     if (!target) return;
-    setInstalling(repo); setBanner(null);
+    markBusy(repo, true); setBanner(null);
     installFromStore(target, opts)
       .then((res) => {
         setBanner({
@@ -80,8 +89,30 @@ export function LibrariesView({ onChanged }: { onChanged: () => void }): React.R
         type: "error",
         message: err instanceof Error ? err.message : String(err),
       }))
-      .finally(() => setInstalling(null));
-  }, [onChanged, refetch]);
+      .finally(() => markBusy(repo, false));
+  }, [onChanged, refetch, markBusy]);
+
+  // Uninstall the whole lib: one package_name is enough — the backend
+  // removes the cloned repo and unregisters every node it contributed.
+  const uninstallLib = useCallback((repo: string, packageNames: string[]): void => {
+    const target = packageNames[0];
+    if (!target) return;
+    markBusy(repo, true); setBanner(null);
+    uninstallFromStore(target)
+      .then((res) => {
+        setBanner({
+          type: res.status === "uninstalled" ? "success" : "info",
+          message: `${repo}: ${res.message}`,
+        });
+        onChanged();
+        void refetch();
+      })
+      .catch((err: unknown) => setBanner({
+        type: "error",
+        message: err instanceof Error ? err.message : String(err),
+      }))
+      .finally(() => markBusy(repo, false));
+  }, [onChanged, refetch, markBusy]);
 
   const groups = useMemo(() => {
     if (!data) return [];
@@ -150,9 +181,10 @@ export function LibrariesView({ onChanged }: { onChanged: () => void }): React.R
           <LibCard
             key={g.repo}
             group={g}
-            installing={installing === g.repo}
+            installing={busy.has(g.repo)}
             onInstall={() => installLib(g.repo, g.nodes.filter((n) => !n.installed).map((n) => n.package_name))}
             onUpdate={() => installLib(g.repo, g.nodes.map((n) => n.package_name), { update: true })}
+            onUninstall={() => uninstallLib(g.repo, g.nodes.map((n) => n.package_name))}
           />
         ))}
 
@@ -166,11 +198,13 @@ export function LibrariesView({ onChanged }: { onChanged: () => void }): React.R
   );
 }
 
-function LibCard({ group, installing, onInstall, onUpdate }: {
-  group: RepoGroup; installing: boolean; onInstall: () => void; onUpdate: () => void;
+function LibCard({ group, installing, onInstall, onUpdate, onUninstall }: {
+  group: RepoGroup; installing: boolean;
+  onInstall: () => void; onUpdate: () => void; onUninstall: () => void;
 }): React.ReactElement {
   const allInstalled = group.installedCount === group.totalCount;
   const someInstalled = group.installedCount > 0 && !allInstalled;
+  const anyInstalled = group.installedCount > 0;
   return (
     <div className="px-4 sm:px-5 py-4 border-b border-border/50">
       <div className="flex flex-wrap items-center gap-1.5 mb-1">
@@ -207,6 +241,16 @@ function LibCard({ group, installing, onInstall, onUpdate }: {
           )}
           {allInstalled && !group.hasUpdate && (
             <span className="text-xs text-node-active">installed</span>
+          )}
+          {anyInstalled && (
+            <button
+              onClick={onUninstall}
+              disabled={installing}
+              title="Delete the cloned repo and unregister its node types"
+              className="px-3 py-1 text-xs rounded border border-node-stopped/50 text-node-stopped font-semibold disabled:opacity-40 hover:bg-node-stopped/10"
+            >
+              {installing ? "working…" : "Uninstall"}
+            </button>
           )}
         </div>
       </div>
