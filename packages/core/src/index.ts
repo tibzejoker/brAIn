@@ -78,8 +78,8 @@ export {
 // 2-layer wiring helpers — exposed for tests and external introspection
 // (the brain itself, when it wants to display the port map in its own UI).
 export {
-  autoDerivePorts, autoDeriveBindings, expandPortsToSubs, mergePortBindings,
-  TOPIC_REGEX,
+  publishesFromBindings, expandPortsToSubs, mergePortBindings,
+  portsConfigError, TOPIC_REGEX,
 } from "./ports";
 export type {
   MCPTool, ResolveResult,

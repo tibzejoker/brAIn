@@ -67,12 +67,16 @@ describe("TypeRegistry", () => {
       makePackage(scope, "node-foo", {
         name: "foo", description: "Foo node", tags: ["test"],
         default_authority: 0, default_priority: 1,
-        default_subscriptions: [], supports_transport: ["process"],
+        ports: { outputs: { out: { description: "out" } } },
+        default_port_bindings: { outputs: { out: ["test.out"] } },
+        supports_transport: ["process"],
       });
       makePackage(scope, "node-bar", {
         name: "bar", description: "Bar node", tags: ["test"],
         default_authority: 0, default_priority: 1,
-        default_subscriptions: [], supports_transport: ["process"],
+        ports: { outputs: { out: { description: "out" } } },
+        default_port_bindings: { outputs: { out: ["test.out"] } },
+        supports_transport: ["process"],
       });
       // A non-node sibling that should be ignored.
       makePackage(scope, "sdk", { name: "sdk-noise" });
@@ -105,7 +109,9 @@ describe("TypeRegistry", () => {
       makePackage(scope, "node-from-npm", {
         name: "from-npm", description: "installed", tags: [],
         default_authority: 0, default_priority: 1,
-        default_subscriptions: [], supports_transport: ["process"],
+        ports: { outputs: { out: { description: "out" } } },
+        default_port_bindings: { outputs: { out: ["test.out"] } },
+        supports_transport: ["process"],
       });
 
       const reg = new TypeRegistry();

@@ -13,26 +13,20 @@ export interface NodeTypeConfig {
   tags: string[];
   default_authority: AuthorityLevel;
   default_priority: number;
-  /** Every entry is either a public tool (`{description, inputSchema}` both required)
-   *  or marked `{internal: true}`. The discriminated union enforces this at compile
-   *  time — config.json files that omit `inputSchema` without `internal:true` are
-   *  rejected by the framework's TypeValidatorService at registration time.
-   *
-   *  Used for INTERNAL listeners (alerts.*, time.tick, etc.) and as the
-   *  legacy single-layer wiring surface. When the node also declares
-   *  {@link ports}, those become the PUBLIC contract (MCP tools, dashboard
-   *  side panel ports section) and `default_subscriptions` is reserved for
-   *  private plumbing. The framework auto-derives ports from any public
-   *  entries here if `ports` is omitted, for backward compat. */
-  default_subscriptions: SubscriptionConfig[];
-  default_publishes?: string[];
-  /** 2-layer wiring contract. When set, each input port is exposed as an
-   *  MCP tool and rendered as a typed, immutable port on the dashboard.
+  /** 2-layer wiring contract — MANDATORY. Each input port is exposed as an
+   *  MCP tool and rendered as a typed, immutable port on the dashboard;
+   *  each output port describes an RPC reply / fan-out channel.
    *  `default_port_bindings` seeds the per-instance topic↔port map for new
    *  spawns; the user can rewire at runtime via the live-wiring API
-   *  (`POST/DELETE /nodes/:id/ports/:port/topics`). */
-  ports?: PortsConfig;
-  default_port_bindings?: PortBindings;
+   *  (`POST/DELETE /nodes/:id/ports/:port/topics`). TypeRegistry.register
+   *  REJECTS a config without both — there is no auto-derivation fallback. */
+  ports: PortsConfig;
+  default_port_bindings: PortBindings;
+  /** DERIVED at registration from ports + default_port_bindings (the flat
+   *  surface the bus, mailboxes, snapshot and live-wiring publishes API
+   *  consume). Authors don't write these — never hand-maintain them. */
+  default_subscriptions?: SubscriptionConfig[];
+  default_publishes?: string[];
   has_ui?: boolean;
   interval?: string;
   supports_transport: TransportMode[];

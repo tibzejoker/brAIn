@@ -30,7 +30,11 @@ function stubValidator(response: (workspace: string) => Omit<ValidationResult, "
 function writeWorkspace(dir: string, slug: string, opts: { withDist?: boolean } = {}): string {
   const ws = path.join(dir, slug);
   fs.mkdirSync(path.join(ws, "src"), { recursive: true });
-  fs.writeFileSync(path.join(ws, "config.json"), JSON.stringify({ name: slug }));
+  fs.writeFileSync(path.join(ws, "config.json"), JSON.stringify({
+    name: slug,
+    ports: { outputs: { out: { description: "out" } } },
+    default_port_bindings: { outputs: { out: [`${slug}.out`] } },
+  }));
   fs.writeFileSync(path.join(ws, "package.json"), JSON.stringify({ name: `@brain/node-${slug}` }));
   fs.writeFileSync(path.join(ws, "src", "handler.ts"), "export const handler = async () => {};");
   if (opts.withDist !== false) {

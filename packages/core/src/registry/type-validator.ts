@@ -1,7 +1,9 @@
 import { exec } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
+import type { PortsConfig, PortBindings } from "@brain/sdk";
 import { logger } from "../logger";
+import { portsConfigError } from "../ports";
 import { computeWorkspaceHashes, type WorkspaceHashes } from "./hashing";
 
 export type ValidationPhase =
@@ -65,12 +67,8 @@ export class TypeValidatorService {
     try {
       const cfg = JSON.parse(fs.readFileSync(configPath, "utf-8")) as {
         name?: string;
-        default_subscriptions?: Array<{
-          topic?: string;
-          description?: string;
-          inputSchema?: unknown;
-          internal?: boolean;
-        }>;
+        ports?: PortsConfig;
+        default_port_bindings?: PortBindings;
       };
       if (!cfg.name) {
         return this.finish(workspacePath, {
@@ -78,36 +76,20 @@ export class TypeValidatorService {
           hashes, validated_at: now,
         });
       }
-      // Tool-declaration discipline: every public subscription MUST carry
-      // an inputSchema, or be explicitly marked `internal: true`. Catches
-      // forgotten schemas at registration time so they never reach the
-      // network with a missing /tools entry or unvalidatable payloads.
-      for (const sub of cfg.default_subscriptions ?? []) {
-        if (!sub.topic) {
-          return this.finish(workspacePath, {
-            ok: false, phase: "config",
-            errors: `config.json: default_subscriptions entry without 'topic'`,
-            hashes, validated_at: now,
-          });
-        }
-        if (sub.internal === true) continue; // private plumbing, schema optional
-        if (!sub.inputSchema || typeof sub.inputSchema !== "object") {
-          return this.finish(workspacePath, {
-            ok: false, phase: "config",
-            errors:
-              `config.json: subscription "${sub.topic}" missing required \`inputSchema\` ` +
-              `(JSON Schema). Either add the schema describing accepted payloads, ` +
-              `or mark { "internal": true } if this is private plumbing not exposed as a tool.`,
-            hashes, validated_at: now,
-          });
-        }
-        if (!sub.description || typeof sub.description !== "string") {
-          return this.finish(workspacePath, {
-            ok: false, phase: "config",
-            errors: `config.json: subscription "${sub.topic}" missing required 'description'`,
-            hashes, validated_at: now,
-          });
-        }
+      // 2-layer wiring discipline (mandatory): every node declares explicit
+      // ports + default_port_bindings — each input port carries a JSON
+      // Schema + description so it surfaces as a typed /tools entry, each
+      // output port is named. There is no auto-derivation fallback; a node
+      // without ports can't be wired to the network.
+      const portErr = portsConfigError(cfg.ports, cfg.default_port_bindings);
+      if (portErr) {
+        return this.finish(workspacePath, {
+          ok: false, phase: "config",
+          errors:
+            `config.json: ${portErr}. Declare explicit \`ports\` (inputs/outputs) + ` +
+            `\`default_port_bindings\` (port→topics). See the dev template's config.json for the shape.`,
+          hashes, validated_at: now,
+        });
       }
       typeName = cfg.name;
     } catch (err) {

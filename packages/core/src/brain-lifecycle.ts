@@ -14,7 +14,7 @@ import {
 import type Database from "better-sqlite3";
 import { v4 as uuid } from "uuid";
 import { saveNode, saveSubscription, deleteNode } from "./db";
-import { mergePortBindings, expandPortsToSubs, autoDerivePorts, autoDeriveBindings } from "./ports";
+import { mergePortBindings, expandPortsToSubs, publishesFromBindings } from "./ports";
 import { createRunner, type BaseRunner } from "./runner";
 import type { IBusService } from "./bus";
 import type { TypeRegistry, InstanceRegistry } from "./registry";
@@ -135,57 +135,23 @@ export async function spawnNode(
   // Then EXPAND the binding map into the flat `subscriptions` list so the
   // bus, mailboxes, and dashboard all keep working unchanged — ports are a
   // declarative layer above subs, not a parallel system.
-  const ports = typeConfig.ports;
-  const overridenBindings = (mergedOverrides._port_bindings as PortBindings | undefined) ?? undefined;
-
-  // 2-layer wiring: the type's `ports` declaration is the authoritative
-  // public surface (MCP tools, dashboard side panel). Everything else
-  // — `default_subscriptions` flat entries and `default_publishes`
-  // topics — gets folded into the SAME ports map. Every sub becomes a
-  // callable input port (former-internal listeners get a permissive
-  // `{ type: "object" }` schema so they remain MCP-callable, per the
-  // simplified "every port is callable" model). Publish topics become
-  // output ports. Explicitly-declared ports win on naming + schema.
-  const autoPorts = autoDerivePorts(typeConfig.default_subscriptions, typeConfig.default_publishes);
-  const autoBindings = autoDeriveBindings(typeConfig.default_subscriptions, typeConfig.default_publishes);
-  // Drop auto-derived ports whose topic is already wired to an explicitly-
-  // declared port — otherwise the topic shows up twice in the dashboard
-  // (once under the named port, once under a "<topic>" auto-port).
-  const declaredInputTopics = new Set<string>();
-  for (const ts of Object.values(typeConfig.default_port_bindings?.inputs ?? {})) for (const t of ts) declaredInputTopics.add(t);
-  const declaredOutputTopics = new Set<string>();
-  for (const ts of Object.values(typeConfig.default_port_bindings?.outputs ?? {})) for (const t of ts) declaredOutputTopics.add(t);
-  const filteredAutoInputs = Object.fromEntries(
-    Object.entries(autoPorts.inputs ?? {}).filter(([topic]) => !declaredInputTopics.has(topic)),
-  );
-  const filteredAutoOutputs = Object.fromEntries(
-    Object.entries(autoPorts.outputs ?? {}).filter(([topic]) => !declaredOutputTopics.has(topic)),
-  );
-  const effectivePorts: PortsConfig = {
-    inputs: { ...filteredAutoInputs, ...(ports?.inputs ?? {}) },
-    outputs: { ...filteredAutoOutputs, ...(ports?.outputs ?? {}) },
-  };
-  // Drop the corresponding auto-bindings too — the declared port owns the
-  // topic now.
-  const filteredAutoBindings: PortBindings = {
-    inputs: Object.fromEntries(Object.entries(autoBindings.inputs ?? {}).filter(([t]) => !declaredInputTopics.has(t))),
-    outputs: Object.fromEntries(Object.entries(autoBindings.outputs ?? {}).filter(([t]) => !declaredOutputTopics.has(t))),
-  };
-  // Bindings: declared port_bindings + override + filtered auto-derived
-  // for any port that didn't get an explicit binding (synthesised internal
-  // ones). The filter drops auto-bindings whose topic is already wired
-  // to an explicit declared port so the same topic doesn't end up under
-  // two ports.
-  const declaredBindings = mergePortBindings(filteredAutoBindings, typeConfig.default_port_bindings);
+  // 2-layer wiring (ports are the single source of truth — TypeRegistry
+  // guarantees they're present). The type's `ports` declaration is the
+  // authoritative public surface (MCP tools, dashboard side panel); the
+  // type's `default_port_bindings` seed each port's topics. Per-instance
+  // live re-wiring is layered on top from config_overrides._port_bindings.
+  const effectivePorts: PortsConfig = typeConfig.ports;
+  const overridenBindings = mergedOverrides._port_bindings as PortBindings | undefined;
+  const declaredBindings = typeConfig.default_port_bindings;
   const effectiveBindings = mergePortBindings(declaredBindings, overridenBindings);
 
   // Subs = port-bound input topics ∪ any leftover subs not already covered
-  // by a port. Auto-derived ports already cover every default_subscription,
+  // by a port. The derived default_subscriptions already cover every port,
   // so the leftover set is typically empty — but custom `config.subscriptions`
   // at spawn time can still slip an extra topic in, in which case we keep it.
   const portInputTopics = new Set<string>();
   for (const topics of Object.values(effectiveBindings.inputs ?? {})) for (const t of topics) portInputTopics.add(t);
-  const baseSubs = (config.subscriptions ?? typeConfig.default_subscriptions).map(normaliseSubscription);
+  const baseSubs = (config.subscriptions ?? typeConfig.default_subscriptions ?? []).map(normaliseSubscription);
   const leftoverSubs = baseSubs.filter((s) => !portInputTopics.has(s.topic));
   const portSubs = expandPortsToSubs(effectivePorts, effectiveBindings);
   const allSubs = [...portSubs, ...leftoverSubs];
@@ -203,7 +169,7 @@ export async function spawnNode(
     transport,
     position: config.position ?? { x: 0, y: 0 },
     config_overrides: mergedOverrides,
-    default_publishes: typeConfig.default_publishes,
+    default_publishes: publishesFromBindings(effectiveBindings),
     spawned_by: callerNodeId,
     ttl: config.ttl ? parseInterval(config.ttl) : undefined,
     created_at: Date.now(),
