@@ -7,7 +7,7 @@ import type { IBusService } from "./bus";
 import type { TypeRegistry, InstanceRegistry } from "./registry";
 import type { LLMRegistry } from "./llm/llm-registry";
 import type { LLMConfigStore } from "./llm/llm-config";
-import { mergePortBindings, autoDerivePorts, autoDeriveBindings, expandPortsToSubs } from "./ports";
+import { mergePortBindings, expandPortsToSubs, publishesFromBindings } from "./ports";
 
 type HandlerLoader = (typeName: string, typePath: string) => Promise<NodeModule>;
 
@@ -108,30 +108,12 @@ export async function restoreNodes(opts: {
     // unmigrated nodes still surface as ports in the dashboard.
     const cfgOverrides = JSON.parse(saved.config_overrides) as Record<string, unknown>;
     const overriddenBindings = cfgOverrides._port_bindings as PortBindings | undefined;
-    // Merge: explicitly-declared ports OVERRIDE auto-derived ports from
-    // default_subscriptions/publishes. Internal subs become inputSchema-
-    // less internal ports; public subs become public ports. Bindings
-    // similarly stack: auto-derived → declared defaults → instance overrides.
-    const autoPorts = typeConfig ? autoDerivePorts(typeConfig.default_subscriptions, typeConfig.default_publishes) : undefined;
-    const autoBindings = typeConfig ? autoDeriveBindings(typeConfig.default_subscriptions, typeConfig.default_publishes) : undefined;
-    // Same dedupe as spawn: drop auto-derived ports/bindings whose topic
-    // is already wired to an explicitly-declared port, otherwise the same
-    // topic shows up under two ports.
-    const declaredInTopics = new Set<string>();
-    for (const ts of Object.values(typeConfig?.default_port_bindings?.inputs ?? {})) for (const t of ts) declaredInTopics.add(t);
-    const declaredOutTopics = new Set<string>();
-    for (const ts of Object.values(typeConfig?.default_port_bindings?.outputs ?? {})) for (const t of ts) declaredOutTopics.add(t);
-    const filtAutoIn = Object.fromEntries(Object.entries(autoPorts?.inputs ?? {}).filter(([t]) => !declaredInTopics.has(t)));
-    const filtAutoOut = Object.fromEntries(Object.entries(autoPorts?.outputs ?? {}).filter(([t]) => !declaredOutTopics.has(t)));
-    const filtAutoBindingsIn = Object.fromEntries(Object.entries(autoBindings?.inputs ?? {}).filter(([t]) => !declaredInTopics.has(t)));
-    const filtAutoBindingsOut = Object.fromEntries(Object.entries(autoBindings?.outputs ?? {}).filter(([t]) => !declaredOutTopics.has(t)));
-    const effectivePorts = typeConfig
-      ? {
-          inputs: { ...filtAutoIn, ...(typeConfig.ports?.inputs ?? {}) },
-          outputs: { ...filtAutoOut, ...(typeConfig.ports?.outputs ?? {}) },
-        }
-      : undefined;
-    const declaredBindings = mergePortBindings({ inputs: filtAutoBindingsIn, outputs: filtAutoBindingsOut }, typeConfig?.default_port_bindings);
+    // Ports are the single source of truth (TypeRegistry guarantees a live
+    // type declares them). Bring the type's ports + default_port_bindings
+    // forward and layer per-instance binding overrides on top. When the
+    // type is no longer installed, fall back to the DB-resident subs.
+    const effectivePorts = typeConfig?.ports;
+    const declaredBindings = typeConfig?.default_port_bindings ?? { inputs: {}, outputs: {} };
     const effectiveBindings = mergePortBindings(declaredBindings, overriddenBindings);
 
     // Expand the effective port bindings into subs and merge with the
@@ -139,8 +121,8 @@ export async function restoreNodes(opts: {
     // replaced by the port-derived version (which carries [port:…] in
     // the description so the catalog can link them back). New ports
     // declared since the row was first saved get freshly added — that's
-    // how `chat.reset` / `alerts.*` / `brain.*` come back to life on a
-    // restore without rewriting the DB.
+    // how re-wired topics come back to life on a restore without
+    // rewriting the DB.
     const portSubs = expandPortsToSubs(effectivePorts, effectiveBindings);
     const portTopics = new Set(portSubs.map((s) => s.topic));
     const subscriptions = [...portSubs, ...dbSubs.filter((s) => !portTopics.has(s.topic))];
@@ -158,7 +140,7 @@ export async function restoreNodes(opts: {
       transport: saved.transport as "process" | "container" | "web",
       position: { x: saved.position_x, y: saved.position_y },
       config_overrides: cfgOverrides,
-      default_publishes: typeConfig?.default_publishes,
+      default_publishes: typeConfig ? publishesFromBindings(effectiveBindings) : undefined,
       spawned_by: saved.spawned_by ?? undefined,
       created_at: saved.created_at,
       ports: effectivePorts,

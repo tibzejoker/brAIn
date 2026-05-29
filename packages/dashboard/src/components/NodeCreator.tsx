@@ -78,7 +78,7 @@ export function NodeCreator({
     if (!typeConfig) return;
     const sameType = nodes.filter((n) => n.type === selection.type).length;
     setName(`${typeConfig.name}-${sameType + 1}`);
-    setSubscriptions(typeConfig.default_subscriptions.map((s) => s.topic).join(", "));
+    setSubscriptions((typeConfig.default_subscriptions ?? []).map((s) => s.topic).join(", "));
   }, [selection, types, nodes]);
 
   const handleSubmit = useCallback((): void => {

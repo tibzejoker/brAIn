@@ -77,17 +77,15 @@ describe("tool-declaration discipline (end-to-end)", () => {
 
 
   describe("1. Enforcement", () => {
-    it("refuses to register a node type whose public sub omits inputSchema", () => {
+    it("refuses to register a node type whose input port omits inputSchema", () => {
       const dir = fixtureNode("disc-bad", {
         description: "node missing schema",
         tags: [],
         default_authority: 0,
         default_priority: 1,
-        default_subscriptions: [
-          // Public sub (no internal:true) but no inputSchema — should be rejected.
-          { topic: "bad.command", description: "should fail to register" },
-        ],
-        default_publishes: [],
+        // Input port without inputSchema — should be rejected.
+        ports: { inputs: { bad_command: { description: "should fail to register" } } },
+        default_port_bindings: { inputs: { bad_command: ["bad.command"] } },
       });
       const reg = new TypeRegistry();
       expect(() => reg.register(path.join(dir, "disc-bad")))
@@ -95,39 +93,51 @@ describe("tool-declaration discipline (end-to-end)", () => {
       fs.rmSync(dir, { recursive: true, force: true });
     });
 
-    it("accepts a public sub when inputSchema is present", () => {
+    it("accepts an input port when inputSchema is present", () => {
       const dir = fixtureNode("disc-ok", {
         description: "node with schema",
         tags: [],
         default_authority: 0,
         default_priority: 1,
-        default_subscriptions: [{
-          topic: "ok.command",
-          description: "valid",
-          inputSchema: { type: "object", properties: { x: { type: "number" } }, required: ["x"] },
-        }],
-        default_publishes: [],
+        ports: {
+          inputs: {
+            ok_command: {
+              description: "valid",
+              inputSchema: { type: "object", properties: { x: { type: "number" } }, required: ["x"] },
+            },
+          },
+        },
+        default_port_bindings: { inputs: { ok_command: ["ok.command"] } },
       });
       const reg = new TypeRegistry();
       expect(() => reg.register(path.join(dir, "disc-ok"))).not.toThrow();
       fs.rmSync(dir, { recursive: true, force: true });
     });
 
-    it("accepts an internal:true sub with no inputSchema", () => {
-      const dir = fixtureNode("disc-internal", {
-        description: "node with internal observer",
+    it("accepts a publish-only node (output ports, no inputs)", () => {
+      const dir = fixtureNode("disc-pubonly", {
+        description: "node that only publishes",
         tags: [],
         default_authority: 0,
         default_priority: 1,
-        default_subscriptions: [{
-          topic: "some.event.*",
-          description: "fan-in observer",
-          internal: true,
-        }],
-        default_publishes: [],
+        ports: { outputs: { tick: { description: "heartbeat out" } } },
+        default_port_bindings: { outputs: { tick: ["some.event"] } },
       });
       const reg = new TypeRegistry();
-      expect(() => reg.register(path.join(dir, "disc-internal"))).not.toThrow();
+      expect(() => reg.register(path.join(dir, "disc-pubonly"))).not.toThrow();
+      fs.rmSync(dir, { recursive: true, force: true });
+    });
+
+    it("refuses to register a node with no ports at all", () => {
+      const dir = fixtureNode("disc-noports", {
+        description: "node without any ports",
+        tags: [],
+        default_authority: 0,
+        default_priority: 1,
+      });
+      const reg = new TypeRegistry();
+      expect(() => reg.register(path.join(dir, "disc-noports")))
+        .toThrow(/missing required `ports`/);
       fs.rmSync(dir, { recursive: true, force: true });
     });
   });
@@ -139,38 +149,45 @@ describe("tool-declaration discipline (end-to-end)", () => {
 
     beforeAll(async () => {
       dirA = fixtureNode("tooly-a", {
-        description: "node A — exposes one public tool + one internal observer",
+        description: "node A — exposes one typed tool + one permissive fan-in port",
         tags: [],
         default_authority: 0,
         default_priority: 1,
-        default_subscriptions: [
-          {
-            topic: "tooly-a.do",
-            description: "Run A's main action.",
-            inputSchema: { type: "object", properties: { mode: { type: "string", enum: ["fast", "slow"] } }, required: ["mode"] },
+        ports: {
+          inputs: {
+            do: {
+              description: "Run A's main action.",
+              inputSchema: { type: "object", properties: { mode: { type: "string", enum: ["fast", "slow"] } }, required: ["mode"] },
+            },
+            // Former "internal" observer — now a regular callable port with
+            // a permissive schema.
+            events: { description: "observe", inputSchema: { type: "object" } },
           },
-          { topic: "events.*", description: "observe", internal: true },
-        ],
-        default_publishes: ["tooly-a.result"],
+          outputs: { result: { description: "A's result" } },
+        },
+        default_port_bindings: {
+          inputs: { do: ["tooly-a.do"], events: ["events.*"] },
+          outputs: { result: ["tooly-a.result"] },
+        },
       });
       dirB = fixtureNode("tooly-b", {
         description: "node B — two public tools",
         tags: [],
         default_authority: 0,
         default_priority: 1,
-        default_subscriptions: [
-          {
-            topic: "tooly-b.cmd",
-            description: "Command B",
-            inputSchema: { type: "object", properties: { foo: { type: "string" } } },
+        ports: {
+          inputs: {
+            cmd: {
+              description: "Command B",
+              inputSchema: { type: "object", properties: { foo: { type: "string" } } },
+            },
+            cmd2: {
+              description: "Command B alt",
+              inputSchema: { type: "object", additionalProperties: true },
+            },
           },
-          {
-            topic: "tooly-b.cmd2",
-            description: "Command B alt",
-            inputSchema: { type: "object", additionalProperties: true },
-          },
-        ],
-        default_publishes: [],
+        },
+        default_port_bindings: { inputs: { cmd: ["tooly-b.cmd"], cmd2: ["tooly-b.cmd2"] } },
       });
       brain = new BrainService(":memory:");
       brain.bootstrap([path.join(dirA, "tooly-a", ".."), path.join(dirB, "tooly-b", "..")]);
@@ -232,17 +249,20 @@ describe("tool-declaration discipline (end-to-end)", () => {
         tags: [],
         default_authority: 0,
         default_priority: 1,
-        default_subscriptions: [{
-          topic: "strict.cmd",
-          description: "Strict-only command",
-          inputSchema: {
-            type: "object",
-            properties: { action: { type: "string", enum: ["go", "stop"] } },
-            required: ["action"],
-            additionalProperties: false,
+        ports: {
+          inputs: {
+            cmd: {
+              description: "Strict-only command",
+              inputSchema: {
+                type: "object",
+                properties: { action: { type: "string", enum: ["go", "stop"] } },
+                required: ["action"],
+                additionalProperties: false,
+              },
+            },
           },
-        }],
-        default_publishes: [],
+        },
+        default_port_bindings: { inputs: { cmd: ["strict.cmd"] } },
       });
       brain = new BrainService(":memory:");
       brain.bootstrap([path.join(dirS, "strict", "..")]);
@@ -310,12 +330,8 @@ describe("tool-declaration discipline (end-to-end)", () => {
         tags: [],
         default_authority: 0,
         default_priority: 1,
-        default_subscriptions: [{
-          topic: "drill.ping",
-          description: "Echoes back",
-          inputSchema: { type: "object" },
-        }],
-        default_publishes: [],
+        ports: { inputs: { ping: { description: "Echoes back", inputSchema: { type: "object" } } } },
+        default_port_bindings: { inputs: { ping: ["drill.ping"] } },
       });
       const brain = new BrainService(":memory:");
       brain.bootstrap([path.join(dir, "drill", "..")]);

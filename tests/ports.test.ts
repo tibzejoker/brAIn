@@ -24,8 +24,8 @@
  */
 import { describe, it, expect } from "vitest";
 import {
-  autoDerivePorts,
-  autoDeriveBindings,
+  portsConfigError,
+  publishesFromBindings,
   expandPortsToSubs,
   mergePortBindings,
   resolveCallTopic,
@@ -36,47 +36,64 @@ import {
   buildNodeContext,
   NodeLog,
 } from "@brain/core";
-import { NodeState, type NodeInfo, type Message, type SubscriptionConfig } from "@brain/sdk";
+import { NodeState, type NodeInfo, type Message } from "@brain/sdk";
 
 // ---------------------------------------------------------------------------
 // 1. ports.ts — pure helpers
 // ---------------------------------------------------------------------------
 
-describe("autoDerivePorts", () => {
-  it("synthesises a port per default_subscription, keeping its schema", () => {
-    const subs: SubscriptionConfig[] = [
-      { topic: "chat.input", description: "user text", inputSchema: { type: "string" } },
-    ];
-    const ports = autoDerivePorts(subs, ["chat.response"]);
-    expect(ports.inputs?.["chat.input"]).toEqual({
-      description: "user text",
-      inputSchema: { type: "string" },
-      outputSchema: undefined,
-    });
-    expect(ports.outputs?.["chat.response"]).toEqual({ description: "chat.response" });
+describe("portsConfigError", () => {
+  const validPorts = {
+    inputs: { user_message: { description: "user text", inputSchema: { type: "object" } } },
+    outputs: { reply: { description: "reply out" } },
+  };
+  const validBindings = { inputs: { user_message: ["chat.input"] }, outputs: { reply: ["chat.response"] } };
+
+  it("accepts a well-formed ports + bindings pair", () => {
+    expect(portsConfigError(validPorts, validBindings)).toBeNull();
   });
 
-  it("falls back to { type: 'object' } when a legacy internal sub has no schema", () => {
-    // `internal:true` subs are allowed to omit inputSchema in the discriminated
-    // union. autoDerivePorts must still produce a callable port (no hidden
-    // tier any more), so the schema falls back to a permissive object.
-    const subs: SubscriptionConfig[] = [
-      { topic: "alerts.*", description: "fan-in", internal: true },
-    ];
-    const ports = autoDerivePorts(subs, undefined);
-    expect(ports.inputs?.["alerts.*"]?.inputSchema).toEqual({ type: "object" });
+  it("rejects a config with no ports at all", () => {
+    expect(portsConfigError(undefined, validBindings)).toMatch(/missing required `ports`/);
+  });
+
+  it("rejects a config with no default_port_bindings", () => {
+    expect(portsConfigError(validPorts, undefined)).toMatch(/missing required `default_port_bindings`/);
+  });
+
+  it("accepts deliberately-empty ports (dynamic-wiring node like mcp-server)", () => {
+    expect(portsConfigError({ inputs: {}, outputs: {} }, { inputs: {}, outputs: {} })).toBeNull();
+    expect(portsConfigError({}, {})).toBeNull();
+  });
+
+  it("rejects an input port missing its inputSchema", () => {
+    const ports = { inputs: { x: { description: "x" } } } as never;
+    expect(portsConfigError(ports, { inputs: { x: ["t"] } })).toMatch(/missing required `inputSchema`/);
+  });
+
+  it("rejects an input port missing its description", () => {
+    const ports = { inputs: { x: { inputSchema: { type: "object" } } } } as never;
+    expect(portsConfigError(ports, { inputs: { x: ["t"] } })).toMatch(/missing required 'description'/);
+  });
+
+  it("rejects a binding key with no matching declared port", () => {
+    expect(portsConfigError(validPorts, { inputs: { ghost: ["t"] }, outputs: {} }))
+      .toMatch(/no matching input port/);
   });
 });
 
-describe("autoDeriveBindings", () => {
-  it("binds every sub topic to itself (1:1)", () => {
-    const subs: SubscriptionConfig[] = [
-      { topic: "a", description: "a", inputSchema: { type: "object" } },
-      { topic: "b.*", description: "b-fan-in", internal: true },
-    ];
-    const bindings = autoDeriveBindings(subs, ["c"]);
-    expect(bindings.inputs).toEqual({ a: ["a"], "b.*": ["b.*"] });
-    expect(bindings.outputs).toEqual({ c: ["c"] });
+describe("publishesFromBindings", () => {
+  it("flattens output bindings into a de-duplicated topic list", () => {
+    const out = publishesFromBindings({
+      inputs: { in: ["a"] },
+      outputs: { reply: ["chat.response"], log: ["log.line", "chat.response"] },
+    });
+    expect(out).toEqual(["chat.response", "log.line"]);
+  });
+
+  it("returns [] when there are no output bindings", () => {
+    expect(publishesFromBindings(undefined)).toEqual([]);
+    expect(publishesFromBindings({ inputs: { in: ["a"] } })).toEqual([]);
   });
 });
 

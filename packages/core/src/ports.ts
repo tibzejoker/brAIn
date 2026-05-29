@@ -7,14 +7,20 @@
  * currently listens on / emits to; bindings are mutable at runtime via
  * the live-wiring API.
  *
+ * Ports + default_port_bindings are the SINGLE source of truth: a node
+ * MUST declare them (enforced in TypeRegistry.register). The flat
+ * `default_subscriptions` / `default_publishes` lists the rest of the
+ * runtime consumes are DERIVED from the ports here — the inverse of the
+ * old auto-derivation, which let un-ported nodes work silently. There is
+ * no such fallback any more: no ports → registration error.
+ *
  * This module bridges the two layers:
  *   - {@link mergePortBindings} layers per-instance overrides on top of
  *     the type's defaults.
  *   - {@link expandPortsToSubs} turns a port-binding map into the flat
  *     SubscriptionConfig[] the bus + the dashboard already understand.
- *   - {@link autoDerivePorts} / {@link autoDeriveBindings} provide
- *     backward compat for nodes that haven't migrated to the ports model:
- *     every public default_subscription becomes a port named by its topic.
+ *   - {@link publishesFromBindings} flattens the output bindings into the
+ *     `default_publishes` topic list.
  *
  * Keeping the runtime side a derivation means the existing snapshot,
  * mailbox, anti-loop, MCPBridge, /tools logic all keep working without
@@ -24,8 +30,6 @@ import {
   type SubscriptionConfig,
   type PortsConfig,
   type PortBindings,
-  type PortInputDecl,
-  type PortOutputDecl,
 } from "@brain/sdk";
 
 export function mergePortBindings(
@@ -67,54 +71,66 @@ export function expandPortsToSubs(
 }
 
 /**
- * Backward-compat: when a node type didn't migrate to the ports model,
- * synthesize a {@link PortsConfig} from its existing default subs. Each
- * sub becomes an input port — including ones declared `internal:true`,
- * which get a permissive `{ type: "object" }` schema so they remain
- * callable (consistent with the simplified "every port is callable" model).
+ * Validate the mandatory 2-layer wiring contract. Returns the first
+ * problem as a human-readable message, or `null` when the ports +
+ * bindings are well-formed. Shared by TypeRegistry.register (which
+ * throws) and TypeValidatorService (which reports it as a config-phase
+ * failure) so static and dynamic nodes get the identical contract.
  */
-export function autoDerivePorts(
-  subs: SubscriptionConfig[],
-  publishes: string[] | undefined,
-): PortsConfig {
-  const inputs: Record<string, PortInputDecl> = {};
-  // Every sub becomes a callable port. Subs declared `internal:true`
-  // without an explicit schema get a permissive `{ type: "object" }`
-  // so the port is still callable — any node can in principle invoke
-  // the listener (e.g. publish on `chat.reset` to force a brain wipe).
-  // "Internal" wasn't really a security boundary, just a tagging hint
-  // that we've dropped in favour of the simpler all-ports-are-callable
-  // model. Public subs keep their declared schema.
-  const PERMISSIVE: Record<string, unknown> = { type: "object" };
-  for (const s of subs) {
-    inputs[s.topic] = {
-      description: s.description,
-      inputSchema: s.inputSchema ?? PERMISSIVE,
-      outputSchema: s.outputSchema,
-    };
+export function portsConfigError(
+  ports: PortsConfig | undefined,
+  bindings: PortBindings | undefined,
+): string | null {
+  if (!ports || typeof ports !== "object") {
+    return "missing required `ports` (inputs/outputs)";
   }
-  const outputs: Record<string, PortOutputDecl> = {};
-  for (const t of publishes ?? []) {
-    outputs[t] = { description: t };
+  if (!bindings || typeof bindings !== "object") {
+    return "missing required `default_port_bindings` (port→topics)";
   }
-  return { inputs, outputs };
+  const inputs = ports.inputs ?? {};
+  const outputs = ports.outputs ?? {};
+  // Empty ports are allowed but must be DELIBERATE: a node whose wiring is
+  // fully dynamic (e.g. mcp-server, which mints `mcp.<alias>.<tool>` topics
+  // at runtime) declares `ports: {}` + `default_port_bindings: {}` to opt in
+  // explicitly. What's forbidden is the SILENT no-ports case — caught above
+  // by the missing-keys checks.
+  // Every input port is a callable MCP tool → it MUST carry a JSON Schema
+  // + a human description.
+  for (const [portName, decl] of Object.entries(inputs)) {
+    if (!decl.inputSchema || typeof decl.inputSchema !== "object") {
+      return `input port "${portName}" is missing required \`inputSchema\` (JSON Schema)`;
+    }
+    if (!decl.description || typeof decl.description !== "string") {
+      return `input port "${portName}" is missing required 'description'`;
+    }
+  }
+  for (const [portName, decl] of Object.entries(outputs)) {
+    if (!decl.description || typeof decl.description !== "string") {
+      return `output port "${portName}" is missing required 'description'`;
+    }
+  }
+  // Bindings may only reference declared ports — a stray key is a typo.
+  for (const portName of Object.keys(bindings.inputs ?? {})) {
+    if (!(portName in inputs)) return `default_port_bindings.inputs."${portName}" has no matching input port`;
+  }
+  for (const portName of Object.keys(bindings.outputs ?? {})) {
+    if (!(portName in outputs)) return `default_port_bindings.outputs."${portName}" has no matching output port`;
+  }
+  return null;
 }
 
-/** Companion to {@link autoDerivePorts}: each derived port is bound to
- *  its own topic by default — the synthesised "natural" wiring. */
-export function autoDeriveBindings(
-  subs: SubscriptionConfig[],
-  publishes: string[] | undefined,
-): PortBindings {
-  const inputs: Record<string, string[]> = {};
-  // Every sub becomes a port bound to its own topic. Auto-derived ports
-  // are equivalent regardless of whether the original sub was tagged
-  // internal — the bus still needs the binding so subscriptions are
-  // actually wired up.
-  for (const s of subs) inputs[s.topic] = [s.topic];
-  const outputs: Record<string, string[]> = {};
-  for (const t of publishes ?? []) outputs[t] = [t];
-  return { inputs, outputs };
+/** Flatten the output side of a binding map into the unique topic list
+ *  the runtime exposes as `default_publishes` (and the live-wiring
+ *  publishes API reads/writes). Order-stable, de-duplicated. */
+export function publishesFromBindings(bindings: PortBindings | undefined): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const topics of Object.values(bindings?.outputs ?? {})) {
+    for (const t of topics) {
+      if (!seen.has(t)) { seen.add(t); out.push(t); }
+    }
+  }
+  return out;
 }
 
 /** Topic regex used by validators. Matches NATS subject syntax plus the

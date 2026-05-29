@@ -2,6 +2,7 @@ import type { NodeTypeConfig } from "@brain/sdk";
 import * as fs from "fs";
 import * as path from "path";
 import { logger } from "../logger";
+import { expandPortsToSubs, publishesFromBindings, portsConfigError } from "../ports";
 
 export class TypeRegistry {
   private readonly types = new Map<string, NodeTypeConfig>();
@@ -26,29 +27,26 @@ export class TypeRegistry {
       throw new Error(`config.json at ${dirPath} is missing "name" field`);
     }
 
-    // Hard cutover (2026-05-13): every public subscription MUST declare
-    // an inputSchema, or opt out with `internal: true`. Mirrors the
-    // check in TypeValidatorService for dynamic node types — applied
-    // here so static (in-tree + installed-package) nodes get the same
-    // discipline. The single source of truth fans out to /tools, the
-    // MCPBridge, publish-time validation, and ctx.tools.list().
-    for (const sub of (config.default_subscriptions ?? [])) {
-      const s = sub as { topic: string; description?: string; inputSchema?: unknown; internal?: boolean };
-      if (s.internal === true) continue;
-      if (!s.inputSchema || typeof s.inputSchema !== "object") {
-        throw new Error(
-          `Node "${config.name}" at ${dirPath}: subscription "${s.topic}" is missing required \`inputSchema\` (JSON Schema). ` +
-          `Add the schema describing accepted payloads, or mark { "internal": true } if this is private plumbing.`,
-        );
-      }
-      if (!s.description || typeof s.description !== "string") {
-        throw new Error(
-          `Node "${config.name}" at ${dirPath}: subscription "${s.topic}" is missing required 'description'.`,
-        );
-      }
+    // 2-layer wiring is now MANDATORY (no auto-derivation fallback): every
+    // node declares its ports + default_port_bindings, and the flat
+    // `default_subscriptions` / `default_publishes` the rest of the runtime
+    // consumes are DERIVED from them below. A node without explicit ports
+    // is a hard registration error — uniform contract for everyone.
+    const portErr = portsConfigError(config.ports, config.default_port_bindings);
+    if (portErr) {
+      throw new Error(
+        `Node "${config.name}" at ${dirPath}: ${portErr}. ` +
+        `Every node must declare explicit ports + default_port_bindings — there is no auto-derivation. ` +
+        `See storeprojects/brAIn-essentials/nodes/developer/template/config.json for the shape.`,
+      );
     }
 
     const full = config as NodeTypeConfig;
+    // Inverse derivation: ports + bindings → flat subs/publishes. Overwrite
+    // any hand-written legacy fields so ports stay the single source of truth.
+    full.default_subscriptions = expandPortsToSubs(full.ports, full.default_port_bindings);
+    full.default_publishes = publishesFromBindings(full.default_port_bindings);
+
     this.types.set(full.name, full);
     this.typePaths.set(full.name, dirPath);
     return full;
