@@ -7,5 +7,4 @@ export type {
   StoreInstallResult,
   StoreUninstallResult,
   StoreCandidate,
-  StoreSeed,
 } from "./store.service";
