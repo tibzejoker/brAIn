@@ -4,9 +4,11 @@ import {
   BrainService,
   type StoreCandidate,
   type StoreInstallResult, type StoreNodeStatus, type StoreRegistry, type StoreSeed,
+  type StoreUninstallResult,
 } from "@brain/core";
 
 interface InstallBody { package_name: string; update?: boolean }
+interface UninstallBody { package_name: string }
 
 @Controller("store")
 export class StoreController {
@@ -53,6 +55,19 @@ export class StoreController {
       throw new HttpException("package_name required", HttpStatus.BAD_REQUEST);
     }
     const result = await this.brain.store.install(body.package_name, { update: body.update });
+    if (result.status === "failed") {
+      throw new HttpException(result.message, HttpStatus.UNPROCESSABLE_ENTITY);
+    }
+    return result;
+  }
+
+  /** Remove an installed library: delete its cloned repo + unregister its types. */
+  @Post("uninstall")
+  async uninstall(@Body() body: UninstallBody): Promise<StoreUninstallResult> {
+    if (!body.package_name) {
+      throw new HttpException("package_name required", HttpStatus.BAD_REQUEST);
+    }
+    const result = await this.brain.store.uninstall(body.package_name);
     if (result.status === "failed") {
       throw new HttpException(result.message, HttpStatus.UNPROCESSABLE_ENTITY);
     }

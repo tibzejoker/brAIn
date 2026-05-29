@@ -5,6 +5,7 @@ export type {
   StoreNode,
   StoreNodeStatus,
   StoreInstallResult,
+  StoreUninstallResult,
   StoreCandidate,
   StoreSeed,
 } from "./store.service";
