@@ -16,8 +16,8 @@
 import { useEffect, useState, useCallback } from "react";
 import {
   getStoreNodes, getStoreCandidates, getInstalledUpdates,
-  getStoreUpstreamStatus, getMarketplaceSeeds, refreshStore,
-  type StoreNodeStatus, type StoreCandidate, type InstalledNodeUpdate, type MarketplaceSeed,
+  getStoreUpstreamStatus, refreshStore,
+  type StoreNodeStatus, type StoreCandidate, type InstalledNodeUpdate,
 } from "../api/store";
 import { getSeeds, type SeedInfo } from "../api/client";
 
@@ -26,7 +26,6 @@ interface MarketplaceCache {
   candidates: StoreCandidate[];
   updates: Map<string, InstalledNodeUpdate>;
   upstreamAhead: boolean;
-  marketplaceSeeds: MarketplaceSeed[];
   localSeeds: SeedInfo[];
   repoDescriptions: Map<string, string>;
   fetchedAt: number;
@@ -43,12 +42,11 @@ function notify(): void {
 }
 
 async function fetchAll(): Promise<MarketplaceCache> {
-  const [n, c, u, ups, ms, ls, idx] = await Promise.all([
+  const [n, c, u, ups, ls, idx] = await Promise.all([
     getStoreNodes().catch(() => [] as StoreNodeStatus[]),
     getStoreCandidates().catch(() => [] as StoreCandidate[]),
     getInstalledUpdates().catch(() => [] as InstalledNodeUpdate[]),
     getStoreUpstreamStatus().catch(() => ({ updateAvailable: false, localSha: null, remoteSha: null })),
-    getMarketplaceSeeds().catch(() => [] as MarketplaceSeed[]),
     getSeeds().catch(() => [] as SeedInfo[]),
     fetch("/store/index").then((r) => r.json() as Promise<{ repos: Record<string, { description?: string }> }>)
       .catch(() => ({ repos: {} })),
@@ -57,7 +55,7 @@ async function fetchAll(): Promise<MarketplaceCache> {
     nodes: n, candidates: c,
     updates: new Map(u.map((x) => [x.repo, x])),
     upstreamAhead: ups.updateAvailable,
-    marketplaceSeeds: ms, localSeeds: ls,
+    localSeeds: ls,
     repoDescriptions: new Map(Object.entries(idx.repos).map(([k, v]) => [k, v.description ?? ""])),
     fetchedAt: Date.now(),
   };

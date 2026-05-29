@@ -19,7 +19,6 @@ import {
   type NodeUpdate, type RefreshResult, type UpstreamStatus,
   installedNodeUpdates, marketplaceHasUpdate, refreshLocalStore,
 } from "./upstream";
-import { type InstallSeedResult, installSeedYaml } from "./seeds";
 import { cloneAndCheckout, fetchAndCheckout, installAndBuild, verifyChecksums } from "./install";
 
 const DEFAULT_STORE_URL =
@@ -62,28 +61,11 @@ export interface StoreNode {
   checksums?: Record<string, string>;
 }
 
-export interface StoreSeed {
-  name: string;
-  description: string;
-  /** Repo from `repos` whose subpath holds the YAML. */
-  repo: string;
-  subpath: string;
-  /** Pinned commit SHA of the seed file. Required. */
-  ref: string;
-  /** SHA-256 of the seed YAML — verified before writing locally. */
-  checksum: string;
-  tags?: string[];
-  /** Hint for dashboard filtering — types the seed asks for in its needs[]. */
-  needs?: string[];
-}
-
 export interface StoreRegistry {
   version: number;
   updated_at?: string;
   repos: Record<string, StoreRepo>;
   nodes: StoreNode[];
-  /** Optional — older registries may omit this. */
-  seeds?: StoreSeed[];
 }
 
 export interface StoreNodeStatus extends StoreNode {
@@ -228,21 +210,6 @@ export class StoreService {
   async installedNodeUpdates(): Promise<NodeUpdate[]> {
     const reg = await this.fetchRegistry();
     return installedNodeUpdates(reg, this.bundlesRoot);
-  }
-
-  /** All marketplace seeds with installed-locally status. */
-  async listSeeds(seedsDir: string): Promise<Array<StoreSeed & { installed: boolean }>> {
-    const reg = await this.fetchRegistry();
-    return (reg.seeds ?? []).map((s) => ({
-      ...s,
-      installed: fs.existsSync(path.join(seedsDir, `${s.name}.yaml`)),
-    }));
-  }
-
-  /** Install a marketplace seed (YAML pulled + checksum-verified). */
-  async installSeed(name: string, seedsDir: string): Promise<InstallSeedResult> {
-    const reg = await this.fetchRegistry(true);
-    return installSeedYaml(reg, name, seedsDir);
   }
 
   /** Registry decorated with installation status for the dashboard. */

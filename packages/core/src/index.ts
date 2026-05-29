@@ -64,7 +64,7 @@ export type {
 export { StoreService } from "./store";
 export type {
   StoreRegistry, StoreRepo, StoreNode, StoreNodeStatus, StoreInstallResult,
-  StoreUninstallResult, StoreCandidate, StoreSeed,
+  StoreUninstallResult, StoreCandidate,
 } from "./store";
 export {
   MCPBridge, toolsForNode, federatedTools, resolveNode, resolveCallTopic,
