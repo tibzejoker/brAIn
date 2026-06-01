@@ -29,7 +29,7 @@ export class SkillsController {
 
   @Post()
   save(@Body() body: SaveSkillBody): SkillFull {
-    if (!body?.name || typeof body.content !== "string") {
+    if (!body.name || typeof body.content !== "string") {
       throw new HttpException("name + content required", HttpStatus.BAD_REQUEST);
     }
     try {

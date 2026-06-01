@@ -22,7 +22,7 @@ import {
   getDb, clearAll, updateNodePosition, updateNodeConfig as dbUpdateNodeConfig, recordHistory, getHistory, saveSubscription, deleteSubscription as dbDeleteSubscription,
   type HistoryEntry, type HistoryAction,
 } from "./db";
-import { SkillStore, SKILLS_SEARCH_SUBJECT, SKILLS_LOAD_SUBJECT, SKILLS_SAVE_SUBJECT, SKILLS_DELETE_SUBJECT, SKILLS_LIST_SUBJECT } from "./skills";
+import { SkillStore, registerSkillsResponder } from "./skills";
 import {
   applySeed,
   scanAllSeedSources,
@@ -93,9 +93,8 @@ export class BrainService extends EventEmitter {
   private personalSeedsDir?: string;
   /** Root `skills/` dir + personal/distilled skills dir for the
    *  network-wide procedural-memory library (see SkillStore). */
-  private skillsDir?: string;
-  private personalSkillsDir?: string;
-  private skillsResponderUp = false;
+  private skillsDir?: string; private personalSkillsDir?: string;
+  private skillsResponderUp = false; // wired lazily once NATS is connected
   private globalRunMode: "auto" | "manual" = "auto";
   readonly llm = LLMRegistry.getInstance();
   readonly cli = CLIRegistry.getInstance();
@@ -357,35 +356,9 @@ export class BrainService extends EventEmitter {
    *  before NATS is connected (retried from bootstrap + the dir setters). */
   ensureSkillsResponder(): void {
     if (this.skillsResponderUp) return;
-    const bus = this.bus as { respondToRequests?: (subject: string, handler: (p: unknown) => unknown) => void };
-    if (typeof bus.respondToRequests !== "function") return;
-    try {
-      // Live node types spawned right now — node-scoped skills (requires_node)
-      // are only surfaced to nodes when their type is present on the network.
-      const liveTypes = (): Set<string> => new Set(this.instanceRegistry.list().map((n) => n.type));
-      bus.respondToRequests(SKILLS_SEARCH_SUBJECT, (p) => {
-        const { query, limit } = (p ?? {}) as { query?: string; limit?: number };
-        // Semantic (embeddings) with keyword fallback — the responder handler
-        // may return a Promise; respondToRequests awaits it.
-        return this.skillStore().searchSemantic(String(query ?? ""), typeof limit === "number" ? limit : 5, liveTypes());
-      });
-      bus.respondToRequests(SKILLS_LOAD_SUBJECT, (p) => {
-        const { name } = (p ?? {}) as { name?: string };
-        return this.skillStore().load(String(name ?? ""));
-      });
-      bus.respondToRequests(SKILLS_LIST_SUBJECT, () => this.skillStore().list(liveTypes()));
-      bus.respondToRequests(SKILLS_SAVE_SUBJECT, (p) => {
-        const { name, content } = (p ?? {}) as { name?: string; content?: string };
-        return this.skillStore().savePersonal(String(name ?? ""), String(content ?? ""));
-      });
-      bus.respondToRequests(SKILLS_DELETE_SUBJECT, (p) => {
-        const { name } = (p ?? {}) as { name?: string };
-        return this.skillStore().deletePersonal(String(name ?? ""));
-      });
-      this.skillsResponderUp = true;
-    } catch {
-      // NATS not connected yet; bootstrap will retry once the bus is up.
-    }
+    // The third arg is the live node-type set, so node-scoped skills
+    // (requires_node) surface only when their type is present on the network.
+    this.skillsResponderUp = registerSkillsResponder(this.bus, () => this.skillStore(), () => new Set(this.instanceRegistry.list().map((n) => n.type)));
   }
   getSeeds(): SeedInfo[] {
     const known = new Set(this.typeRegistry.list().map((t) => t.name));

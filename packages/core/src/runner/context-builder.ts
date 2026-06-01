@@ -312,7 +312,7 @@ function buildSkillsFacade(deps: BuildContextDeps): SkillsFacade {
     load: (name) => call<SkillContent | null>(SKILLS_LOAD_SUBJECT, { name }),
     save: async (name, content) => {
       const r = await call<SkillContent & { error?: string }>(SKILLS_SAVE_SUBJECT, { name, content });
-      if (r && typeof r === "object" && "error" in r && r.error) throw new Error(r.error);
+      if (r.error) throw new Error(r.error);
       return r;
     },
     delete: (name) => call<boolean>(SKILLS_DELETE_SUBJECT, { name }),
