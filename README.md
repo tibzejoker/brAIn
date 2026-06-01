@@ -205,6 +205,13 @@ one instead, typical when running across multiple hosts.
 `BusService` (in-memory) is still exported but only as a test
 fixture; the production code path always goes through NATS.
 
+> **Known limitation (scaling):** each instance subscribes to the whole
+> hierarchy (`<prefix>.>`) and filters locally with `matchTopic` to keep
+> brAIn's wildcard semantics. Every instance therefore sees all bus
+> traffic and filters it in memory — fine at small/LAN scale, but the
+> first bottleneck as instance/message counts grow. The targeted fix is
+> narrower NATS subscriptions per real subject.
+
 Features:
 
 - Wildcard topic matching (`alerts.*`).
@@ -222,7 +229,11 @@ Features:
 
 ### Runners
 
-`packages/core/src/runner`, picked from a node's tags:
+`packages/core/src/runner`, picked from a node's **tags** (not its
+name): a node carrying the `llm` tag gets the `LLMRunner`, anything
+else gets the `ServiceRunner` (a `web` transport overrides both). The
+node names in parentheses below are just examples of nodes that carry
+each tag.
 
 - **`ServiceRunner`** for reactive non-LLM nodes (memory, http-bridge,
   terminal, …): message arrives → handler called once → node parks
@@ -290,7 +301,9 @@ flight.
 ### Persistence
 
 SQLite (`data/brain.db`) via `better-sqlite3`. Spawned nodes,
-subscriptions, mailbox config, and dormancy state all survive restarts.
+their subscriptions, and mailbox config survive restarts; on boot each
+node re-subscribes and waits, idle, for its next message (the runtime
+is purely reactive — there is no separate persisted dormancy state).
 
 ### Authoring a node
 
