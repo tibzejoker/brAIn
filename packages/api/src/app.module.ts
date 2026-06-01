@@ -15,6 +15,7 @@ import { MCPOAuthController } from "./rest/mcp-oauth.controller";
 import { MCPController } from "./rest/mcp.controller";
 import { LLMController } from "./rest/llm.controller";
 import { ToolsController } from "./rest/tools.controller";
+import { SkillsController } from "./rest/skills.controller";
 import { DashboardGateway } from "./ws/dashboard.gateway";
 import * as path from "path";
 import * as fs from "fs";
@@ -241,12 +242,19 @@ const brainServiceProvider = {
     // is created lazily on the first save.
     brain.setPersonalSeedsDir(path.join(resolveFromRoot(process.env.BRAIN_DATA_DIR, "data"), "seeds"));
 
+    // Network-wide skills (procedural-memory) library: a root skills/ dir +
+    // every installed store's skills/ (via storeprojectsRoot above) +
+    // personal/distilled skills under data/skills. Served over the bus so
+    // any node, local or remote, resolves ctx.skills against this one source.
+    brain.setSkillsDir(resolveFromRoot(process.env.BRAIN_SKILLS_DIR, "skills"));
+    brain.setPersonalSkillsDir(path.join(resolveFromRoot(process.env.BRAIN_DATA_DIR, "data"), "skills"));
+
     return brain;
   },
 };
 
 @Module({
-  controllers: [NodesController, TypesController, NetworkController, SeedsController, NodeCallController, StoreController, AgentsController, MCPOAuthController, MCPController, LLMController, ToolsController],
+  controllers: [NodesController, TypesController, NetworkController, SeedsController, NodeCallController, StoreController, AgentsController, MCPOAuthController, MCPController, LLMController, ToolsController, SkillsController],
   providers: [brokerProvider, brainServiceProvider, DashboardGateway],
 })
 export class AppModule implements OnModuleInit, OnModuleDestroy {

@@ -1,4 +1,4 @@
-export type MenuView = "graph" | "history" | "marketplace" | "agents" | "llm";
+export type MenuView = "graph" | "history" | "marketplace" | "skills" | "agents" | "llm";
 
 interface MenuProps {
   active: MenuView;
@@ -16,6 +16,7 @@ const ITEMS: Array<{ key: MenuView; label: string; icon: string }> = [
   { key: "graph", label: "Network", icon: "◉" },
   { key: "history", label: "History", icon: "◷" },
   { key: "marketplace", label: "Marketplace", icon: "⊞" },
+  { key: "skills", label: "Skills", icon: "✸" },
   { key: "agents", label: "Distributed", icon: "⚯" },
   { key: "llm", label: "LLM Providers", icon: "✦" },
 ];

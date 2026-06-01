@@ -20,9 +20,11 @@ import {
   type FileOpts, type FileRef, type FileContent, type FileFilter, type FileInfo,
   type PreemptionContext, type SubscriptionConfig,
   type ToolsFacade, type ToolDescriptor,
+  type SkillsFacade, type SkillInfo, type SkillContent,
   normaliseSubscription,
 } from "@brain/sdk";
 import type { IBusService } from "../bus/bus.interface";
+import { SKILLS_SEARCH_SUBJECT, SKILLS_LOAD_SUBJECT, SKILLS_SAVE_SUBJECT, SKILLS_DELETE_SUBJECT, SKILLS_LIST_SUBJECT } from "../skills";
 import type { NodeLog } from "./node-log";
 import { LLMFacade } from "../llm/llm-facade";
 import type { LLMRegistry } from "../llm/llm-registry";
@@ -196,6 +198,7 @@ export function buildNodeContext(
     callLLM: (_o: LLMRequest): Promise<LLMResponse> => Promise.reject(new Error("not implemented")),
     llm: buildLLMFacade(deps, rt.nodeInfo, signal),
     tools: buildToolsFacade(deps),
+    skills: buildSkillsFacade(deps),
     callTool: (_s: string, _t: string, _p: unknown): Promise<unknown> => Promise.reject(new Error("not implemented")),
     readFile: (_id: string): Promise<FileContent> => Promise.reject(new Error("not implemented")),
     writeFile: (_n: string, _c: string, _o?: FileOpts): Promise<FileRef> => Promise.reject(new Error("not implemented")),
@@ -284,5 +287,34 @@ function buildToolsFacade(deps: BuildContextDeps): ToolsFacade {
   return {
     list: () => collect(),
     listForNode: (nodeId) => collect(nodeId),
+  };
+}
+
+/** Build the skills facade. Talks to the network-wide skills service over
+ *  NATS request/reply (location-transparent: works for a remote brain-agent
+ *  node too). Falls back to a clear error when the bus has no request/reply
+ *  (the in-memory test fixture) so the missing capability is obvious. */
+function buildSkillsFacade(deps: BuildContextDeps): SkillsFacade {
+  const bus = deps.bus as {
+    requestRemote?: <T>(subject: string, payload: unknown, timeoutMs?: number) => Promise<T>;
+  };
+  const rr = bus.requestRemote;
+  if (typeof rr !== "function") {
+    const err = (): Promise<never> =>
+      Promise.reject(new Error("ctx.skills unavailable: the bus has no request/reply (needs NATS)"));
+    return { search: err, load: err, save: err, delete: err, list: err };
+  }
+  const call = <T>(subject: string, payload: unknown): Promise<T> =>
+    rr.call(bus, subject, payload, 4000) as Promise<T>;
+  return {
+    search: (query, limit) => call<SkillInfo[]>(SKILLS_SEARCH_SUBJECT, { query, limit }),
+    list: () => call<SkillInfo[]>(SKILLS_LIST_SUBJECT, {}),
+    load: (name) => call<SkillContent | null>(SKILLS_LOAD_SUBJECT, { name }),
+    save: async (name, content) => {
+      const r = await call<SkillContent & { error?: string }>(SKILLS_SAVE_SUBJECT, { name, content });
+      if (r && typeof r === "object" && "error" in r && r.error) throw new Error(r.error);
+      return r;
+    },
+    delete: (name) => call<boolean>(SKILLS_DELETE_SUBJECT, { name }),
   };
 }

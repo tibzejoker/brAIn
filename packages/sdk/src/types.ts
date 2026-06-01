@@ -481,6 +481,50 @@ export interface ToolsFacade {
   listForNode(nodeId: string): ToolDescriptor[];
 }
 
+/** A skill's metadata (tier-1 search result). */
+export interface SkillInfo {
+  name: string;
+  description: string;
+  /** Content hash; a change signals consumers to refetch. */
+  version: string;
+  /** Provenance: "root" | "<repo>" | "personal". */
+  source: string;
+  /** Node-scoped: only surfaced when an instance of this node type is
+   *  spawned. Absent = a user / capability skill (always available). */
+  requiresNode?: string;
+}
+
+/** A skill's full body (tier-2 load result). */
+export interface SkillContent extends SkillInfo {
+  /** The full SKILL.md text, ready to inject into a model's context or
+   *  materialise into a CLI agent's skills dir. */
+  content: string;
+}
+
+/** Procedural-memory facade. Backed by the network-wide skills library
+ *  over the bus (NATS request/reply), so it works identically for a local
+ *  node and one on a remote brain-agent — nothing is stored locally. Small
+ *  models don't have to *decide* to use a skill: a handler typically
+ *  searches by the incoming task, loads the top match, and injects its
+ *  body into the system prompt before the model call. */
+export interface SkillsFacade {
+  /** Tier-1: skills relevant to a task (name + description, cheap). */
+  search(query: string, limit?: number): Promise<SkillInfo[]>;
+  /** The whole catalog (name + description only). Inject it so the model
+   *  can pick which skill fits, Claude/Hermes-style, when it's small enough. */
+  list(): Promise<SkillInfo[]>;
+  /** Tier-2: a skill's full SKILL.md body, or null if unknown. */
+  load(name: string): Promise<SkillContent | null>;
+  /** Create or overwrite a *personal* skill (e.g. distilled by an LLM after
+   *  completing a task, or a self-improving edit). `content` is the full
+   *  SKILL.md text; `name` is its kebab-case id (and directory). Bundled
+   *  skills are read-only — only the personal namespace is writable. */
+  save(name: string, content: string): Promise<SkillContent>;
+  /** Delete a *personal* skill. Returns false if it didn't exist as a
+   *  personal skill. Bundled (lib-shipped) skills are never deletable. */
+  delete(name: string): Promise<boolean>;
+}
+
 export interface LLMMultiToolOptions {
   /** The set of tools the model can pick from. Each entry has its own
    *  flat inputSchema (see the discipline note on `LLMToolOptions`).
@@ -689,6 +733,14 @@ export interface NodeContext {
    * having to maintain a separate list. Internal subs are filtered out.
    */
   tools: ToolsFacade;
+
+  /**
+   * Procedural-memory library, shared across the whole network and served
+   * over the bus. `search` then `load` to pull a SKILL.md you inject into
+   * the model's context. Works the same on a remote brain-agent (nothing
+   * is stored on the asking node).
+   */
+  skills: SkillsFacade;
 
   // External tools / MCP
   callTool(server: string, tool: string, params: unknown): Promise<unknown>;

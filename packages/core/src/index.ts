@@ -81,6 +81,11 @@ export {
   publishesFromBindings, expandPortsToSubs, mergePortBindings,
   portsConfigError, TOPIC_REGEX,
 } from "./ports";
+export {
+  SkillStore, SKILLS_SEARCH_SUBJECT, SKILLS_LOAD_SUBJECT, SKILLS_SAVE_SUBJECT,
+  SKILLS_DELETE_SUBJECT, SKILLS_LIST_SUBJECT,
+} from "./skills";
+export type { SkillMeta, SkillFull, SkillRoots } from "./skills";
 export type {
   MCPTool, ResolveResult,
   MetaTool, MetaToolHandlers,

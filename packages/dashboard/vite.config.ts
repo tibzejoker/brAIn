@@ -33,6 +33,7 @@ export default defineConfig({
       "/mcp": PROXY_OPT,
       "/llm": PROXY_OPT,
       "/tools": PROXY_OPT,
+      "/skills": PROXY_OPT,
       "/socket.io": { ...PROXY_OPT, ws: true },
     },
   },
