@@ -11,6 +11,7 @@ import { HistoryPanel } from "./components/HistoryPanel";
 import { MarketplacePanel } from "./components/MarketplacePanel";
 import { AgentsPanel } from "./components/AgentsPanel";
 import { LLMSettingsPanel } from "./components/LLMSettingsPanel";
+import { SkillsPanel } from "./components/SkillsPanel";
 import { NodeUiModal } from "./components/NodeUiModal";
 import { useNetwork } from "./hooks/useNetwork";
 import { useMessages } from "./hooks/useMessages";
@@ -184,6 +185,8 @@ export function App(): React.ReactElement {
         {activeView === "history" && <HistoryPanel />}
 
         {activeView === "marketplace" && <MarketplacePanel onChanged={handleSeedApplied} />}
+
+        {activeView === "skills" && <SkillsPanel />}
 
         {activeView === "agents" && <AgentsPanel />}
 

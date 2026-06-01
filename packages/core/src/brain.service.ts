@@ -22,6 +22,7 @@ import {
   getDb, clearAll, updateNodePosition, updateNodeConfig as dbUpdateNodeConfig, recordHistory, getHistory, saveSubscription, deleteSubscription as dbDeleteSubscription,
   type HistoryEntry, type HistoryAction,
 } from "./db";
+import { SkillStore, registerSkillsResponder } from "./skills";
 import {
   applySeed,
   scanAllSeedSources,
@@ -90,6 +91,10 @@ export class BrainService extends EventEmitter {
    *  configuration). Writeable via savePersonalSeed / deletable via
    *  deletePersonalSeed; nothing else gets touched here. */
   private personalSeedsDir?: string;
+  /** Root `skills/` dir + personal/distilled skills dir for the
+   *  network-wide procedural-memory library (see SkillStore). */
+  private skillsDir?: string; private personalSkillsDir?: string;
+  private skillsResponderUp = false; // wired lazily once NATS is connected
   private globalRunMode: "auto" | "manual" = "auto";
   readonly llm = LLMRegistry.getInstance();
   readonly cli = CLIRegistry.getInstance();
@@ -251,6 +256,10 @@ export class BrainService extends EventEmitter {
       },
       "Registered node types",
     );
+
+    // Stand up the network-wide skills request/reply responders (no-op if
+    // the bus isn't NATS yet; the dir setters retry once it is).
+    this.ensureSkillsResponder();
   }
 
   startDynamicScanner(opts: Omit<DynamicScannerOptions, "bus" | "typeRegistry"> & Partial<Pick<DynamicScannerOptions, "bus" | "typeRegistry">>): DynamicTypeScanner {
@@ -332,6 +341,25 @@ export class BrainService extends EventEmitter {
   setSeedsDir(dir: string): void { this.seedsDir = dir; }
   setStoreprojectsRoot(dir: string): void { this.storeprojectsRoot = dir; }
   setPersonalSeedsDir(dir: string): void { this.personalSeedsDir = dir; }
+  setSkillsDir(dir: string): void { this.skillsDir = dir; this.ensureSkillsResponder(); }
+  setPersonalSkillsDir(dir: string): void { this.personalSkillsDir = dir; this.ensureSkillsResponder(); }
+
+  /** SkillStore over the currently-configured roots. Reads the filesystem
+   *  per call (cheap at this scale), so dirs can be set in any order. */
+  skillStore(): SkillStore {
+    return new SkillStore({ skillsDir: this.skillsDir, storeprojectsRoot: this.storeprojectsRoot, personalDir: this.personalSkillsDir });
+  }
+
+  /** Register the network-wide skills request/reply responders, so any node
+   *  (local or remote brain-agent) resolves `ctx.skills.search/load` against
+   *  this one shared library. Idempotent; no-op on the in-memory test bus or
+   *  before NATS is connected (retried from bootstrap + the dir setters). */
+  ensureSkillsResponder(): void {
+    if (this.skillsResponderUp) return;
+    // The third arg is the live node-type set, so node-scoped skills
+    // (requires_node) surface only when their type is present on the network.
+    this.skillsResponderUp = registerSkillsResponder(this.bus, () => this.skillStore(), () => new Set(this.instanceRegistry.list().map((n) => n.type)));
+  }
   getSeeds(): SeedInfo[] {
     const known = new Set(this.typeRegistry.list().map((t) => t.name));
     if (this.storeprojectsRoot) {

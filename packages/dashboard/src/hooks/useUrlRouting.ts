@@ -15,6 +15,7 @@
  *   /                      → graph
  *   /history               → history
  *   /marketplace           → marketplace
+ *   /library               → skills (procedural-memory) library
  *   /distributed           → agents/remote-hosts view
  *   /models                → LLM settings
  *   /ui/<id>               → fullscreen node UI overlay (over the graph)
@@ -26,6 +27,7 @@ const VIEW_PATHS: Record<MenuView, string> = {
   graph: "/",
   history: "/history",
   marketplace: "/marketplace",
+  skills: "/library",
   agents: "/distributed",
   llm: "/models",
 };
@@ -35,6 +37,7 @@ const PATH_VIEWS: Record<string, MenuView> = {
   graph: "graph",
   history: "history",
   marketplace: "marketplace",
+  library: "skills",
   distributed: "agents",
   models: "llm",
 };

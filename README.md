@@ -287,6 +287,29 @@ supported per upstream: `stdio`, `http` (Streamable HTTP), `sse`,
 `ws`. `ctx.signal` propagates, so preemption kills MCP calls in
 flight.
 
+### Skills: procedural memory served over the bus
+
+`packages/core/src/skills`. A shared library of `SKILL.md` files (the
+[Agent Skills](https://agentskills.io) frontmatter standard: `name` +
+`description`) that teach the LLM nodes *how* to do things — distinct
+from message-passing know-how. The framework, not any single node,
+owns the store and answers over NATS request/reply
+(`skills.rpc.{search,load,save,delete,list}`), so a remote `brain-agent`
+asks "how do we do X?" and gets the file back without storing anything
+locally. One library, every LLM node, cross-machine.
+
+- **Three tiers**: *user* (personal, in `data/skills`, always available),
+  *lib-capability* (bundled by an installed lib, e.g. `web-fetch`), and
+  *node-scoped* (`requires_node: <type>` frontmatter — only surfaced once
+  an instance of that type is live, so no dead skills clutter the catalog).
+- **Retrieval**: semantic ranking via Ollama embeddings
+  (`qwen3-embedding:0.6b`, cosine, content-versioned cache) with a keyword
+  fallback. The brain auto-injects the single most relevant skill's body
+  and lists the rest, then can `load_skill({name})` for others — which is
+  what makes skills land reliably even on a small model like `gemma4:e4b`.
+- **Writable**: LLM nodes (and the dashboard's Skills panel) can
+  `save` / `delete` personal skills; bundled ones are read-only.
+
 ### Observability
 
 - **DLQ**: every message in flight when a handler crashes / times
