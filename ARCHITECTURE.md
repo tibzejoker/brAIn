@@ -90,6 +90,7 @@ A message published anywhere on the bus reaches every subscriber matching its to
 - **`InstanceRegistry`** tracks live nodes (`NodeInfo` per id). Subscribed to by API + dashboard for the network view.
 - **`AuthorityService`** gates every lifecycle call. Compares caller and target authority levels; throws on permission denial.
 - **`StoreService`** mirrors the marketplace catalogue (`brAIn-store/registry.json`) and drives `pnpm brain pull` / `brain remove` (and the dashboard's install / uninstall).
+- **`SkillStore`** owns the procedural-memory library (`SKILL.md` files, Agent-Skills frontmatter). The framework answers `skills.rpc.{search,load,save,delete,list}` over NATS request/reply, so any LLM node — local or on a remote agent — shares one library without local copies. Three tiers (user / lib-capability / node-scoped via `requires_node`); semantic retrieval via Ollama embeddings with a keyword fallback. See §9.
 - **`DynamicTypeScanner`** chokidar-watches `nodes/_dynamic/*` and `passiveDirs`, hashes config + handler artifacts, registers / unregisters types as they appear, change, or disappear.
 - **`startChildServer`** is a generic supervisor for nodes that wrap a sidecar process (Python uvicorn, native binary, …). Health-check + cold-start timeout + crash recovery are not re-implemented per node.
 
@@ -105,7 +106,8 @@ A message published anywhere on the bus reaches every subscriber matching its to
 
 | Store | Used by | Holds |
 |---|---|---|
-| `data/brain.db` (SQLite) | core | Node configs, subscriptions, mailbox snapshots, dormancy state, broker token, kv settings |
+| `data/brain.db` (SQLite) | core | Node configs, subscriptions, mailbox snapshots, broker token, kv settings (no dormancy state — the runtime is reactive, nodes re-subscribe and idle on boot) |
+| `data/skills/<name>/SKILL.md` | core (`SkillStore`) | Personal/user skills, writable by LLM nodes + the dashboard; lib-bundled skills are read-only and live in each lib's `skills/` dir |
 | `data/agent.db` (SQLite) | brain-agent | Per-agent join state when attached to a remote broker |
 | `data/broker.json` | broker | Bind address (loopback vs LAN) |
 | `data/nodes/<id>/` | every node | Reserved per-node `ctx.dataDir` for arbitrary persistent files (DBs, blobs, logs) |
@@ -154,6 +156,7 @@ A few things worth understanding before reading the source.
 - **Preemption**: when a higher-criticality message lands while a handler is mid-flight, the runner aborts `ctx.signal`. Long-running operations (LLM calls, fetch, child-process I/O) are expected to honour the signal. The next handler invocation gets `wasPreempted = true` plus the partial result in `ctx.preemptionContext`.
 - **Spawn / restore**: spawned nodes are persisted in `brain.db`. On API boot, the registry replays them; their `onSpawn` hook runs again as if they were freshly created. Crash recovery is the same code path as cold start.
 - **Trace IDs**: every published message carries a `trace_id`. Replies and forwards inherit it; the API exposes `GET /network/traces/:id` to walk the chain. Useful for debugging emergent flows.
+- **Skills retrieval**: `ctx.skills` is a thin facade over `skills.rpc.*` NATS request/reply, so the framework (never the node) holds the library — one copy, shared by every LLM node including remote agents. A query is embedded (Ollama `qwen3-embedding:0.6b`, cosine over a content-versioned cache) and ranked, with keyword overlap as the fallback when embeddings are unavailable. The node catalog is filtered by live instance types so `requires_node` skills appear only when their node is spawned. The brain auto-injects the single best match's body and lists the rest; it can `load_skill` for others. Auto-injection (rather than relying on the model to call a tool) is what makes skills land on small models like `gemma4:e4b`.
 
 ## 10 · Future considerations
 
