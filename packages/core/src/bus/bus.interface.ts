@@ -1,14 +1,15 @@
 /**
  * `IBusService` — abstract bus contract.
  *
- * Two concrete implementations exist (or will exist):
+ * Two concrete implementations exist:
  *
- *   - `BusService` (in-memory) — single-process, default for solo
- *     deployments and dev. Today's behaviour.
- *   - `NatsBusService` (planned, Phase 4.2) — distributed, replaces
- *     in-memory routing with a NATS publish/subscribe so nodes on
- *     different machines share the same bus. Mailboxes stay local
+ *   - `NatsBusService` — distributed, NATS publish/subscribe so nodes
+ *     on different machines share the same bus. This is the production
+ *     path: the API always wires it (embedded `nats-server` by default,
+ *     external broker via `BRAIN_NATS_URL`). Mailboxes stay local
  *     per-node (each runner owns its own queue).
+ *   - `BusService` (in-memory) — single-process routing, exported only
+ *     as a test fixture. Production code never selects it.
  *
  * Consumers (BrainService, runners, controllers) hold an
  * `IBusService` reference; the concrete impl is wired at construction.
