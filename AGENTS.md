@@ -1,12 +1,12 @@
 # AGENTS.md
 
 Project context for AI coding assistants working in this repository.
-Keep it concise — when it drifts, the assistant either hallucinates or
+Keep it concise: when it drifts, the assistant either hallucinates or
 re-discovers the same thing every conversation.
 
 ## What is brAIn
 
-**Bus-Reactive Ambient Intelligent Nodes** — a runtime for autonomous
+**Bus-Reactive Ambient Intelligent Nodes**: a runtime for autonomous
 nodes that share a NATS pub/sub bus. Each node runs a handler when a
 subscribed message arrives; the framework auto-parks it between
 invocations. Handlers can be preempted by higher-criticality
@@ -15,7 +15,7 @@ messages, and a node can live in this process or on a remote
 
 ## Install
 
-End-user / fresh checkout — bootstraps brAIn + brAIn-store + an empty
+End-user / fresh checkout. Bootstraps brAIn + brAIn-store + an empty
 storeprojects/, runs `pnpm install`, **and launches the stack**:
 
 ```bash
@@ -37,41 +37,42 @@ git clone https://github.com/tibzejoker/brAIn && cd brAIn && pnpm install
 
 ```bash
 pnpm start              # API (port 3000) + Dashboard (port 5173) in parallel
-pnpm dev:api            # Backend only (custom dev-supervisor — auto-respawns
+pnpm dev:api            # Backend only (custom dev-supervisor: auto-respawns
                         # on process.exit so the bind/token toggles work)
 pnpm dev:dashboard      # Frontend only (Vite HMR)
 pnpm build              # Build all packages (sdk → core → api/agent/dashboard)
-pnpm lint               # ESLint strict — must pass with 0 errors AND 0 warnings
+pnpm lint               # ESLint strict: must pass with 0 errors AND 0 warnings
 pnpm test               # vitest, all suites
 pnpm kill-orphans       # cleanup leaked dev processes / ports
 pnpm kill-ports         # blunter port cleanup
 
-pnpm brain list                  # marketplace registry — installed + available
+pnpm brain list                  # marketplace registry: installed + available
 pnpm brain pull <name>           # install a node from brAIn-store
 pnpm brain remove <name> [--yes] # uninstall a node (whole sister repo) or seed
 ```
 
 Node-specific dev scripts (e.g. `dev:voice`, `setup:gaze`, `dev:vocal-chat`)
-live in their respective sister repos (`brAIn-perception`, etc.) — not in
+live in their respective sister repos (`brAIn-perception`, etc.), not in
 this package.json.
 
 ## Repo layout
 
 ```
-packages/sdk        → @brain/sdk        Pure types: NodeHandler, NodeContext, Message
+packages/sdk        → @brain/sdk        Pure types: NodeHandler, NodeContext, Message, Ports
 packages/core       → @brain/core       Engine: BusService + NatsBusService, BrokerService,
                                         Runners, Registry, Authority, Store
 packages/api        → @brain/api        NestJS REST + Socket.IO gateway
-packages/agent      → @brain/agent      brain-agent CLI — remote-host node runtime
+packages/agent      → @brain/agent      brain-agent CLI: remote-host node runtime
 packages/dashboard  → @brain/dashboard  React 19 + React Flow + Tailwind v4
 packages/python-sdk → brain-web         Python helper for nodes that speak the bus
                                         over WebSocket (transport: "web")
 nodes/_dynamic/*    → custom nodes you author locally (auto-registered)
-seeds/*.yaml        → starter network definitions
+seeds/              → optional starter-network YAMLs (libraries ship their own;
+                      personal snapshots in data/seeds)
 scripts/brain.mjs   → CLI for marketplace operations
-scripts/installer/  → `create-brain` package — published to npm separately
+scripts/installer/  → `create-brain` package, published to npm separately
 ../brAIn-store      → marketplace registry (auto-cloned by postinstall)
-../storeprojects/brAIn-{essentials,memory,tools,llm,ui,perception}
+../storeprojects/brAIn-{essentials,memory,tools,llm,ui,perception,bridges,games,demo-loneliness}
                     → sister repos contributing node types via pnpm-workspace
                       sibling globs. Pulled on demand via `pnpm brain pull`.
 ```
@@ -87,7 +88,7 @@ The framework always runs on NATS. At boot:
 1. `BrokerService` either spawns the bundled `nats-server` Go binary
    (`packages/core/bin/nats-server`, downloaded by postinstall) or accepts
    an external URL via `BRAIN_NATS_URL`.
-2. Bind address is read from `data/broker.json` — defaults to `127.0.0.1`,
+2. Bind address is read from `data/broker.json`, defaults to `127.0.0.1`,
    togglable to `0.0.0.0` via the dashboard's "Open to LAN" button.
 3. Auth token is persisted in SQLite (`kv_settings.broker_token`,
    auto-generated on first boot, rotatable from the dashboard). Passed
@@ -99,7 +100,7 @@ Useful env knobs: `BRAIN_BROKER_PORT` (pin the embedded broker port across
 restarts), `BRAIN_NATS_URL` (skip embedded broker, join an external one),
 `BRAIN_NATS_TOKEN`, `BRAIN_NATS_PREFIX`, `BRAIN_SKIP_NATS_DOWNLOAD=1`.
 
-`BusService` is exported but **only as a test fixture** — production code
+`BusService` is exported but **only as a test fixture**; production code
 always goes through NATS.
 
 Dev mode: `pnpm dev:api` runs `packages/api/scripts/dev-supervisor.mjs`,
@@ -112,38 +113,41 @@ respawn to apply changes.
 
 `BrainService` composes:
 
-- **BusService / NatsBusService** — `IBusService` impl. Wildcard topic
+- **BusService / NatsBusService**: `IBusService` impl. Wildcard topic
   matching (`alerts.*` matches all depths). Per-subscription mailbox
   (`max_size` + `latest` / `lowest_priority` retention). Causal traces
   (`trace_id` + `parent_id`, queryable + replayable).
-- **TypeRegistry** — scans node directories at bootstrap, loads
+- **TypeRegistry**: scans node directories at bootstrap, loads
   `config.json` per type, stores filesystem paths for dynamic `import()`
-  at spawn time. Sister-repo paths are auto-discovered (`brAIn-essentials`
-  through `brAIn-perception`).
-- **InstanceRegistry** — running node instances, emits state changes.
-- **AuthorityService** — 3 levels (BASIC=0, ELEVATED=1, ROOT=2). Targeted
-  actions (kill/stop/rewire) require strictly higher authority.
-- **AgentDirectory** — tracks remote `brain-agent` announcements on
+  at spawn time. Sister-repo paths are auto-discovered. Enforces the
+  mandatory ports contract (see Node contract) and derives the flat
+  subscription / publish lists from ports.
+- **InstanceRegistry**: running node instances, emits state changes.
+- **AuthorityService**: 3 levels (`BASIC = 0`, `ELEVATED = 1`, `ROOT = 2`).
+  Targeted actions (kill/stop/rewire) require strictly higher authority;
+  a spawned child is capped one level below the caller.
+- **AgentDirectory**: tracks remote `brain-agent` announcements on
   `brain.agents.discover`. Drops entries past TTL + cleans up the API's
   remote-node stubs.
-- **MCPBridge** — installs MCP message routing on the bus (works with
+- **MCPBridge**: installs MCP message routing on the bus (works with
   `mcp-config` + `mcp-server` from brAIn-essentials).
-- **StoreService** — clone+checkout sister repos at pinned refs, verify
-  per-file SHA-256 checksums, run pnpm install + build. Same logic
-  ported into `scripts/brain.mjs` so the CLI works without the API.
+- **StoreService**: clone+checkout sister repos at pinned refs, verify
+  per-file SHA-256 checksums, run pnpm install + build, plus uninstall
+  (remove the repo + unregister its types). Same logic ported into
+  `scripts/brain.mjs` so the CLI works without the API.
 
-`killAll()` routes through `killNode()` per id so DB rows are deleted —
+`killAll()` routes through `killNode()` per id so DB rows are deleted;
 otherwise seed apply would leak rows that would resurrect on the next
 restart.
 
 ## Runners
 
-`packages/core/src/runner/` — template method pattern + factory:
+`packages/core/src/runner/`: template method pattern + factory.
 
 ```
-BaseRunner (abstract)        — lifecycle, busy lock, ctx builder
-  ├── ServiceRunner          — handler called once per batch of messages
-  └── LLMRunner              — budget loop (default 5 iter), new messages reset
+BaseRunner (abstract)        : lifecycle, busy lock, ctx builder
+  ├── ServiceRunner          : handler called once per batch of messages
+  └── LLMRunner              : budget loop (default 5 iter), new messages reset
                                the budget, exhausted → handler returns and the
                                node parks until something rewakes it
 ```
@@ -167,53 +171,76 @@ nodes pass to their long-running calls), next handler invocation has
 
 A node is a directory with:
 
-- `config.json` — `name`, `tags`, `default_authority`, `default_priority`,
-  `default_subscriptions` (each requires a `description` — DB
-  `NOT NULL`), `default_publishes`, `has_ui`, `supports_transport`
-- `src/handler.ts` — exports `handler: NodeHandler` (or `default`),
-  optional `onSpawn`, `teardown`
-- `package.json` — `main: "dist/handler.js"`, depends on `@brain/sdk`
-- `ui/index.html` (optional) — served at `/nodes/:id/ui/` if `has_ui: true`
+- `config.json`: `name`, `tags`, `default_authority`, `default_priority`,
+  `ports`, `default_port_bindings`, `has_ui`, `supports_transport`. The
+  **2-layer wiring is mandatory**: declare `ports.inputs` / `ports.outputs`
+  (each input port needs both a `description` and an `inputSchema`, since
+  it becomes a callable MCP tool) plus `default_port_bindings` mapping each
+  port to its bus topic(s). There is NO auto-derivation: a config without
+  ports is rejected at registration. The flat `default_subscriptions` /
+  `default_publishes` are *derived* from the ports by the framework, never
+  hand-written. A fully dynamic node opts in explicitly with empty
+  `ports: {}` + `default_port_bindings: {}`.
+- `src/handler.ts`: exports `handler: NodeHandler` (or `default`), optional
+  `onSpawn`, `teardown`.
+- `package.json`: `main: "dist/handler.js"`, depends on `@brain/sdk`.
+- `ui/index.html` (optional): served at `/nodes/:id/ui/` if `has_ui: true`.
 
-`ctx.respond(content, metadata?)` publishes to `response_topic` (or
-`default_publishes[0]`). `ctx.publish(topic, msg)` for explicit routing.
-`ctx.state` is persistent KV across iterations. `ctx.dataDir` is a
-per-node SQLite-friendly directory (`data/<node-id>/`). Return from the
-handler to park the node — the framework re-invokes it on the next
-matching message.
+`ctx.respond(content, metadata?)` publishes to the response topic (the
+first bound output topic). `ctx.publish(topic, msg)` for explicit routing.
+`ctx.state` is persistent KV across iterations. `ctx.dataDir` is a per-node
+SQLite-friendly directory (`data/nodes/<id>/`). Return from the handler to
+park the node; the framework re-invokes it on the next matching message.
+Bindings are re-wirable at runtime via
+`POST` / `DELETE /nodes/:id/ports/:side/:port/topics`.
 
 Handlers without `await` must return `Promise.resolve()` (not be `async`)
-to satisfy `require-await`.
+to satisfy `require-await`. The dev `developer` node ships a full scaffold
+under `storeprojects/brAIn-essentials/nodes/developer/template/`: copy it
+when authoring a new node by hand.
 
 ## API layer
 
 Single `BrainService` instance + a `BrokerService` provider, injected
 into thin controllers:
 
-- `NodesController` — spawn/kill/stop/start + `PATCH :id/config` +
-  `PATCH :id/position` + logs/mailboxes/dead-letters
-- `NodeUiController` — `POST :id/ui/send` + `GET :id/ui/messages` +
-  static UI server
-- `NetworkController` — snapshot + history + traces (+ replay) + seeds +
-  reset + transport (broker URL, mode, bind, lan_ips, token) +
-  bind toggle + token rotate + devmode + tickAll
-- `SeedsController` — list + apply (+ `?merge=true`)
-- `StoreController` — index, nodes, candidates, install, refresh,
-  upstream-status, installed-updates, seeds, install seed
-- `AgentsController` — list announcing brain-agents
-- `MCPController` / `MCPOAuthController` — MCP wiring
-- `DashboardGateway` — Socket.IO relay of bus events. Reshapes
-  `node:spawned` payloads to match REST `/network` shape (subscriptions
-  as `{id, pattern}`).
+- `NodesController`: spawn/kill/stop/start + `PATCH :id/config` +
+  `PATCH :id/position` + logs/mailboxes/dead-letters + port-binding
+  (`POST` / `DELETE :id/ports/:side/:port/topics`)
+- `NodeCallController` (`/node`): UI-over-NATS surface (`POST :id/:topic`,
+  `GET :id/messages`, `GET :id/ui/*`)
+- `NetworkController`: snapshot + history + traces (+ replay) + reset +
+  transport (broker URL, mode, bind, lan_ips, token) + bind toggle +
+  token rotate + devmode + tickAll
+- `SeedsController` (`/network/seeds`): list + get + apply (+ `?merge=true`)
+  + save personal seed + delete personal seed
+- `StoreController`: index, nodes, candidates, install, uninstall, refresh,
+  upstream-status, installed-updates (the standalone seed-download
+  endpoints were removed; workflows ship with their library)
+- `LLMController` (`/llm`) + `ToolsController` (`/tools`): provider /
+  tool-catalog introspection
+- `AgentsController`: list announcing brain-agents
+- `MCPController` / `MCPOAuthController`: MCP wiring
+- `DashboardGateway`: Socket.IO relay of bus events. Reshapes
+  `node:spawned` payloads to match REST `/network` shape.
 
 `main.ts` calls `app.enableShutdownHooks()` so `OnModuleDestroy` fires
-the broker's graceful stop on SIGTERM/SIGINT.
+the broker's graceful stop on SIGTERM/SIGINT, and serves the built
+dashboard with an SPA history fallback (any non-API GET returns
+`index.html`).
 
 ## Dashboard
 
-Vite proxies `/nodes`, `/types`, `/network`, `/socket.io`, `/store`,
-`/agents`, `/mcp` to localhost:3000. Own `tsconfig.json` (ESNext,
-react-jsx) — does NOT extend `tsconfig.base.json`.
+Vite proxies `/nodes`, `/node/`, `/types`, `/network`, `/socket.io`,
+`/store`, `/agents`, `/mcp`, `/llm`, `/tools` to localhost:3000. Own
+`tsconfig.json` (ESNext, react-jsx); does NOT extend `tsconfig.base.json`.
+
+URL routing (`hooks/useUrlRouting.ts`) mirrors the active view into the
+path so reload / back / forward / bookmarks work: `/` graph, `/history`,
+`/marketplace`, `/distributed` (agents), `/models` (LLM), `/ui/<id>`
+(fullscreen node). These paths deliberately avoid the proxied API
+prefixes above, otherwise a direct hit would be swallowed by the proxy
+(dev) or a controller (prod).
 
 State managed via custom hooks (`useNetwork`, `useMessages`,
 `useMessageFlows`, `useSelectedNode`, `useNodeTypes`, `useMarketplace`)
@@ -222,7 +249,7 @@ shows broker URL + bind toggle + LAN IPs + a one-liner agent snippet
 (`BRAIN_NATS_URL=… BRAIN_NATS_TOKEN=… npx brain-agent`) + the rotate-token
 button.
 
-Stale compiled `vite.config.js` shadows `.ts` if Vite ever recompiles —
+Stale compiled `vite.config.js` shadows `.ts` if Vite ever recompiles;
 gitignored explicitly.
 
 ## Tests
@@ -234,45 +261,42 @@ that don't use `BusService` directly as a fast in-memory fixture.
 
 Areas covered: bus + matcher + mailbox; broker (embedded + external,
 double-start, port collision, missing binary); registry + dynamic
-scanner + type validator; runners (lifecycle, resilience, teardown,
-preemption — unit + LLM E2E); NATS bus (local + cross-instance,
-auth, anti-loop, traces); remote spawn end-to-end via NATS; agent +
-agent directory; MCP (in-process + public-server E2E); store; tool
-parser; message formatter; child-server hygiene; brain node, developer,
-memory subsystem (gated on Ollama / CLI agents).
+scanner + type validator; ports (config validation + expansion); runners
+(lifecycle, resilience, teardown, preemption, unit + LLM E2E); NATS bus
+(local + cross-instance, auth, anti-loop, traces); remote spawn
+end-to-end via NATS; agent + agent directory; MCP (in-process + public-server
+E2E); store; tool parser; message formatter; child-server hygiene.
 
-Skip flags: `RUN_LLM_E2E=1`, `RUN_MCP_E2E=1`. Some legacy test files
-import handlers from `nodes/<name>/...` paths that moved into sister
-repos — those will fail until they're either migrated to the sister
-repos or rewritten.
+Skip flags: `RUN_LLM_E2E=1`, `RUN_MCP_E2E=1`, and `BRAIN_E2E_LLM=1` for the
+developer node's live-CLI authoring e2e. Per-node tests live in their
+sister repos; framework tests stay in `tests/`.
 
 Coverage via `@vitest/coverage-v8` → `coverage/lcov.info`, consumed by
-SonarQube. Per-node tests live in their sister repos; framework tests
-stay in `tests/`.
+SonarQube.
 
 ## CI / versioning
 
 - GitHub Actions per repo: `.github/workflows/{ci,gitleaks,trufflehog,release-please}.yml` + `.github/dependabot.yml`.
 - Branch protection: `lint`, framework tests, per-node tests, `scan` (gitleaks + trufflehog). Auto-merge enabled per-PR.
 - Release Please drives versioning from Conventional Commits (`feat:` / `fix:` / `!` / `BREAKING CHANGE:`) → tag + GitHub release. brAIn-mobile additionally builds + attaches an APK.
-- No npm publish workflow yet — Release Please tags only.
+- No npm publish workflow yet; Release Please tags only.
 - Deep static analysis: local `docker-compose.ci.yml` runs SonarQube CE; SonarCloud auto-analysis handles PRs on tibzejoker.
 
 ## Code conventions
 
 ### Strict ESLint (0 errors, 0 warnings required)
 
-- **No `any`** — use proper types or `unknown`
-- **No `console.*`** — use `pino` (core/nodes) or NestJS `Logger` (api)
-- **No `eslint-disable`** — `noInlineConfig: true` enforced globally
-- **No `!` assertions** — extract to a local with a null check instead
-- **`import type`** — enforced via `consistent-type-imports`
-- **`readonly`** — required on private properties that aren't reassigned
-- **Explicit return types** — on all functions (except expressions)
-- **`react-hooks/exhaustive-deps`** — error level
+- **No `any`**: use proper types or `unknown`
+- **No `console.*`**: use `pino` (core/nodes) or NestJS `Logger` (api)
+- **No `eslint-disable`**: `noInlineConfig: true` enforced globally
+- **No `!` assertions**: extract to a local with a null check instead
+- **`import type`**: enforced via `consistent-type-imports`
+- **`readonly`**: required on private properties that aren't reassigned
+- **Explicit return types**: on all functions (except expressions)
+- **`react-hooks/exhaustive-deps`**: error level
 - **`prefer-const`**, **`eqeqeq`**, **`no-floating-promises`**, **`require-await`**
-- **max-lines: 500** — split files if they exceed this
-- **`eslint-plugin-sonarjs`** — anti-patterns + cognitive-complexity ratchet (baseline 60)
+- **max-lines: 500**: split files if they exceed this
+- **`eslint-plugin-sonarjs`**: anti-patterns + cognitive-complexity ratchet (baseline 60)
 
 ### Logging
 
@@ -301,8 +325,9 @@ this.log.log("message");
 `BRAIN_EXTRA_NODES_DIRS`, `BRAIN_SEEDS_DIR`, `BRAIN_BROKER_PORT`,
 `BRAIN_BROKER_PREFS_PATH`, `BRAIN_NATS_URL`, `BRAIN_NATS_TOKEN`,
 `BRAIN_NATS_PREFIX`, `BRAIN_SKIP_NATS_DOWNLOAD`, `BRAIN_NO_STORE_CLONE`.
-No dotenv loading — environment is pre-populated.
+No dotenv loading; environment is pre-populated.
 
 Ollama (when nodes need it): `OLLAMA_HOST` (default
 `http://localhost:11434`), `OLLAMA_EMBED_MODEL` (default
 `qwen3-embedding:0.6b`).
+```
