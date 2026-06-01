@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import { BackgroundFX } from "./components/BackgroundFX";
 import { Header } from "./components/Header";
-import { Menu, type MenuView } from "./components/Menu";
+import { Menu } from "./components/Menu";
 import { NetworkGraph, type EdgeSelection } from "./components/NetworkGraph/NetworkGraph";
 import { NodePanel } from "./components/NodePanel";
 import { EdgePanel } from "./components/EdgePanel";
@@ -17,6 +17,7 @@ import { useMessages } from "./hooks/useMessages";
 import { useNodeTypes } from "./hooks/useNodeTypes";
 import { useSelectedNode } from "./hooks/useSelectedNode";
 import { useMessageFlows } from "./hooks/useMessageFlows";
+import { useUrlRouting } from "./hooks/useUrlRouting";
 import { getSocket } from "./api/socket";
 import { getTransport } from "./api/client";
 import { setApiToken, setSelfHubId, setSelfCanvasPos, setSelfBrokerMode } from "./api/request";
@@ -37,8 +38,9 @@ export function App(): React.ReactElement {
   const flows = useMessageFlows(nodes);
   const [creatorOpen, setCreatorOpen] = useState(false);
   const [selectedEdge, setSelectedEdge] = useState<EdgeSelection | null>(null);
-  const [activeView, setActiveView] = useState<MenuView>("graph");
-  const [uiNodeId, setUiNodeId] = useState<string | null>(null);
+  // URL-backed navigation: activeView + the fullscreen node overlay are
+  // mirrored into the path so reload/back/forward/bookmark all work.
+  const { view: activeView, nodeId: uiNodeId, setView: setActiveView, openNode, closeNode } = useUrlRouting();
   // Mobile-only: drawer state for the left Menu rail. Desktop ignores
   // this — the Menu renders inline at md+.
   const [menuOpen, setMenuOpen] = useState(false);
@@ -46,12 +48,12 @@ export function App(): React.ReactElement {
   const handleMenuClose = useCallback((): void => { setMenuOpen(false); }, []);
 
   const handleOpenNodeUi = useCallback((nodeId: string): void => {
-    setUiNodeId(nodeId);
-  }, []);
+    openNode(nodeId);
+  }, [openNode]);
 
   const handleCloseNodeUi = useCallback((): void => {
-    setUiNodeId(null);
-  }, []);
+    closeNode();
+  }, [closeNode]);
 
   useEffect(() => {
     // Keep the socket warm even though we no longer subscribe to devmode
