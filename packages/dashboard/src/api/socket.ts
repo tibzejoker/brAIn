@@ -61,6 +61,18 @@ export function onNodeStateChanged(
   };
 }
 
+/** A dynamic node type was (de)registered by the scanner — the spawnable
+ *  type list changed, so the Node Creator should refetch without a reload. */
+export function onTypeChanged(
+  cb: (event: { op: "registered" | "updated" | "unregistered"; typeName: string }) => void,
+): () => void {
+  const s = getSocket();
+  s.on("type:changed", cb);
+  return (): void => {
+    s.off("type:changed", cb);
+  };
+}
+
 /** Fired by the API whenever a node's subscriptions or publishes are
  *  edited via the live-wiring endpoints. Carries the nodeId so the
  *  side panel re-fetches just that node's snapshot. */

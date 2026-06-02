@@ -85,6 +85,12 @@ export class DashboardGateway implements OnGatewayInit {
       this.debounceState(data);
     });
 
+    // Dynamic node types (de)registered by the scanner — push so the Node
+    // Creator refreshes its spawnable list live, no page reload needed.
+    this.brain.on("type:registered", (data) => this.server.emit("type:changed", { op: "registered", ...data }));
+    this.brain.on("type:updated", (data) => this.server.emit("type:changed", { op: "updated", ...data }));
+    this.brain.on("type:unregistered", (data) => this.server.emit("type:changed", { op: "unregistered", ...data }));
+
     this.brain.on("message:published", (msg) => {
       this.server.emit("message:published", msg);
     });

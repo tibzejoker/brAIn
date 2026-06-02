@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback } from "react";
 import type { NodeTypeConfig } from "../api/types";
 import { getTypes } from "../api/client";
+import { onTypeChanged } from "../api/socket";
 
 interface UseNodeTypesResult {
   types: NodeTypeConfig[];
@@ -27,6 +28,9 @@ export function useNodeTypes(): UseNodeTypesResult {
 
   useEffect(() => {
     refresh();
+    // Live-refresh when the scanner (de)registers a dynamic type, so a
+    // freshly-developed node shows up in the Node Creator without a reload.
+    return onTypeChanged(() => { refresh(); });
   }, [refresh]);
 
   return { types, loading, refresh };
