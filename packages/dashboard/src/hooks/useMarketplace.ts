@@ -70,16 +70,47 @@ async function ensureLoaded(force = false): Promise<MarketplaceCache> {
   return inflight;
 }
 
+/**
+ * On arriving at the Marketplace, `git pull` the local registry clone so a
+ * stale local copy can't pin (and re-install) outdated node refs. Refreshes
+ * the list when the pull brought changes. Cooled down to 30s so toggling tabs
+ * doesn't hammer git; silently no-ops offline / without git.
+ */
+let lastAutoSyncAt = 0;
+let autoSyncInflight: Promise<{ updated: boolean; message: string } | null> | null = null;
+
+async function autoSync(): Promise<{ updated: boolean; message: string } | null> {
+  if (autoSyncInflight) return autoSyncInflight;
+  if (Date.now() - lastAutoSyncAt < 30_000) return null;
+  autoSyncInflight = (async () => {
+    try {
+      const r = await refreshStore();
+      if (r.updated) await ensureLoaded(true);
+      return r;
+    } catch {
+      return null;
+    } finally {
+      lastAutoSyncAt = Date.now();
+      autoSyncInflight = null;
+    }
+  })();
+  return autoSyncInflight;
+}
+
 export interface UseMarketplace {
   data: MarketplaceCache | null;
   loading: boolean;
   refetch: () => Promise<void>;
   pullMarketplace: () => Promise<{ updated: boolean; message: string }>;
+  /** Set when the on-mount auto-sync git-pulled new registry commits — lets
+   *  the UI tell the user their marketplace was behind and is now current. */
+  autoSynced: { updated: boolean; message: string } | null;
 }
 
 export function useMarketplace(): UseMarketplace {
   const [data, setData] = useState<MarketplaceCache | null>(cache);
   const [loading, setLoading] = useState(!cache);
+  const [autoSynced, setAutoSynced] = useState<{ updated: boolean; message: string } | null>(null);
 
   useEffect(() => {
     const listener: Listener = (snap) => setData(snap);
@@ -88,6 +119,8 @@ export function useMarketplace(): UseMarketplace {
       setLoading(true);
       void ensureLoaded().finally(() => setLoading(false));
     }
+    // Arriving at the page: make sure the local marketplace matches upstream.
+    void autoSync().then((r) => { if (r?.updated) setAutoSynced(r); });
     return () => { listeners.delete(listener); };
   }, []);
 
@@ -102,5 +135,5 @@ export function useMarketplace(): UseMarketplace {
     return r;
   }, []);
 
-  return { data, loading, refetch, pullMarketplace };
+  return { data, loading, refetch, pullMarketplace, autoSynced };
 }

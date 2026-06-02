@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { installFromStore, uninstallFromStore, type StoreNodeStatus, type InstalledNodeUpdate } from "../../api/store";
 import { useBusyRepos, setRepoBusy } from "../../api/install-progress";
 import { useMarketplace } from "../../hooks/useMarketplace";
@@ -38,7 +38,7 @@ function groupByRepo(
 }
 
 export function LibrariesView({ onChanged }: { onChanged: () => void }): React.ReactElement {
-  const { data, loading, refetch, pullMarketplace } = useMarketplace();
+  const { data, loading, refetch, pullMarketplace, autoSynced } = useMarketplace();
   // Repos with an install/uninstall in flight. Lives in a module-level
   // store (not component state) so it survives the Marketplace tab being
   // unmounted on navigation, and so several can run in parallel without
@@ -47,6 +47,14 @@ export function LibrariesView({ onChanged }: { onChanged: () => void }): React.R
   const [pulling, setPulling] = useState(false);
   const [query, setQuery] = useState("");
   const [banner, setBanner] = useState<{ type: "success" | "error" | "info"; message: string } | null>(null);
+
+  // The on-arrival auto-sync git-pulled new registry commits → tell the user
+  // their marketplace was behind and is now refreshed to the latest.
+  useEffect(() => {
+    if (autoSynced?.updated) {
+      setBanner({ type: "info", message: "Marketplace was out of date — pulled the latest and refreshed." });
+    }
+  }, [autoSynced]);
 
   const handlePull = useCallback((): void => {
     setPulling(true);
