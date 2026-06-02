@@ -269,16 +269,17 @@ export class BrainService extends EventEmitter {
       bus: opts.bus ?? this.bus,
       typeRegistry: opts.typeRegistry ?? this.typeRegistry,
     });
+    // Re-emit the scanner's type lifecycle so consumers (e.g. the dashboard
+    // gateway) react live: a developed node appears/disappears in the Node
+    // Creator without a page reload.
+    (["type:registered", "type:updated", "type:unregistered"] as const).forEach((ev) => this.dynamicScanner?.on(ev, (p) => this.emit(ev, p)));
     this.dynamicScanner.start();
     logger.info({ dir: opts.dynamicDir }, "Dynamic scanner started");
     return this.dynamicScanner;
   }
 
   stopDynamicScanner(): void {
-    if (this.dynamicScanner) {
-      this.dynamicScanner.stop();
-      this.dynamicScanner = null;
-    }
+    if (this.dynamicScanner) { this.dynamicScanner.stop(); this.dynamicScanner = null; }
   }
 
   getDynamicScanner(): DynamicTypeScanner | null { return this.dynamicScanner; }
