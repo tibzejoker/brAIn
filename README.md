@@ -208,7 +208,7 @@ fixture; the production code path always goes through NATS.
 > **Known limitation (scaling):** each instance subscribes to the whole
 > hierarchy (`<prefix>.>`) and filters locally with `matchTopic` to keep
 > brAIn's wildcard semantics. Every instance therefore sees all bus
-> traffic and filters it in memory — fine at small/LAN scale, but the
+> traffic and filters it in memory, fine at small/LAN scale, but the
 > first bottleneck as instance/message counts grow. The targeted fix is
 > narrower NATS subscriptions per real subject.
 
@@ -287,26 +287,35 @@ supported per upstream: `stdio`, `http` (Streamable HTTP), `sse`,
 `ws`. `ctx.signal` propagates, so preemption kills MCP calls in
 flight.
 
-### Skills: procedural memory served over the bus
+### Skills: procedural memory, served by the framework
 
-`packages/core/src/skills`. A shared library of `SKILL.md` files (the
-[Agent Skills](https://agentskills.io) frontmatter standard: `name` +
-`description`) that teach the LLM nodes *how* to do things — distinct
-from message-passing know-how. The framework, not any single node,
-owns the store and answers over NATS request/reply
-(`skills.rpc.{search,load,save,delete,list}`), so a remote `brain-agent`
-asks "how do we do X?" and gets the file back without storing anything
-locally. One library, every LLM node, cross-machine.
+`packages/core/src/skills`. A shared library of `SKILL.md` files that
+teach the LLM nodes *how* to do things, separate from the message-passing
+wiring. The idea is borrowed from the **Hermes** agent's skill library,
+and it follows the open [Agent Skills](https://agentskills.io) format
+(`name` + `description` frontmatter, progressive disclosure: the catalog
+first, the full body on demand).
+
+Serving is a **framework** concern, not a node one. The framework owns the
+store and answers over NATS request/reply
+(`skills.rpc.{search,load,save,delete,list}`); a node only consumes,
+through the thin `ctx.skills` facade that rides the bus. So any LLM node,
+including a remote `brain-agent` on another machine, asks "how do we do
+X?" and gets the file back without keeping a local copy. One library,
+every LLM node, cross-machine. Libs don't *own* skills; they just ship
+`SKILL.md` files that the framework merges into the single store.
 
 - **Three tiers**: *user* (personal, in `data/skills`, always available),
-  *lib-capability* (bundled by an installed lib, e.g. `web-fetch`), and
-  *node-scoped* (`requires_node: <type>` frontmatter — only surfaced once
-  an instance of that type is live, so no dead skills clutter the catalog).
+  *lib-capability* (a `SKILL.md` shipped by an installed lib, e.g.
+  `web-fetch`), and *node-scoped* (`requires_node:` frontmatter, only
+  surfaced once an instance of that type is live, so no dead skills clutter
+  the catalog).
 - **Retrieval**: semantic ranking via Ollama embeddings
   (`qwen3-embedding:0.6b`, cosine, content-versioned cache) with a keyword
   fallback. The brain auto-injects the single most relevant skill's body
-  and lists the rest, then can `load_skill({name})` for others — which is
-  what makes skills land reliably even on a small model like `gemma4:e4b`.
+  and lists the rest, then can `load_skill({name})` for others. Auto-inject,
+  rather than relying on the model to call a tool, is what makes skills land
+  reliably even on a small model like `gemma4:e4b`.
 - **Writable**: LLM nodes (and the dashboard's Skills panel) can
   `save` / `delete` personal skills; bundled ones are read-only.
 
@@ -326,7 +335,7 @@ locally. One library, every LLM node, cross-machine.
 SQLite (`data/brain.db`) via `better-sqlite3`. Spawned nodes,
 their subscriptions, and mailbox config survive restarts; on boot each
 node re-subscribes and waits, idle, for its next message (the runtime
-is purely reactive — there is no separate persisted dormancy state).
+is purely reactive, with no separate persisted dormancy state).
 
 ### Authoring a node
 
