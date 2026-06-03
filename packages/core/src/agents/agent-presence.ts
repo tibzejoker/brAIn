@@ -306,8 +306,15 @@ export function startAgentPresence(opts: AgentPresenceOptions): AgentPresenceHan
     // GET /nodes/:id/ui/messages so the remote dashboard polls one endpoint.
     natsBus.respondToRequests(`brain.agents.${agentId}.ui_messages`, (payload) => {
       const { nodeId } = payload as { nodeId: string };
-      const received = brain.bus.readMessages(nodeId, { mode: "all", limit: 50 });
+      // A node's OWN published messages (status, cache snapshots, results) are
+      // what its UI panel renders. They must NOT be crowded out by a high-rate
+      // INBOUND stream (e.g. a phone at 60 Hz accel): a single sorted
+      // `slice(-50)` would return 50 of the newest accel samples and drop every
+      // status/cache publish, so the panel showed "no device" / "Pre-warming"
+      // even though the node was healthy. Keep the two sides on separate
+      // budgets and never trim the published side.
       const sent = brain.bus.getMessageHistory({ from: nodeId, last: 50 });
+      const received = brain.bus.readMessages(nodeId, { mode: "all", limit: 20 });
       const seen = new Set<string>();
       const all: typeof received = [];
       for (const m of [...received, ...sent]) {
@@ -316,7 +323,7 @@ export function startAgentPresence(opts: AgentPresenceOptions): AgentPresenceHan
         all.push(m);
       }
       all.sort((a, b) => a.timestamp - b.timestamp);
-      return all.slice(-50);
+      return all;
     });
 
     // Static UI file. Returns base64 content + content-type so the remote
