@@ -17,7 +17,7 @@
     "@brain/sdk": "workspace:*"
   },
   "devDependencies": {
-    "@types/node": "^20.19.41",
+    "@types/node": "^20.19.42",
     "typescript": "^5.4.0"
   }
 }
