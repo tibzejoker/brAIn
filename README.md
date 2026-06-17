@@ -43,7 +43,7 @@ of this resonates, take a look.
 
 ## 🎥 Watch the explainer
 
-https://github.com/tibzejoker/brAIn/releases/download/explainer-video/brain-explainer.mp4
+<video src="https://github.com/tibzejoker/brAIn/releases/download/explainer-video/brain-explainer.mp4" controls muted></video>
 
 > A 2-minute tour of what makes brAIn different — reactive many-to-many nodes,
 > criticality with preemption, the live dashboard, any-model-per-node,
