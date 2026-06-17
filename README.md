@@ -41,6 +41,14 @@ It's not a polished product and it's not trying to replace anything.
 It's my honest attempt at a problem I don't think is solved yet. If any
 of this resonates, take a look.
 
+## 🎥 Watch the explainer
+
+[![brAIn — the explainer](https://img.youtube.com/vi/yw8V6p6Uu1w/maxresdefault.jpg)](https://www.youtube.com/watch?v=yw8V6p6Uu1w)
+
+> A 2-minute tour of what makes brAIn different — reactive many-to-many nodes,
+> criticality with preemption, the live dashboard, any-model-per-node,
+> distributed + MCP, and what you can build with it.
+
 ## See it in action
 
 ### A live graph of your whole network
