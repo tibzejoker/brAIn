@@ -43,11 +43,12 @@ of this resonates, take a look.
 
 ## 🎥 Watch the explainer
 
-[![brAIn — the explainer](https://img.youtube.com/vi/yw8V6p6Uu1w/maxresdefault.jpg)](https://www.youtube.com/watch?v=yw8V6p6Uu1w)
+https://github.com/user-attachments/assets/90773023-a671-4146-9191-615b1f92a7b1
 
 > A 2-minute tour of what makes brAIn different — reactive many-to-many nodes,
 > criticality with preemption, the live dashboard, any-model-per-node,
 > distributed + MCP, and what you can build with it.
+> &nbsp;▶︎ Also on [YouTube](https://www.youtube.com/watch?v=yw8V6p6Uu1w).
 
 ## See it in action
 
