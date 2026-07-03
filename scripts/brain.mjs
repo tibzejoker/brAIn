@@ -93,17 +93,22 @@ function verifyChecksums(rootDir, checksums) {
 }
 
 /** pnpm install in the framework root + pnpm -r build in the cloned repo. */
+// shell: true on Windows — pnpm resolves to a .cmd shim there, which Node
+// refuses to spawnSync directly (status null, empty stderr, so the pull
+// failed with a blank error). Same treatment as the create-brain installer.
+const PNPM_SHELL = process.platform === "win32";
+
 function installAndBuild(repoDir) {
   process.stderr.write(`brain:   pnpm install (workspace)…\n`);
   const inst = spawnSync("pnpm", ["install"], {
-    cwd: FRAMEWORK_ROOT, stdio: ["ignore", "pipe", "pipe"], timeout: 5 * 60_000,
+    cwd: FRAMEWORK_ROOT, stdio: ["ignore", "pipe", "pipe"], timeout: 5 * 60_000, shell: PNPM_SHELL,
   });
   if (inst.status !== 0) {
     return `pnpm install: ${(inst.stderr ?? "").toString().split("\n").slice(-3).join(" | ")}`;
   }
   process.stderr.write(`brain:   pnpm -r build (in ${path.basename(repoDir)})…\n`);
   const build = spawnSync("pnpm", ["--dir", repoDir, "-r", "build"], {
-    cwd: FRAMEWORK_ROOT, stdio: ["ignore", "pipe", "pipe"], timeout: 5 * 60_000,
+    cwd: FRAMEWORK_ROOT, stdio: ["ignore", "pipe", "pipe"], timeout: 5 * 60_000, shell: PNPM_SHELL,
   });
   if (build.status !== 0) {
     return `pnpm -r build: ${(build.stderr ?? "").toString().split("\n").slice(-5).join(" | ")}`;
