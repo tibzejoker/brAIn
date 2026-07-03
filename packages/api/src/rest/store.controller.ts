@@ -83,6 +83,16 @@ export class StoreController {
   }
 
   /**
+   * Register node types from repos installed OUTSIDE the API process —
+   * `pnpm brain pull` (CLI) clones + builds on disk and then pings this
+   * so its types are spawnable without restarting the stack.
+   */
+  @Post("rescan")
+  rescan(): { repos: number; new_types: number } {
+    return this.brain.store.rescanInstalled();
+  }
+
+  /**
    * Cheap "is the marketplace ahead?" check. `git fetch` + diff.
    * Lets the dashboard show an "update available" badge without
    * actually pulling.

@@ -131,7 +131,7 @@ function cmdList() {
   }
 }
 
-function cmdPull(name) {
+async function cmdPull(name) {
   if (!name) die("usage: brain pull <node-name>\n  → see `brain list` for options.");
   const reg = readRegistry();
   const node = (reg.nodes ?? []).find((n) => n.name === name);
@@ -163,6 +163,29 @@ function cmdPull(name) {
   process.stdout.write(`  subpath: ${node.subpath}\n`);
   if (node.needs_python) process.stdout.write(`  needs python — see ${node.repo}'s README\n`);
   if (node.needs_ollama) process.stdout.write(`  needs ollama running locally\n`);
+  await notifyApiRescan();
+}
+
+/**
+ * Tell a running API to register the freshly-installed node types — the
+ * CLI installs on disk, outside the API's own install path, so without
+ * this a live stack can't spawn the new types until the next restart.
+ * Best-effort: when the stack is down, boot-time discovery covers it.
+ */
+async function notifyApiRescan() {
+  const api = `http://localhost:${process.env.API_PORT ?? "3000"}`;
+  try {
+    const res = await fetch(`${api}/store/rescan`, {
+      method: "POST", signal: AbortSignal.timeout(5_000),
+    });
+    if (res.ok) {
+      const body = await res.json().catch(() => null);
+      const n = body?.new_types ?? 0;
+      process.stdout.write(`  live API rescanned (${n} new type${n === 1 ? "" : "s"} registered)\n`);
+    }
+  } catch {
+    process.stdout.write(`  (stack not running — types will register at next boot)\n`);
+  }
 }
 
 function cmdRemove(name, yes) {
@@ -327,7 +350,7 @@ function usage() {
 
 switch (cmd) {
   case "list": cmdList(); break;
-  case "pull": cmdPull(argv[1]); break;
+  case "pull": await cmdPull(argv[1]); break;
   case "remove": cmdRemove(argv[1], argv.includes("--yes")); break;
   case "refresh-registry": cmdRefreshRegistry(argv.includes("--write")); break;
   case "-h":

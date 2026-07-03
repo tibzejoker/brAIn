@@ -408,4 +408,24 @@ export class StoreService {
     const after = this.typeRegistry.list().length;
     return after - before;
   }
+
+  /**
+   * Re-scan every installed store repo and register any node types the
+   * registry doesn't know yet. The CLI (`pnpm brain pull`) installs nodes
+   * without going through the API install path — it calls POST
+   * /store/rescan when the API is up so freshly-pulled types are usable
+   * without restarting the stack.
+   */
+  rescanInstalled(): { repos: number; new_types: number } {
+    if (!fs.existsSync(this.bundlesRoot)) return { repos: 0, new_types: 0 };
+    let repos = 0;
+    let newTypes = 0;
+    for (const entry of fs.readdirSync(this.bundlesRoot, { withFileTypes: true })) {
+      if (!entry.isDirectory()) continue;
+      const added = this.rescan(path.join(this.bundlesRoot, entry.name));
+      repos += 1;
+      newTypes += added;
+    }
+    return { repos, new_types: newTypes };
+  }
 }
