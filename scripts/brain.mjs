@@ -58,15 +58,20 @@ function isInstalled(node) {
 
 function cloneAndCheckout(cloneUrl, repoDir, ref) {
   const isFullSha = /^[0-9a-f]{40}$/.test(ref);
-  const r1 = spawnSync("git", ["clone", "--filter=blob:none", "--no-checkout", cloneUrl, repoDir], {
+  // Registry checksums are computed over LF bytes — neutralise a Windows
+  // user's global core.autocrlf=true on every git step that materialises
+  // files, or verifyChecksums would compare CRLF-rewritten content. Same
+  // flags as the framework's own install path (core/src/store/install.ts).
+  const NO_EOL_REWRITE = ["-c", "core.autocrlf=false", "-c", "core.eol=lf"];
+  const r1 = spawnSync("git", [...NO_EOL_REWRITE, "clone", "--filter=blob:none", "--no-checkout", cloneUrl, repoDir], {
     stdio: ["ignore", "pipe", "pipe"],
   });
   if (r1.status !== 0) return `git clone failed: ${(r1.stderr ?? "").toString().trim()}`;
-  const r2 = spawnSync("git", ["fetch", "--depth", "1", "origin", ref], {
+  const r2 = spawnSync("git", [...NO_EOL_REWRITE, "fetch", "--depth", "1", "origin", ref], {
     cwd: repoDir, stdio: ["ignore", "pipe", "pipe"],
   });
   if (r2.status !== 0) return `git fetch ${ref} failed: ${(r2.stderr ?? "").toString().trim()}`;
-  const r3 = spawnSync("git", ["checkout", "FETCH_HEAD"], {
+  const r3 = spawnSync("git", [...NO_EOL_REWRITE, "checkout", "FETCH_HEAD"], {
     cwd: repoDir, stdio: ["ignore", "pipe", "pipe"],
   });
   if (r3.status !== 0) return `git checkout FETCH_HEAD failed: ${(r3.stderr ?? "").toString().trim()}`;
