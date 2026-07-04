@@ -134,7 +134,7 @@ The framework is deliberately small. Most "integrations" are recurring patterns 
 - **Tests**: vitest with a global setup that brings up one nats-server per session. Handler tests mock `NodeContext`; integration tests use the real NATS embedded. Coverage via `@vitest/coverage-v8` → `coverage/lcov.info`.
 - **Lint policy**: `pnpm lint` must pass with **0 errors and 0 warnings**. `eslint-plugin-sonarjs` enforces anti-patterns + a cognitive-complexity ratchet (baseline 60).
 - **CI**: GitHub Actions per repo: `ci` (lint + framework tests + per-node tests), `gitleaks`, `trufflehog`, `release-please`. Branch protection requires all four; auto-merge enabled per-PR. Dependabot wired in.
-- **Versioning**: Release Please derives tags + GitHub releases from Conventional Commits (`feat:` / `fix:` / `!` / `BREAKING CHANGE:`). brAIn-mobile additionally builds + attaches an APK. No npm publish workflow yet.
+- **Versioning**: Release Please derives tags + GitHub releases from Conventional Commits (`feat:` / `fix:` / `!` / `BREAKING CHANGE:`). brAIn-mobile additionally builds + attaches an APK. Packages are consumed as workspace members (not published to npm).
 - **Deep static analysis**: local `docker-compose.ci.yml` runs SonarQube CE; SonarCloud auto-analysis covers PRs on tibzejoker.
 
 ## 8 · Security model

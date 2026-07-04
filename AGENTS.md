@@ -214,7 +214,7 @@ into thin controllers:
   token rotate + devmode + tickAll
 - `SeedsController` (`/network/seeds`): list + get + apply (+ `?merge=true`)
   + save personal seed + delete personal seed
-- `StoreController`: index, nodes, candidates, install, uninstall, refresh,
+- `StoreController`: index, nodes, candidates, install, uninstall, refresh, rescan,
   upstream-status, installed-updates (the standalone seed-download
   endpoints were removed; workflows ship with their library)
 - `LLMController` (`/llm`) + `ToolsController` (`/tools`): provider /
@@ -279,7 +279,7 @@ SonarQube.
 - GitHub Actions per repo: `.github/workflows/{ci,gitleaks,trufflehog,release-please}.yml` + `.github/dependabot.yml`.
 - Branch protection: `lint`, framework tests, per-node tests, `scan` (gitleaks + trufflehog). Auto-merge enabled per-PR.
 - Release Please drives versioning from Conventional Commits (`feat:` / `fix:` / `!` / `BREAKING CHANGE:`) → tag + GitHub release. brAIn-mobile additionally builds + attaches an APK.
-- No npm publish workflow yet; Release Please tags only.
+- Packages are consumed as workspace members; Release Please handles repo-level tags/releases.
 - Deep static analysis: local `docker-compose.ci.yml` runs SonarQube CE; SonarCloud auto-analysis handles PRs on tibzejoker.
 
 ## Code conventions

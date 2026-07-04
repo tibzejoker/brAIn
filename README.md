@@ -447,7 +447,9 @@ it's installed.
   (browser interface for human ↔ network).
 - [**brAIn-perception**](https://github.com/tibzejoker/brAIn-perception):
   `voice` (faster-whisper + WeSpeaker), `gaze` (InsightFace +
-  Gazelle + Moondream), `intent` (voice × gaze correlator).
+  Gazelle + Moondream), `intent` (voice × gaze correlator),
+  `tts` (OS voices or the Kokoro-82M neural voice — the network
+  answers out loud).
 - [**brAIn-bridges**](https://github.com/tibzejoker/brAIn-bridges):
   `telegram`, `discord`, `whatsapp` (reach the network from a
   chat app, off your machine).
@@ -461,11 +463,18 @@ it's installed.
 
 `voice` publishes `voice.transcript`, `gaze` publishes
 `gaze.target.resolved`, `intent` matches them on a sliding window
-and emits `intent.detected` when the same person is seen looking at
-the camera while talking. Combined with `brain` and `chat`, the
-room agent responds without a wake word or a chat-box input. The
-voice and gaze servers auto-install their virtualenv and download
-the ML weights on first spawn.
+and emits `intent.detected` for every correlated utterance (the
+chat displays them as reported speech). When the speaker is looking
+at the camera — addressing the AI — intent also emits
+`intent.addressed`, carrying the question plus everything overheard
+since the last exchange, and THAT is what wakes `brain`: humans
+talking among themselves never cost an LLM call. Combined with
+`chat` and the Kokoro `tts` node, the room agent hears the
+conversation, answers without a wake word, and speaks its reply out
+loud. The voice and gaze servers auto-install their virtualenv and
+download the ML weights on first spawn — and both accept a video
+file in place of the live camera/mic (`{"file": …}` on
+`/api/capture/start`) to replay a scene deterministically.
 
 ---
 
@@ -619,6 +628,7 @@ GET    /store/{index,nodes,candidates,upstream-status,installed-updates}
 POST   /store/install            { package_name }
 POST   /store/uninstall          { package_name }
 POST   /store/refresh            Pull brAIn-store
+POST   /store/rescan             Register types installed by the CLI
 
 # Agents (distributed)
 GET    /agents
