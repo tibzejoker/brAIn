@@ -510,6 +510,22 @@ importers:
         specifier: ^5.4.0
         version: 5.9.3
 
+  ../storeprojects/brAIn-perception/nodes/media-source:
+    dependencies:
+      '@brain/core':
+        specifier: workspace:*
+        version: link:../../../../brAIn/packages/core
+      '@brain/sdk':
+        specifier: workspace:*
+        version: link:../../../../brAIn/packages/sdk
+    devDependencies:
+      '@types/node':
+        specifier: ^20.11.0
+        version: 20.19.41
+      typescript:
+        specifier: ^5.4.0
+        version: 5.9.3
+
   ../storeprojects/brAIn-perception/nodes/tts:
     dependencies:
       '@brain/core':
