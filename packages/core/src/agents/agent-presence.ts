@@ -270,8 +270,17 @@ export function startAgentPresence(opts: AgentPresenceOptions): AgentPresenceHan
       //    the same node type this manifests as "the other one speaks" —
       //    the broadcast still reaches the OTHER subscriber but not the
       //    one whose UI the user is operating.
+      //
+      // Live bus subscriptions only exist on the hub that RUNS the node.
+      // When the node is hosted by a remote agent (transport "remote"),
+      // this hub answers node_call with just a registry stub and zero bus
+      // subscriptions — so also consult the stub's DECLARED subscriptions.
+      // Without this, `from` falls back to the node id and the hosting
+      // agent's anti-loop drops the message before the runner ever wakes.
       const subs = brain.bus.getSubscriptions(nodeId);
-      const isInbound = subs.some((s) => matchTopic(s.pattern, topic));
+      const declared = brain.instanceRegistry.get(nodeId)?.subscriptions ?? [];
+      const isInbound = subs.some((s) => matchTopic(s.pattern, topic))
+        || declared.some((s) => matchTopic(s.topic, topic));
       const from = isInbound ? `ui:${nodeId}` : nodeId;
       const msg = brain.bus.publish({
         from,

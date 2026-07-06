@@ -12,8 +12,10 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Agent, AgentDirectory } from "../packages/agent/src/agent";
-import { BrainService, NatsBusService } from "@brain/core";
+import { BrainService, NatsBusService, startAgentPresence } from "@brain/core";
+import type { Message } from "@brain/sdk";
 import { resolve } from "node:path";
+import { allStoreprojectNodeDirs } from "./_helpers/storeprojects-dirs";
 
 // Shared broker from tests/_setup/nats-broker.ts.
 const URL = process.env.BRAIN_TEST_NATS_URL;
@@ -142,4 +144,57 @@ describe.skipIf(!HAS_NATS)("brAIn-agent + AgentDirectory", () => {
     api.killAll();
     await apiBus.close();
   });
+
+  it("node_call from the owning hub wakes a node hosted by a remote agent", async () => {
+    const hubBus = new NatsBusService({ url: URL!, prefix: "agt4" });
+    const agentBus = new NatsBusService({ url: URL!, prefix: "agt4" });
+    await hubBus.connect(); await agentBus.connect();
+    const hub = new BrainService(":memory:", hubBus);
+    hub.bootstrap(allStoreprojectNodeDirs());
+    const agent = new BrainService(":memory:", agentBus);
+    agent.bootstrap(allStoreprojectNodeDirs());
+    const hubPresence = startAgentPresence({ brain: hub, bus: hubBus, agentId: "hub-A", host: "hub" });
+    const agentPresence = startAgentPresence({ brain: agent, bus: agentBus, agentId: "agent-B", host: "pc" });
+    try {
+      // Spawn THROUGH the hub: stub locally, real runner on the agent.
+      const stub = await hub.spawnNode({
+        type: "echo", name: "echo-far",
+        transport: "remote", target_agent_id: "agent-B",
+        subscriptions: [{ topic: "far.ping" }],
+      });
+      let hosted = agent.instanceRegistry.get(stub.id);
+      const spawnDeadline = Date.now() + 3000;
+      while (Date.now() < spawnDeadline && !hosted) {
+        await wait(50);
+        hosted = agent.instanceRegistry.get(stub.id);
+      }
+      expect(hosted).toBeDefined();
+
+      // Drive it exactly like POST /node/:id/far.ping — node_call answered
+      // by the OWNING hub, which has only the registry stub (no live bus
+      // subscriptions for the node).
+      const reply = await hubBus.requestRemote<{ message_id: string }>(
+        "brain.agents.hub-A.node_call",
+        { nodeId: stub.id, topic: "far.ping", body: { content: "ping-across" } },
+      );
+      expect(reply.message_id).toBeTruthy();
+
+      // The echo handler on the agent republishes on echo.output. Regression:
+      // node_call used `from: <node id>` when the local bus had no subs, and
+      // the hosting agent's anti-loop swallowed the message — no wake, ever.
+      const deadline = Date.now() + 5000;
+      let out: Message[] = [];
+      while (Date.now() < deadline && out.length === 0) {
+        await wait(100);
+        out = hubBus.getMessageHistory({ topic: "echo.output", last: 5 })
+          .filter((m) => m.from === stub.id);
+      }
+      expect(out.length).toBeGreaterThan(0);
+      expect((out[0].payload as { content: string }).content).toContain("ping-across");
+    } finally {
+      hubPresence.stop(); agentPresence.stop();
+      hub.killAll(); agent.killAll();
+      await hubBus.close(); await agentBus.close();
+    }
+  }, 30000);
 });
