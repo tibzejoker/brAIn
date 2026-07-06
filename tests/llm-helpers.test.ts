@@ -5,6 +5,7 @@ import {
   parseTolerantJson,
   repairTruncatedJson,
 } from "../packages/core/src/llm";
+import { wrapInputSchema } from "../packages/core/src/llm/llm-facade-helpers";
 
 describe("stripReasoningTags", () => {
   it("removes <think>…</think> blocks", () => {
@@ -94,5 +95,57 @@ describe("repairTruncatedJson", () => {
 
   it("passes through valid JSON unchanged", () => {
     expect(repairTruncatedJson('{"a":1,"b":2}')).toEqual({ a: 1, b: 2 });
+  });
+});
+
+describe("wrapInputSchema — ajv-backed arg validation", () => {
+  // ai-sdk Schema objects expose the validate hook directly; absent hook
+  // means cast-only (ai-sdk accepts any parsed JSON).
+  function runValidate(wrapped: unknown, value: unknown): { ok: boolean; message?: string } {
+    const schema = wrapped as { validate?: (v: unknown) => { success: boolean; error?: Error } };
+    if (typeof schema.validate !== "function") return { ok: true };
+    const res = schema.validate(value);
+    return res.success ? { ok: true } : { ok: false, message: res.error?.message };
+  }
+
+  const STORE_SCHEMA = {
+    type: "object",
+    properties: {
+      key: { type: "string" },
+      value: {},
+      tags: { type: "array", items: { type: "string" } },
+    },
+    required: ["key", "value"],
+  };
+
+  it("accepts args that satisfy the schema", () => {
+    const wrapped = wrapInputSchema(STORE_SCHEMA);
+    const res = runValidate(wrapped, { key: "user_city", value: "Lyon", tags: ["user"] });
+    expect(res.ok).toBe(true);
+  });
+
+  it("rejects the {content: json-string} wrapper a small model emits", () => {
+    const wrapped = wrapInputSchema(STORE_SCHEMA);
+    const res = runValidate(wrapped, { content: '{"key":"user_city","value":"Lyon"}' });
+    expect(res.ok).toBe(false);
+    expect(res.message).toMatch(/required property 'key'/);
+  });
+
+  it("rejects wrong types", () => {
+    const wrapped = wrapInputSchema(STORE_SCHEMA);
+    const res = runValidate(wrapped, { key: 42, value: "x" });
+    expect(res.ok).toBe(false);
+  });
+
+  it("accepts anything when no schema was declared", () => {
+    const wrapped = wrapInputSchema(undefined);
+    const res = runValidate(wrapped, { whatever: true });
+    expect(res.ok).toBe(true);
+  });
+
+  it("falls back to cast-only on a malformed schema", () => {
+    const wrapped = wrapInputSchema({ type: "object", properties: { a: { type: "not-a-type" } } });
+    const res = runValidate(wrapped, { a: 1 });
+    expect(res.ok).toBe(true);
   });
 });
