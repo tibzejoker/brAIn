@@ -12,10 +12,10 @@
  * anymore — go through ctx.llm. That keeps the boilerplate centralised
  * and means provider swaps don't ripple into nodes.
  */
-import { generateText, tool as aiTool } from "ai";
+import { generateText, tool as aiTool, InvalidToolInputError, NoSuchToolError } from "ai";
 import { CLIRegistry } from "./cli-registry";
 import { extractReasoningText } from "./reasoning";
-import { wrapInputSchema, STOP_TOOL, warnIfUnionSchema, parseToolChoice } from "./llm-facade-helpers";
+import { wrapInputSchema, STOP_TOOL, warnIfUnionSchema, parseToolChoice, buildToolsAttemptPrompt } from "./llm-facade-helpers";
 import type {
   LLMFacadeDeps, TextOptions, ToolOptions, MultiToolOptions, MultiToolResult,
   AgentOptions, AgentResult, ResolutionTrace, UsageEvent,
@@ -160,15 +160,20 @@ export class LLMFacade {
       };
 
       // Within a single candidate, we retry on "model emitted text but
-      // no tool call". A different error (network, auth, etc.) escapes
-      // this loop and the outer one moves to the next provider.
+      // no tool call" and on "tool called with nonconforming args". A
+      // different error (network, auth, etc.) escapes this loop and the
+      // outer one moves to the next provider.
+      let lastInvalid = "";
       for (let attempt = 0; attempt <= maxRetries; attempt++) {
         const start = Date.now();
         try {
           const model = this.deps.registry.getModel(candidate.spec);
+          const strictHint = lastInvalid
+            ? `>>> Previous attempt called \`${opts.tool.name}\` with INVALID arguments: ${lastInvalid}. Call it again with an arguments object that satisfies the schema exactly — every required field, correct types, no wrapper object.`
+            : `>>> Previous attempt did not call the tool. You MUST call \`${opts.tool.name}\` exactly once. Do not reply in plain text.`;
           const system = attempt === 0
             ? opts.system
-            : `${opts.system ?? ""}\n\n>>> Previous attempt did not call the tool. You MUST call \`${opts.tool.name}\` exactly once. Do not reply in plain text.`;
+            : `${opts.system ?? ""}\n\n${strictHint}`;
           const result = await generateText({
             model,
             system,
@@ -204,6 +209,7 @@ export class LLMFacade {
             error: "no tool call emitted",
           });
           lastError = new Error(`${candidate.spec}: no tool call emitted`);
+          lastInvalid = "";
           if (attempt === maxRetries) {
             failedProviders.add(provider);
             break; // out of attempts on this candidate — try the next provider
@@ -215,6 +221,16 @@ export class LLMFacade {
             error: lastError.message,
           });
           if ((opts.signal ?? this.deps.signal).aborted) throw lastError;
+          // Nonconforming args = model slip, not a provider fault — retry
+          // the same candidate with the rejection spelled out.
+          if (InvalidToolInputError.isInstance(err)) {
+            lastInvalid = lastError.message;
+            if (attempt === maxRetries) {
+              failedProviders.add(provider);
+              break;
+            }
+            continue;
+          }
           // Real provider error: skip to the next provider (no retries on this one).
           failedProviders.add(provider);
           break;
@@ -314,32 +330,16 @@ export class LLMFacade {
       // Text the model emitted instead of a tool call on the previous try —
       // fed back (without the original conversation) to focus the correction.
       let lastText = "";
+      // Rejection detail when the previous try DID call a tool but with
+      // args that failed the tool's inputSchema (or an unknown tool name).
+      let lastInvalid = "";
       for (let attempt = 0; attempt <= maxRetries; attempt++) {
         const start = Date.now();
         try {
           const model = this.deps.registry.getModel(candidate.spec);
-          // Try 0: the real prompt verbatim.
-          // Retries: keep the WHOLE conversation (so the model still sees the
-          // user's actual request), append its previous prose as an assistant
-          // turn (so it sees its own slip), then a tight user-side correction
-          // that forbids meta-acknowledgement and forces a real answer.
-          const system = attempt === 0
-            ? (opts.system ?? "")
-            : `${opts.system ?? ""}\n\nIMPORTANT: respond to the user's latest message by calling EXACTLY ONE of the available tools. Never reply with plain text, never apologise, never acknowledge instructions — just call the appropriate tool.`.trim();
-          const messages = attempt === 0
-            ? baseMessages
-            : [
-                ...baseMessages,
-                ...(lastText ? [{ role: "assistant" as const, content: lastText }] : []),
-                {
-                  role: "user" as const,
-                  content:
-                    `That reply was plain text, not a tool call. ` +
-                    `Do NOT apologise, do NOT say "understood" or "I will", do NOT explain. ` +
-                    `Now answer my previous request above by calling EXACTLY ONE of: ${toolNames.join(", ")}. ` +
-                    `Output only the tool call.`,
-                },
-              ];
+          const { system, messages } = buildToolsAttemptPrompt({
+            attempt, system: opts.system, baseMessages, lastText, lastInvalid, toolNames,
+          });
           const result = await generateText({
             model,
             system,
@@ -367,6 +367,7 @@ export class LLMFacade {
           }
           // Remember the prose so the next attempt can quote it back.
           lastText = (result as { text?: string }).text ?? lastText;
+          lastInvalid = "";
           this.emitUsage({
             call_kind: "tools", resolution, latency_ms: Date.now() - start,
             tokens: usage ? { input: usage.inputTokens, output: usage.outputTokens, total: usage.totalTokens } : undefined,
@@ -384,6 +385,18 @@ export class LLMFacade {
             error: lastError.message,
           });
           if ((opts.signal ?? this.deps.signal).aborted) throw lastError;
+          // The MODEL misbehaved (nonconforming args or an unknown tool
+          // name) — the provider is healthy, so retry the SAME candidate
+          // with the rejection quoted back instead of failing over.
+          if (InvalidToolInputError.isInstance(err) || NoSuchToolError.isInstance(err)) {
+            lastInvalid = lastError.message;
+            lastText = "";
+            if (attempt === maxRetries) {
+              failedProviders.add(provider);
+              break;
+            }
+            continue;
+          }
           failedProviders.add(provider);
           break;
         }
