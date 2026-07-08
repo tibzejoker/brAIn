@@ -52,6 +52,19 @@ https://github.com/user-attachments/assets/90773023-a671-4146-9191-615b1f92a7b1
 
 ## See it in action
 
+### Talk to it
+
+https://github.com/user-attachments/assets/01c5195b-246f-401f-acf7-25b26985408f
+
+Sound on. A video is replayed as a virtual camera and microphone, and
+the whole perception stack treats it as live input. `voice`
+transcribes and diarizes the two speakers, `gaze` tracks who is
+looking where, and `intent` pairs the two: people talking to each
+other stays context, but the moment a speaker addresses the camera
+the `brain` wakes up, answers, and the Kokoro `tts` node speaks the
+reply out loud. No wake word, and overheard chatter never costs an
+LLM call.
+
 ### A live graph of your whole network
 
 ![brAIn dashboard, the live node graph](.github/assets/brain_dashboard.gif)
@@ -83,6 +96,17 @@ way whether it runs locally or on a remote peer.
 A tic-tac-toe node played through the Telegram bridge. The same node
 logic is exposed over an external channel, so interfaces stay reusable
 across the bus, even off your machine.
+
+### Your phone is a node too
+
+https://github.com/user-attachments/assets/64b0606b-fc4f-407f-88bd-586971f44be6
+
+brAIn-mobile turns a phone into a node: its sensors (light, motion,
+battery) stream onto the bus like any other publisher, and the brain
+reacts to what physically happens to the device. Here it has strong
+opinions about where it just got put down. The reply loops back to the
+phone's own screen and speaker, so perception and reaction both live
+at the edge.
 
 ---
 
@@ -474,7 +498,9 @@ conversation, answers without a wake word, and speaks its reply out
 loud. The voice and gaze servers auto-install their virtualenv and
 download the ML weights on first spawn — and both accept a video
 file in place of the live camera/mic (`{"file": …}` on
-`/api/capture/start`) to replay a scene deterministically.
+`/api/capture/start`) to replay a scene deterministically. This
+whole pipeline is the first video in
+[See it in action](#see-it-in-action) above.
 
 ---
 
