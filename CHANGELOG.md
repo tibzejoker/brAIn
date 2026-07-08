@@ -1,5 +1,16 @@
 # Changelog
 
+## [1.0.1](https://github.com/tibzejoker/brAIn/compare/v1.0.0...v1.0.1) (2026-07-08)
+
+
+### Bug Fixes
+
+* **agents:** node_call must not impersonate a remotely-hosted node ([ca62ed3](https://github.com/tibzejoker/brAIn/commit/ca62ed328c4b710b4a16e6b81b833ebeedd87e01))
+* **brain-cli:** pnpm pull steps failed silently on Windows ([0a6e042](https://github.com/tibzejoker/brAIn/commit/0a6e0420605ffa268bc8b2d495f6416c4a790868))
+* **brain-cli:** verify checksums over LF bytes on Windows ([49cc7e7](https://github.com/tibzejoker/brAIn/commit/49cc7e72ec71e5fadd8f5466cf4a7567d16d0b83))
+* **llm:** enforce the tool inputSchema on model-emitted args ([eced946](https://github.com/tibzejoker/brAIn/commit/eced946d795ac18923df61ecf35b1a91e1b51fbf))
+* **store:** register CLI-pulled node types into a running stack ([07acdd6](https://github.com/tibzejoker/brAIn/commit/07acdd6cf6194e29b07ec350df4648450fc3b6ca))
+
 ## 1.0.0 (2026-07-03)
 
 
