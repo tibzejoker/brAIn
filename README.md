@@ -320,6 +320,52 @@ supported per upstream: `stdio`, `http` (Streamable HTTP), `sse`,
 `ws`. `ctx.signal` propagates, so preemption kills MCP calls in
 flight.
 
+#### Optional web search with Parallel
+
+[Parallel Search MCP](https://docs.parallel.ai/integrations/mcp/search-mcp)
+adds free web search and page fetching without an account or API key.
+Anonymous search uses Fast mode and is rate limited.
+
+1. In the dashboard's **Marketplace**, install `mcp-config` if needed.
+   Its brAIn-essentials bundle also includes `mcp-server`.
+2. Spawn an `mcp-config` node, or reuse your existing one, and open its UI.
+   Add the `parallel` entry below to its **mcpServers JSON** editor. Keep
+   your other entries; the complete example below is for an empty config.
+3. Click **Save & reconcile**. Wait for the `mcp-parallel` child to report
+   `connected` and list `web_search` and `web_fetch`.
+
+```json
+{
+  "mcpServers": {
+    "parallel": {
+      "type": "http",
+      "url": "https://search.parallel.ai/mcp",
+      "headers": {
+        "User-Agent": "brAIn"
+      }
+    }
+  }
+}
+```
+
+To research NATS JetStream consumer acknowledgements, have a caller node
+publish a text message on `mcp.parallel.web_search` with this JSON as
+`payload.content` (a JSON-encoded string):
+
+```json
+{
+  "objective": "Find current NATS JetStream consumer acknowledgement options.",
+  "search_queries": ["NATS JetStream consumer acknowledgement options"]
+}
+```
+
+Then send `{"urls":["https://docs.nats.io/nats-concepts/jetstream/consumers"]}`
+to `mcp.parallel.web_fetch` to read the consumer documentation, or use a
+relevant URL from the search results. Replies arrive on the tool's topic
+with `.result` appended, unless the caller sets the message's `reply_to`.
+Each reply's `payload.content` is a JSON-encoded MCP tool result containing
+the returned content.
+
 ### Skills: procedural memory, served by the framework
 
 `packages/core/src/skills`. A shared library of `SKILL.md` files that
